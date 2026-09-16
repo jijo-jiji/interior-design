@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Static Trace 3D</title>
+
+  <!--
+    OFFLINE-SAFE: three.min.js and OrbitControls.js are bundled in assets/3d/.
+    No CDN dependency — works in a basement with zero signal.
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./three.min.js",
+        "three/addons/": "./"
+      }
+    }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #FAF7F2; }
+
+    #canvas-container { position: fixed; inset: 0; }
+
+    /* ── Flutter Native App Mode (Suppresses double-UI collision) ── */
+    body.is-native-app #sidebar,
+    body.is-native-app #hud,
+    body.is-native-app #reset-view-btn,
+    body.is-native-app #cabinet-action-bar {
+      display: none !important;
+    }
+
+    /* ── Cabinet sidebar ─────────────────────────────────────────── */
+    #sidebar {
+      position: fixed;
+      right: 0; top: 0; bottom: 0;
+      width: 96px;
+      background: rgba(250, 247, 242, 0.94);
+      border-left: 1px solid #DDD5CA;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 6px;
+      gap: 10px;
+      backdrop-filter: blur(8px);
+      z-index: 10;
+      overflow-y: auto;
+    }
+    #sidebar h4 {
+      color: #7A6A5C;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+    .cab-btn {
+      width: 80px;
+      background: #FFFFFF;
+      border: 1px solid #DDD5CA;
+      border-radius: 10px;
+      padding: 10px 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      color: #2C2724;
+      font-family: system-ui, sans-serif;
+    }
+    .cab-btn:active { transform: scale(0.93); background: #E6BEAE33; border-color: #B2967D; }
+    .cab-btn svg { opacity: 0.9; }
+    .cab-btn span { font-size: 10px; text-align: center; line-height: 1.2; font-weight: 500; }
+
+    /* ── HUD ─────────────────────────────────────────────────────── */
+    #hud {
+      position: fixed;
+      bottom: 16px; left: 16px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #DDD5CA;
+      border-radius: 10px;
+      padding: 8px 14px;
+      color: #7A6A5C;
+      font-size: 11px;
+      font-family: system-ui, sans-serif;
+      line-height: 1.6;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(44, 39, 36, 0.06);
+    }
+    #cabinet-count { color: #2C2724; font-weight: 700; }
+
+    /* ── Reset View Button ───────────────────────────────────────── */
+    #reset-view-btn {
+      position: fixed;
+      top: 16px; left: 16px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #DDD5CA;
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: #2C2724;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+      transition: all 0.15s ease;
+      box-shadow: 0 2px 8px rgba(44, 39, 36, 0.06);
+    }
+    #reset-view-btn:active { background: #F7F3ED; border-color: #B2967D; }
+
+    /* ── Cabinet Action Bar ───────────────────────────────────────── */
+    #cabinet-action-bar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(140px);
+      background: rgba(255, 255, 255, 0.97);
+      border: 1px solid #DDD5CA;
+      border-radius: 12px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px rgba(44, 39, 36, 0.12);
+      z-index: 30;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #cabinet-action-bar.show {
+      transform: translateX(-50%) translateY(0);
+    }
+    .cab-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #2C2724;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+    }
+    .cab-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #B2967D;
+    }
+    #remove-cab-btn {
+      background: #C95A5A;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+    #remove-cab-btn:active { background: #ab4444; }
+    #close-cab-action-btn {
+      background: transparent;
+      border: none;
+      color: #7A6A5C;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      top: 20px; left: 50%; transform: translateX(-50%);
+      background: #2C2724;
+      color: #FAF7F2;
+      border-radius: 20px;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-family: system-ui, sans-serif;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+      z-index: 20;
+      box-shadow: 0 4px 14px rgba(44, 39, 36, 0.15);
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<button id="reset-view-btn" onclick="resetFrontView()">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+    <path d="M3 3v5h5"/>
+  </svg>
+  <span>Reset View</span>
+</button>
+
+<!-- ── Selected Cabinet Action Bar ──────────────────────────────────── -->
+<div id="cabinet-action-bar">
+  <div class="cab-info">
+    <span class="cab-dot"></span>
+    <span id="selected-cab-name">Cabinet</span>
+  </div>
+  <button id="remove-cab-btn" onclick="removeSelectedCabinet()">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      <line x1="10" y1="11" x2="10" y2="17"/>
+      <line x1="14" y1="11" x2="14" y2="17"/>
+    </svg>
+    <span>Remove</span>
+  </button>
+  <button id="close-cab-action-btn" onclick="deselectCabinet()">✕</button>
+</div>
+
+<!-- ── Cabinet sidebar ──────────────────────────────────────────────── -->
+<div id="sidebar">
+  <h4>Cabinets</h4>
+
+  <button class="cab-btn" onclick="spawnCabinet('base_800')">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <rect x="4" y="14" width="28" height="18" rx="2" fill="#8B6914" stroke="#d4a843" stroke-width="1.5"/>
+      <rect x="4" y="26" width="28" height="6" rx="1" fill="#6B5010"/>
+      <circle cx="18" cy="23" r="2" fill="#d4a843"/>
+    </svg>
+    <span>Base<br>800mm</span>
+  </button>
+
+  <button class="cab-btn" onclick="spawnCabinet('base_600')">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <rect x="6" y="14" width="24" height="18" rx="2" fill="#8B6914" stroke="#d4a843" stroke-width="1.5"/>
+      <rect x="6" y="26" width="24" height="6" rx="1" fill="#6B5010"/>
+      <circle cx="18" cy="23" r="2" fill="#d4a843"/>
+    </svg>
+    <span>Base<br>600mm</span>
+  </button>
+
+  <button class="cab-btn" onclick="spawnCabinet('wall_600')">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <rect x="4" y="4" width="28" height="20" rx="2" fill="#e8e8f0" stroke="#a0a0c0" stroke-width="1.5"/>
+      <line x1="4" y1="14" x2="32" y2="14" stroke="#a0a0c0" stroke-width="1"/>
+      <circle cx="18" cy="9" r="2" fill="#a0a0c0"/>
+      <circle cx="18" cy="19" r="2" fill="#a0a0c0"/>
+    </svg>
+    <span>Wall<br>600mm</span>
+  </button>
+
+  <button class="cab-btn" onclick="spawnCabinet('tall_600')">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <rect x="8" y="2" width="20" height="32" rx="2" fill="#f5f5f5" stroke="#a0a0c0" stroke-width="1.5"/>
+      <line x1="8" y1="16" x2="28" y2="16" stroke="#a0a0c0" stroke-width="1"/>
+      <circle cx="18" cy="9" r="2" fill="#a0a0c0"/>
+      <circle cx="18" cy="24" r="2" fill="#a0a0c0"/>
+    </svg>
+    <span>Tall<br>600mm</span>
+  </button>
+
+  <button class="cab-btn" onclick="spawnCabinet('corner_900')">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <path d="M4 18 L18 18 L18 32 L4 32 Z" fill="#8B6914" stroke="#d4a843" stroke-width="1.5"/>
+      <path d="M18 4 L32 4 L32 18 L18 18 Z" fill="#8B6914" stroke="#d4a843" stroke-width="1.5"/>
+    </svg>
+    <span>Corner<br>900mm</span>
+  </button>
+</div>
+
+<!-- ── HUD ────────────────────────────────────────────────────────── -->
+<div id="hud">
+  <span>Pinch: zoom &nbsp;|&nbsp; One finger: orbit<br>Tap cabinet: select &nbsp;|&nbsp; Drag: move along floor</span><br>
+  Placed: <span id="cabinet-count">0</span> cabinet(s)
+</div>
+
+<div id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OFFLINE 3D ENGINE — ES module imports from bundled local files
+     three.min.js  (654 KB)  ← assets/3d/three.min.js
+     OrbitControls.js (29 KB) ← assets/3d/OrbitControls.js
+     ═══════════════════════════════════════════════════════════════ -->
+<script type="module">
+import * as THREE from './three.min.js';
+import { OrbitControls } from './OrbitControls.js';
+
+// ── Expose globals so onclick= handlers in HTML can reach them ─────────────
+window._THREE = THREE;
+window._OrbitControls = OrbitControls;
+
+const MM = 0.001; // 1mm in Three.js scene units (1 unit = 1 metre)
+
+let scene, camera, renderer, controls;
+let placedCabinets = [];
+let cabinetCount = 0;
+let currentWallDepth = 0.15; // default 150mm depth
+
+// ── Scene init ─────────────────────────────────────────────────────────────
+function initScene() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xFAF7F2); // Soft Linen Cream
+  scene.fog = new THREE.FogExp2(0xFAF7F2, 0.02);
+
+  const sidebarW = 96;
+  const w = window.innerWidth - sidebarW;
+  const h = window.innerHeight;
+
+  camera = new THREE.PerspectiveCamera(50, w / h, 0.05, 500);
+  camera.position.set(0, 1.6, 5);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 0.2;
+  controls.maxDistance = 50;
+  controls.maxPolarAngle = Math.PI / 2;
+
+  // ── Warm Studio Lighting
+  scene.add(new THREE.AmbientLight(0xfff8f0, 0.9));
+
+  const dir = new THREE.DirectionalLight(0xffedd5, 1.7);
+  dir.position.set(4, 7, 5);
+  dir.castShadow = true;
+  dir.shadow.mapSize.set(2048, 2048);
+  Object.assign(dir.shadow.camera, { near: 0.1, far: 30, left: -8, right: 8, top: 6, bottom: -2 });
+  scene.add(dir);
+
+  const fill = new THREE.DirectionalLight(0xe8dcd0, 0.5);
+  fill.position.set(-4, 3, -3);
+  scene.add(fill);
+
+  // ── Continuous Wide-Plank Oak Floor
+  const oakCanvas = document.createElement('canvas');
+  oakCanvas.width = 512;
+  oakCanvas.height = 512;
+  const octx = oakCanvas.getContext('2d');
+  octx.fillStyle = '#C8AD8D'; // Warm natural oak
+  octx.fillRect(0, 0, 512, 512);
+  octx.strokeStyle = '#B39675';
+  octx.lineWidth = 2;
+  for (let y = 0; y < 512; y += 64) {
+    octx.beginPath();
+    octx.moveTo(0, y);
+    octx.lineTo(512, y);
+    octx.stroke();
+  }
+  for (let y = 0; y < 512; y += 64) {
+    const shift = (y / 64) % 2 === 0 ? 0 : 128;
+    for (let x = shift; x < 512; x += 256) {
+      octx.beginPath();
+      octx.moveTo(x, y);
+      octx.lineTo(x, y + 64);
+      octx.stroke();
+    }
+  }
+  const oakTexture = new THREE.CanvasTexture(oakCanvas);
+  oakTexture.wrapS = THREE.RepeatWrapping;
+  oakTexture.wrapT = THREE.RepeatWrapping;
+  oakTexture.repeat.set(10, 10);
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 30),
+    new THREE.MeshStandardMaterial({
+      map: oakTexture,
+      roughness: 0.8,
+      metalness: 0.04,
+    })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  setupCabinetDrag();
+  initSnapGuide();
+  window.addEventListener('resize', onResize);
+  animate();
+  notifyFlutter({ event: 'ready' });
+}
+
+// ── Wall generation (Grid Cell Box Decomposition) ───────────────────────────
+// Divides the wall into a grid of clean BoxGeometry blocks around obstacles.
+// 100% eliminates Earcut triangulation bugs, diagonal shadow splits, and door floor glitches.
+function buildWall(wallData, obstacles) {
+  // Remove any existing wall meshes
+  scene.children
+    .filter(o => o.userData.isWall || o.userData.isObstacleMarker)
+    .forEach(o => {
+      scene.remove(o);
+      o.geometry?.dispose();
+    });
+
+  const W = wallData.width_mm  * MM;
+  const H = wallData.height_mm * MM;
+  const D = wallData.depth_mm  * MM;
+  currentWallDepth = D;
+
+  // Collect unique X and Y grid line coordinates
+  const xs = new Set([0, W]);
+  const ys = new Set([0, H]);
+
+  obstacles.forEach(obs => {
+    const hx = obs.distance_from_left_mm * MM;
+    const hy = obs.distance_from_floor_mm * MM;
+    const hw = obs.width_mm * MM;
+    const hh = obs.height_mm * MM;
+
+    xs.add(Math.max(0, Math.min(W, hx)));
+    xs.add(Math.max(0, Math.min(W, hx + hw)));
+    ys.add(Math.max(0, Math.min(H, hy)));
+    ys.add(Math.max(0, Math.min(H, hy + hh)));
+  });
+
+  const xList = Array.from(xs).sort((a, b) => a - b);
+  const yList = Array.from(ys).sort((a, b) => a - b);
+
+  const wallGroup = new THREE.Group();
+  wallGroup.userData.isWall = true;
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xf5f5f0,
+    roughness: 0.85,
+    metalness: 0.02
+  });
+
+  // Build clean rectangular box blocks for solid wall cells
+  for (let i = 0; i < xList.length - 1; i++) {
+    const x0 = xList[i];
+    const x1 = xList[i + 1];
+    const cellW = x1 - x0;
+    if (cellW <= 0.0001) continue;
+
+    for (let j = 0; j < yList.length - 1; j++) {
+      const y0 = yList[j];
+      const y1 = yList[j + 1];
+      const cellH = y1 - y0;
+      if (cellH <= 0.0001) continue;
+
+      const cx = (x0 + x1) / 2;
+      const cy = (y0 + y1) / 2;
+
+      // Skip cell if it sits inside any door or window obstacle
+      const isHole = obstacles.some(obs => {
+        const hx = obs.distance_from_left_mm * MM;
+        const hy = obs.distance_from_floor_mm * MM;
+        const hw = obs.width_mm * MM;
+        const hh = obs.height_mm * MM;
+        return cx >= (hx - 0.0001) && cx <= (hx + hw + 0.0001) && cy >= (hy - 0.0001) && cy <= (hy + hh + 0.0001);
+      });
+
+      if (!isHole) {
+        const geo = new THREE.BoxGeometry(cellW, cellH, D);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.position.set(x0 + cellW / 2 - W / 2, y0 + cellH / 2, D / 2);
+        wallGroup.add(mesh);
+      }
+    }
+  }
+
+  // Multi-Wall Support (L-Shape Return Wall & Galley Second Wall)
+  const shape = wallData.shape || 'singleWall';
+  const returnMm = wallData.return_mm ? (wallData.return_mm * MM) : 0;
+  if (shape === 'lShape' && returnMm > 0) {
+    const returnGeo = new THREE.BoxGeometry(D, H, returnMm);
+    const returnMesh = new THREE.Mesh(returnGeo, mat);
+    returnMesh.castShadow = true;
+    returnMesh.receiveShadow = true;
+    returnMesh.position.set(-W / 2 + D / 2, H / 2, D + returnMm / 2);
+    wallGroup.add(returnMesh);
+  } else if (shape === 'galley') {
+    const aisleMm = wallData.aisle_mm ? (wallData.aisle_mm * MM) : 1.2;
+    const galleyGeo = new THREE.BoxGeometry(W, H, D);
+    const galleyMesh = new THREE.Mesh(galleyGeo, mat);
+    galleyMesh.castShadow = true;
+    galleyMesh.receiveShadow = true;
+    galleyMesh.position.set(0, H / 2, D + aisleMm + 0.6 + D / 2);
+    wallGroup.add(galleyMesh);
+  }
+
+  scene.add(wallGroup);
+
+  // Reframe camera
+  currentWallW = W;
+  currentWallH = H;
+  resetFrontView();
+
+  // Obstacle colour overlays
+  obstacles.forEach(obs => addObstacleMarker(obs, W));
+
+  // Restore pre-placed cabinets if loading an existing consultation or draft
+  if (Array.isArray(parsed.placed_cabinets) && parsed.placed_cabinets.length > 0) {
+    parsed.placed_cabinets.forEach(c => {
+      if (window.spawnCabinetAt) {
+        window.spawnCabinetAt(c.cabinet_type, c.x_mm, c.id);
+      }
+    });
+  }
+
+  // Restore style archetype if specified
+  if (parsed.style_archetype && window.applyStyleArchetype) {
+    window.applyStyleArchetype(parsed.style_archetype);
+  }
+}
+
+let currentWallW = 4, currentWallH = 2.7;
+
+window.resetFrontView = function() {
+  if (!controls || !camera) return;
+  const maxDim = Math.max(currentWallW, currentWallH);
+  const dist = Math.max(2.2, maxDim * 1.5);
+  controls.target.set(0, currentWallH / 2, currentWallDepth / 2);
+  camera.position.set(0, currentWallH / 2 + 0.15, dist);
+  controls.update();
+  showToast('View reset');
+};
+
+function create3DDoor(hw, hh, D) {
+  const group = new THREE.Group();
+
+  const frameThick = 0.05; // 50mm frame thickness
+  const frameDepth = D + 0.02; // slight protrusion from wall
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x3e3832, // modern warm espresso / walnut frame
+    roughness: 0.6,
+    metalness: 0.1
+  });
+
+  const doorMat = new THREE.MeshStandardMaterial({
+    color: 0xf4f5f7, // contemporary light architectural door panel
+    roughness: 0.45,
+    metalness: 0.05
+  });
+
+  const handleMat = new THREE.MeshStandardMaterial({
+    color: 0xd4af37, // brushed luxury gold handle
+    roughness: 0.25,
+    metalness: 0.85
+  });
+
+  // Top header frame
+  const topFrame = new THREE.Mesh(new THREE.BoxGeometry(hw, frameThick, frameDepth), frameMat);
+  topFrame.position.set(0, hh / 2 - frameThick / 2, 0);
+  topFrame.castShadow = true;
+  group.add(topFrame);
+
+  // Left jamb frame
+  const leftFrame = new THREE.Mesh(new THREE.BoxGeometry(frameThick, hh - frameThick, frameDepth), frameMat);
+  leftFrame.position.set(-hw / 2 + frameThick / 2, -frameThick / 2, 0);
+  leftFrame.castShadow = true;
+  group.add(leftFrame);
+
+  // Right jamb frame
+  const rightFrame = new THREE.Mesh(new THREE.BoxGeometry(frameThick, hh - frameThick, frameDepth), frameMat);
+  rightFrame.position.set(hw / 2 - frameThick / 2, -frameThick / 2, 0);
+  rightFrame.castShadow = true;
+  group.add(rightFrame);
+
+  // Door leaf panel
+  const leafW = hw - frameThick * 2;
+  const leafH = hh - frameThick;
+  const leafD = 0.04;
+  const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, leafD), doorMat);
+  doorLeaf.position.set(0, -frameThick / 2, 0);
+  doorLeaf.castShadow = true;
+  doorLeaf.receiveShadow = true;
+  group.add(doorLeaf);
+
+  // Architectural recessed panel details on door face
+  const panelMargin = 0.06;
+  const subPanelH = (leafH - panelMargin * 3) / 2;
+  const subPanelW = leafW - panelMargin * 2;
+  if (subPanelH > 0.1 && subPanelW > 0.1) {
+    [-subPanelH / 2 - panelMargin / 2, subPanelH / 2 + panelMargin / 2].forEach(py => {
+      const groove = new THREE.Mesh(
+        new THREE.BoxGeometry(subPanelW, subPanelH, 0.005),
+        new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.6 })
+      );
+      groove.position.set(0, py - frameThick / 2, leafD / 2 + 0.002);
+      group.add(groove);
+    });
+  }
+
+  // Lever Handle
+  const handleH = Math.min(1.0, hh * 0.48) - (hh / 2);
+  const handleX = hw / 2 - frameThick - 0.07;
+
+  const backplate = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.13, 0.008), handleMat);
+  backplate.position.set(handleX, handleH, leafD / 2 + 0.004);
+  group.add(backplate);
+
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.025, 12), handleMat);
+  stem.rotation.x = Math.PI / 2;
+  stem.position.set(handleX, handleH + 0.02, leafD / 2 + 0.02);
+  group.add(stem);
+
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.015, 0.015), handleMat);
+  lever.position.set(handleX - 0.04, handleH + 0.02, leafD / 2 + 0.03);
+  group.add(lever);
+
+  return group;
+}
+
+function create3DWindow(hw, hh, D) {
+  const group = new THREE.Group();
+
+  const frameThick = 0.045; // 45mm window frame thickness
+  const frameDepth = D + 0.02;
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x22262f, // modern anthracite aluminum window frame
+    roughness: 0.4,
+    metalness: 0.3
+  });
+
+  const sillMat = new THREE.MeshStandardMaterial({
+    color: 0xf0f0f5, // marble / stone window ledge
+    roughness: 0.3,
+    metalness: 0.1
+  });
+
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x90cdf4, // sky blue transparent reflective glass
+    transparent: true,
+    opacity: 0.35,
+    roughness: 0.05,
+    metalness: 0.1,
+    transmission: 0.7,
+    ior: 1.5,
+    reflectivity: 0.5,
+    side: THREE.DoubleSide
+  });
+
+  // Top frame
+  const topF = new THREE.Mesh(new THREE.BoxGeometry(hw, frameThick, frameDepth), frameMat);
+  topF.position.set(0, hh / 2 - frameThick / 2, 0);
+  topF.castShadow = true;
+  group.add(topF);
+
+  // Bottom frame
+  const botF = new THREE.Mesh(new THREE.BoxGeometry(hw, frameThick, frameDepth), frameMat);
+  botF.position.set(0, -hh / 2 + frameThick / 2, 0);
+  botF.castShadow = true;
+  group.add(botF);
+
+  // Left frame
+  const leftF = new THREE.Mesh(new THREE.BoxGeometry(frameThick, hh - frameThick * 2, frameDepth), frameMat);
+  leftF.position.set(-hw / 2 + frameThick / 2, 0, 0);
+  leftF.castShadow = true;
+  group.add(leftF);
+
+  // Right frame
+  const rightF = new THREE.Mesh(new THREE.BoxGeometry(frameThick, hh - frameThick * 2, frameDepth), frameMat);
+  rightF.position.set(hw / 2 - frameThick / 2, 0, 0);
+  rightF.castShadow = true;
+  group.add(rightF);
+
+  // Center vertical mullion
+  const mullion = new THREE.Mesh(new THREE.BoxGeometry(frameThick * 0.75, hh - frameThick * 2, frameDepth * 0.8), frameMat);
+  mullion.position.set(0, 0, 0);
+  group.add(mullion);
+
+  // Center horizontal transom (if window is tall enough > 0.8m)
+  if (hh > 0.8) {
+    const transom = new THREE.Mesh(new THREE.BoxGeometry(hw - frameThick * 2, frameThick * 0.75, frameDepth * 0.8), frameMat);
+    transom.position.set(0, 0, 0);
+    group.add(transom);
+  }
+
+  // Glass Pane
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(hw - frameThick * 2, hh - frameThick * 2, 0.008), glassMat);
+  glass.position.set(0, 0, 0);
+  group.add(glass);
+
+  // Protruding Window Sill / Ledge at bottom
+  const sill = new THREE.Mesh(
+    new THREE.BoxGeometry(hw + 0.08, 0.03, frameDepth + 0.06),
+    sillMat
+  );
+  sill.position.set(0, -hh / 2 - 0.015, 0.02);
+  sill.castShadow = true;
+  sill.receiveShadow = true;
+  group.add(sill);
+
+  return group;
+}
+
+function addObstacleMarker(obs, wallWidth) {
+  const hx = (obs.distance_from_left_mm * MM) - (wallWidth / 2);
+  const hy = obs.distance_from_floor_mm * MM;
+  const hw = obs.width_mm * MM;
+  const hh = obs.height_mm * MM;
+
+  let model;
+  if (obs.type === 'door') {
+    model = create3DDoor(hw, hh, currentWallDepth);
+  } else {
+    model = create3DWindow(hw, hh, currentWallDepth);
+  }
+
+  model.position.set(hx + hw / 2, hy + hh / 2, currentWallDepth / 2);
+  model.userData.isObstacleMarker = true;
+  scene.add(model);
+}
+
+// ── Style Archetypes (1-Tap Room Re-Skinning) ──────────────────────────────
+const STYLE_ARCHETYPES = {
+  japandi: {
+    id: 'japandi',
+    name: 'Japandi Natural',
+    wallColor: 0xf5f3ed,
+    floorColor: 0x22262e,
+    baseBodyColor: 0xc4a47c, // Warm light oak
+    baseTopColor: 0xf8f7f2,  // Calacatta warm quartz
+    wallBodyColor: 0xeeebe2, // Soft off-white
+    tallBodyColor: 0xc4a47c,
+    handleColor: 0xd4af37,   // Brushed warm brass
+    roughness: 0.65,
+    multiplier: 1.0,
+  },
+  minimalist: {
+    id: 'minimalist',
+    name: 'Modern Minimalist',
+    wallColor: 0xf8f9fa,
+    floorColor: 0x16181f,
+    baseBodyColor: 0x2e3340, // Matte charcoal / slate
+    baseTopColor: 0xffffff,  // Pure snow quartz
+    wallBodyColor: 0xf3f4f6, // Bright white
+    tallBodyColor: 0x2e3340,
+    handleColor: 0x111111,   // Matte black
+    roughness: 0.35,
+    multiplier: 1.08,
+  },
+  nordic: {
+    id: 'nordic',
+    name: 'Warm Nordic',
+    wallColor: 0xebf2ed,     // Soft sage tint
+    floorColor: 0x292e38,
+    baseBodyColor: 0xd2bc9e, // Natural ash / birch
+    baseTopColor: 0xe8e4dc,  // Honed limestone / terrazzo
+    wallBodyColor: 0xd6ded7, // Muted seafoam
+    tallBodyColor: 0xd2bc9e,
+    handleColor: 0xa8b0b8,   // Brushed satin nickel
+    roughness: 0.55,
+    multiplier: 1.12,
+  },
+  industrial: {
+    id: 'industrial',
+    name: 'Industrial Luxe',
+    wallColor: 0xd8dbdf,     // Raw concrete look
+    floorColor: 0x14161c,
+    baseBodyColor: 0x483c34, // Smoked dark walnut
+    baseTopColor: 0x36383e,  // Flamed dark slate
+    wallBodyColor: 0x282a30, // Gunmetal graphite
+    tallBodyColor: 0x483c34,
+    handleColor: 0x151515,   // Cast iron black
+    roughness: 0.70,
+    multiplier: 1.18,
+  },
+};
+let currentArchetypeId = 'japandi';
+
+// Cabinet specs — isWall=true means it mounts on the wall at height, not the floor
+const CABINET_SPECS = {
+  base_800:   { w: 0.800, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Base 800mm', bodyColor: 0xc4a47c, topColor: 0xf8f7f2 },
+  base_600:   { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Base 600mm', bodyColor: 0xc4a47c, topColor: 0xf8f7f2 },
+  wall_600:   { w: 0.600, h: 0.700, d: 0.320, isWall: true,  mountH: 1.40, label: 'Wall 600mm', bodyColor: 0xeeebe2, topColor: 0xffffff },
+  tall_600:   { w: 0.600, h: 2.100, d: 0.600, isWall: false, mountH: 0,    label: 'Tall 600mm', bodyColor: 0xc4a47c, topColor: 0xffffff },
+  corner_900: { w: 0.900, h: 0.850, d: 0.900, isWall: false, mountH: 0,    label: 'Corner 900', bodyColor: 0xc4a47c, topColor: 0xf8f7f2 },
+};
+
+// ── Magnetic Snap Guide Line ───────────────────────────────────────────────
+let snapGuideLine = null;
+function initSnapGuide() {
+  const geom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 3, 0)
+  ]);
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x00e5ff, // Vibrant neon cyan snap guide
+    linewidth: 2,
+    transparent: true,
+    opacity: 0.85,
+  });
+  snapGuideLine = new THREE.Line(geom, mat);
+  snapGuideLine.visible = false;
+  scene.add(snapGuideLine);
+}
+
+function updateSnapGuide(show, x, y, h) {
+  if (!snapGuideLine) return;
+  if (show && x !== null) {
+    snapGuideLine.position.set(x, 0, currentWallDepth + 0.005);
+    const pos = snapGuideLine.geometry.attributes.position.array;
+    pos[1] = Math.max(0, y - h);
+    pos[4] = y + h + 0.2;
+    snapGuideLine.geometry.attributes.position.needsUpdate = true;
+    snapGuideLine.visible = true;
+  } else {
+    snapGuideLine.visible = false;
+  }
+}
+
+// ── Style Archetype Applicator ─────────────────────────────────────────────
+window.applyStyleArchetype = function(archetypeId) {
+  const style = STYLE_ARCHETYPES[archetypeId];
+  if (!style) return;
+  currentArchetypeId = archetypeId;
+
+  // 1. Update wall materials
+  scene.traverse(child => {
+    if (child.parent && child.parent.userData && child.parent.userData.isWall && child.isMesh) {
+      child.material.color.setHex(style.wallColor);
+      child.material.roughness = 0.85;
+      child.material.needsUpdate = true;
+    }
+  });
+
+  // 2. Update placed cabinets
+  placedCabinets.forEach(cab => {
+    const spec = cab.userData.spec;
+    if (!spec) return;
+
+    let bodyColor = style.baseBodyColor;
+    if (spec.isWall) bodyColor = style.wallBodyColor;
+    else if (cab.userData.cabinetType === 'tall_600') bodyColor = style.tallBodyColor;
+
+    // Body is child 0
+    if (cab.children[0] && cab.children[0].isMesh) {
+      cab.children[0].material.color.setHex(bodyColor);
+      cab.children[0].material.roughness = style.roughness;
+      cab.children[0].material.needsUpdate = true;
+    }
+
+    // Worktop cap is child 1 (for floor cabinets)
+    if (!spec.isWall && cab.children[1] && cab.children[1].isMesh) {
+      cab.children[1].material.color.setHex(style.baseTopColor);
+      cab.children[1].material.roughness = 0.35;
+      cab.children[1].material.needsUpdate = true;
+    }
+  });
+
+  // 3. Update CABINET_SPECS for future spawns
+  CABINET_SPECS.base_800.bodyColor = style.baseBodyColor;
+  CABINET_SPECS.base_800.topColor = style.baseTopColor;
+  CABINET_SPECS.base_600.bodyColor = style.baseBodyColor;
+  CABINET_SPECS.base_600.topColor = style.baseTopColor;
+  CABINET_SPECS.wall_600.bodyColor = style.wallBodyColor;
+  CABINET_SPECS.tall_600.bodyColor = style.tallBodyColor;
+  CABINET_SPECS.corner_900.bodyColor = style.baseBodyColor;
+  CABINET_SPECS.corner_900.topColor = style.baseTopColor;
+
+  showToast(`Style: ${style.name}`);
+  notifyFlutter({
+    event: 'style_applied',
+    archetype: archetypeId,
+    name: style.name,
+    multiplier: style.multiplier,
+  });
+};
+
+// ── Cabinet spawning ───────────────────────────────────────────────────────
+window.spawnCabinet = function(type) {
+  const spec = CABINET_SPECS[type];
+  if (!spec) return;
+
+  const group = new THREE.Group();
+
+  // Body
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(spec.w, spec.h, spec.d),
+    new THREE.MeshStandardMaterial({ color: spec.bodyColor, roughness: 0.7, metalness: 0.05 })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Worktop cap (only on floor cabinets)
+  if (!spec.isWall) {
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(spec.w + 0.02, 0.04, spec.d + 0.02),
+      new THREE.MeshStandardMaterial({ color: spec.topColor, roughness: 0.4, metalness: 0.1 })
+    );
+    cap.position.y = spec.h / 2 + 0.02;
+    group.add(cap);
+  }
+
+  // Door panel inset lines
+  const pts = [
+    new THREE.Vector3(-spec.w / 2 + 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3(-spec.w / 2 + 0.04,  spec.h / 2 - 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3( spec.w / 2 - 0.04,  spec.h / 2 - 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3( spec.w / 2 - 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3(-spec.w / 2 + 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+  ];
+  group.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 })
+  ));
+
+  // Determine initial X: place next to last placed cabinet if possible
+  let initialX = (placedCabinets.length % 5) * 0.9 - 1.8;
+  const sameTypeCabs = placedCabinets.filter(c => Boolean(c.userData.spec?.isWall) === Boolean(spec.isWall));
+  if (sameTypeCabs.length > 0) {
+    const lastCab = sameTypeCabs[sameTypeCabs.length - 1];
+    const lastRight = lastCab.position.x + (lastCab.userData.spec?.w || 0.6) / 2;
+    const proposedX = lastRight + spec.w / 2;
+    if (proposedX + spec.w / 2 <= currentWallW / 2) {
+      initialX = proposedX;
+    }
+  }
+
+  const frontWallZ = currentWallDepth + spec.d / 2;
+
+  if (spec.isWall) {
+    // Wall cabinet: hangs on the front face of wall at height (mountH)
+    group.position.set(initialX, spec.mountH + spec.h / 2, frontWallZ);
+  } else {
+    // Floor cabinet: sits on floor in front of front wall face
+    group.position.set(initialX, spec.h / 2, frontWallZ);
+  }
+
+  group.userData = { cabinetType: type, spec, id: `cabinet_${Date.now()}`, label: spec.label };
+
+  scene.add(group);
+  placedCabinets.push(group);
+  cabinetCount++;
+  document.getElementById('cabinet-count').textContent = placedCabinets.length;
+
+  notifyFlutter({
+    event: 'cabinet_placed',
+    cabinet_type: type,
+    label: spec.label,
+    width_mm:  spec.w * 1000,
+    height_mm: spec.h * 1000,
+    depth_mm:  spec.d * 1000,
+    x_mm: Math.round(initialX * 1000),
+    id: group.userData.id,
+  });
+
+  showToast(`${spec.label} added`);
+};
+
+window.spawnCabinetAt = function(type, x_mm, customId) {
+  const spec = CABINET_SPECS[type];
+  if (!spec) return;
+
+  const group = new THREE.Group();
+
+  // Body
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(spec.w, spec.h, spec.d),
+    new THREE.MeshStandardMaterial({ color: spec.bodyColor, roughness: 0.7, metalness: 0.05 })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Worktop cap (only on floor cabinets)
+  if (!spec.isWall) {
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(spec.w + 0.02, 0.04, spec.d + 0.02),
+      new THREE.MeshStandardMaterial({ color: spec.topColor, roughness: 0.4, metalness: 0.1 })
+    );
+    cap.position.y = spec.h / 2 + 0.02;
+    group.add(cap);
+  }
+
+  // Door panel inset lines
+  const pts = [
+    new THREE.Vector3(-spec.w / 2 + 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3(-spec.w / 2 + 0.04,  spec.h / 2 - 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3( spec.w / 2 - 0.04,  spec.h / 2 - 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3( spec.w / 2 - 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+    new THREE.Vector3(-spec.w / 2 + 0.04, -spec.h / 2 + 0.08, spec.d / 2 + 0.001),
+  ];
+  group.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 })
+  ));
+
+  const posX = (x_mm !== undefined && x_mm !== null) ? (x_mm * MM) : 0;
+  const frontWallZ = currentWallDepth + spec.d / 2;
+
+  if (spec.isWall) {
+    group.position.set(posX, spec.mountH + spec.h / 2, frontWallZ);
+  } else {
+    group.position.set(posX, spec.h / 2, frontWallZ);
+  }
+
+  group.userData = { cabinetType: type, spec, id: customId || `cabinet_${Date.now()}`, label: spec.label };
+  scene.add(group);
+  placedCabinets.push(group);
+  cabinetCount++;
+  document.getElementById('cabinet-count').textContent = placedCabinets.length;
+};
+
+// ── Cabinet touch-drag & selection ──────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const pointer   = new THREE.Vector2();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const dragPoint  = new THREE.Vector3();
+let isDragging = false, dragCabinet = null, dragOffsetY = 0;
+let touchStartX = 0, touchStartY = 0;
+let selectedCabinet = null;
+let selectionBox = null;
+
+function selectCabinet(cab) {
+  if (!cab) return;
+  selectedCabinet = cab;
+  if (!selectionBox) {
+    selectionBox = new THREE.BoxHelper(cab, 0xff8c42);
+    scene.add(selectionBox);
+  } else {
+    selectionBox.setFromObject(cab);
+    selectionBox.visible = true;
+  }
+
+  const bar = document.getElementById('cabinet-action-bar');
+  const nameEl = document.getElementById('selected-cab-name');
+  if (nameEl) nameEl.textContent = cab.userData.label || 'Cabinet';
+  if (bar) bar.classList.add('show');
+}
+
+window.deselectCabinet = function() {
+  selectedCabinet = null;
+  if (selectionBox) selectionBox.visible = false;
+  const bar = document.getElementById('cabinet-action-bar');
+  if (bar) bar.classList.remove('show');
+};
+
+window.removeSelectedCabinet = function() {
+  if (!selectedCabinet) return;
+  const cab = selectedCabinet;
+  const label = cab.userData.label || 'Cabinet';
+  const id = cab.userData.id;
+
+  // Remove from scene
+  scene.remove(cab);
+  cab.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+      else child.material.dispose();
+    }
+  });
+
+  // Remove from placedCabinets array
+  placedCabinets = placedCabinets.filter(c => c !== cab);
+  cabinetCount = placedCabinets.length;
+  document.getElementById('cabinet-count').textContent = placedCabinets.length;
+
+  deselectCabinet();
+
+  notifyFlutter({
+    event: 'cabinet_removed',
+    id: id,
+    label: label,
+  });
+
+  showToast(`${label} removed`);
+};
+
+// ── Touch & Mouse Drag with Magnetic Snapping ──────────────────────────────
+function setupCabinetDrag() {
+  const canvas = renderer.domElement;
+
+  function onDragStart(clientX, clientY) {
+    touchStartX = clientX;
+    touchStartY = clientY;
+    const hit = getHit(clientX, clientY);
+    if (hit) {
+      dragCabinet = hit;
+      dragOffsetY = hit.position.y;
+      isDragging = true;
+      controls.enabled = false;
+      selectCabinet(hit);
+    }
+  }
+
+  function onDragMove(clientX, clientY) {
+    if (!isDragging || !dragCabinet) return;
+    updatePointer(clientX, clientY);
+    raycaster.setFromCamera(pointer, camera);
+
+    const spec = dragCabinet.userData.spec;
+    const frontWallZ = currentWallDepth + (spec ? spec.d / 2 : 0.3);
+
+    // Intersect with the wall plane for drag position
+    const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -frontWallZ);
+    raycaster.ray.intersectPlane(wallPlane, dragPoint);
+
+    let targetX = dragPoint.x;
+    const halfCabW = (spec ? spec.w : 0.6) / 2;
+
+    // ── Magnetic Snapping (120mm threshold) ──
+    const snapThreshold = 0.12; // 120mm
+    let didSnap = false;
+    let snapGuideX = null;
+
+    // Check neighbor cabinets of the same mounting type
+    for (const other of placedCabinets) {
+      if (other === dragCabinet) continue;
+      const otherSpec = other.userData.spec;
+      if (!otherSpec) continue;
+      if (Boolean(otherSpec.isWall) !== Boolean(spec?.isWall)) continue;
+
+      const otherHalfW = otherSpec.w / 2;
+      const otherLeft = other.position.x - otherHalfW;
+      const otherRight = other.position.x + otherHalfW;
+
+      // Snap to right side of other
+      const toRight = otherRight + halfCabW;
+      if (Math.abs(targetX - toRight) < snapThreshold) {
+        targetX = toRight;
+        didSnap = true;
+        snapGuideX = otherRight;
+        break;
+      }
+
+      // Snap to left side of other
+      const toLeft = otherLeft - halfCabW;
+      if (Math.abs(targetX - toLeft) < snapThreshold) {
+        targetX = toLeft;
+        didSnap = true;
+        snapGuideX = otherLeft;
+        break;
+      }
+    }
+
+    // Wall boundary snap
+    const halfWallW = currentWallW / 2;
+    if (!didSnap) {
+      if (Math.abs((targetX - halfCabW) - (-halfWallW)) < snapThreshold) {
+        targetX = -halfWallW + halfCabW;
+        didSnap = true;
+        snapGuideX = -halfWallW;
+      } else if (Math.abs((targetX + halfCabW) - halfWallW) < snapThreshold) {
+        targetX = halfWallW - halfCabW;
+        didSnap = true;
+        snapGuideX = halfWallW;
+      }
+    }
+
+    // Update snap guide line
+    updateSnapGuide(didSnap, snapGuideX, dragCabinet.position.y, spec ? spec.h : 0.85);
+
+    // Notify Flutter on new snap event
+    if (didSnap && !dragCabinet.userData.lastSnapped) {
+      notifyFlutter({
+        event: 'cabinet_snapped',
+        id: dragCabinet.userData.id,
+        x_mm: Math.round(targetX * 1000),
+      });
+      dragCabinet.userData.lastSnapped = true;
+    } else if (!didSnap) {
+      dragCabinet.userData.lastSnapped = false;
+    }
+
+    // Strictly lock Z to front wall face to prevent floating/penetration
+    dragCabinet.position.set(targetX, dragCabinet.position.y, frontWallZ);
+
+    if (selectionBox && selectionBox.visible) {
+      selectionBox.setFromObject(dragCabinet);
+    }
+  }
+
+  function onDragEnd(clientX, clientY) {
+    if (clientX !== undefined && clientY !== undefined) {
+      const dx = clientX - touchStartX;
+      const dy = clientY - touchStartY;
+      if (dx * dx + dy * dy < 25) {
+        const hit = getHit(clientX, clientY);
+        if (hit) selectCabinet(hit);
+        else deselectCabinet();
+      }
+    }
+    updateSnapGuide(false);
+    if (dragCabinet) {
+      dragCabinet.userData.lastSnapped = false;
+      notifyFlutter({
+        event: 'cabinet_moved',
+        id: dragCabinet.userData.id,
+        x_mm: Math.round(dragCabinet.position.x * 1000),
+      });
+    }
+    isDragging = false;
+    dragCabinet = null;
+    controls.enabled = true;
+  }
+
+  // Touch handlers
+  canvas.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length !== 1) return;
+    onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', e => {
+    const t = e.changedTouches[0];
+    onDragEnd(t?.clientX, t?.clientY);
+  }, { passive: true });
+
+  // Mouse handlers (for web / desktop testing)
+  canvas.addEventListener('mousedown', e => {
+    if (e.button === 0) onDragStart(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', e => {
+    if (isDragging) onDragMove(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', e => {
+    if (isDragging) onDragEnd(e.clientX, e.clientY);
+  });
+}
+
+function updatePointer(x, y) {
+  const isNative = document.body.classList.contains('is-native-app');
+  const w = isNative ? window.innerWidth : (window.innerWidth - 96);
+  pointer.x =  (x / w) * 2 - 1;
+  pointer.y = -(y / window.innerHeight) * 2 + 1;
+}
+
+function getHit(x, y) {
+  updatePointer(x, y);
+  raycaster.setFromCamera(pointer, camera);
+  const meshes = placedCabinets.flatMap(g => g.children.filter(c => c.isMesh));
+  const hits = raycaster.intersectObjects(meshes, false);
+  return hits.length ? hits[0].object.parent : null;
+}
+
+// ── Animation & resize ─────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  if (selectionBox && selectionBox.visible && selectedCabinet) {
+    selectionBox.setFromObject(selectedCabinet);
+  }
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  const isNative = document.body.classList.contains('is-native-app');
+  const w = isNative ? window.innerWidth : (window.innerWidth - 96);
+  const h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+// ── Flutter bridge ─────────────────────────────────────────────────────────
+function notifyFlutter(data) {
+  try { StaticTraceChannel.postMessage(JSON.stringify(data)); }
+  catch (_) { console.log('[StaticTrace]', data); }
+}
+
+// ── Public API called from Flutter via runJavaScript() ─────────────────────
+window.setNativeMode = function(isNative) {
+  document.body.classList.toggle('is-native-app', !!isNative);
+  onResize();
+};
+
+window.spawnCabinet = function(type) {
+  if (typeof spawnCabinet === 'function') {
+    spawnCabinet(type);
+  }
+};
+
+window.removeSelectedCabinet = function() {
+  if (typeof removeSelectedCabinet === 'function') {
+    removeSelectedCabinet();
+  }
+};
+
+window.loadScene = function(jsonString) {
+  try {
+    const { wall, obstacles = [] } = JSON.parse(jsonString);
+    buildWall(wall, obstacles);
+  } catch (e) { console.error('loadScene error:', e); }
+};
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+let toastTimer;
+window.showToast = function(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+};
+// Internal alias
+function showToast(msg) { window.showToast(msg); }
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+initScene();
+</script>
+</body>
+</html>

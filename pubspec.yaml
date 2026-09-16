@@ -1,0 +1,32 @@
+name: static_trace
+description: Wall tracing and 3D cabinet layout app for sales demos.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: ^0.10.5+9
+  path_provider: ^2.1.2
+  flutter_riverpod: ^2.5.1
+  webview_flutter: ^4.7.0
+  webview_flutter_android: ^3.16.4
+  permission_handler: ^11.3.1
+  uuid: ^4.3.3
+  go_router: ^14.2.0
+  google_fonts: ^6.2.1
+  cupertino_icons: ^1.0.8
+  image_picker: ^1.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/3d/

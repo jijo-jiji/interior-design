@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your Custom Kitchen Proposal — Static Trace</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FAF7F2; color: #2C2724; }
+    .style-card.active {
+      border-color: #2C2724;
+      background: #F7F3ED;
+      box-shadow: 0 2px 8px rgba(44, 39, 36, 0.08);
+    }
+  </style>
+</head>
+<body class="bg-[#FAF7F2] text-[#2C2724] min-h-screen flex flex-col antialiased selection:bg-[#E6BEAE] selection:text-[#2C2724]">
+
+  <!-- ── Top Brand & Proposal Header ───────────────────────────────────────── -->
+  <header class="h-16 border-b border-[#DDD5CA] bg-[#FFFFFF]/90 backdrop-blur-md px-4 md:px-8 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-[#2C2724] flex items-center justify-center shadow-md">
+        <svg class="w-5 h-5 text-[#FAF7F2]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-extrabold text-sm tracking-tight text-[#2C2724]">STATIC TRACE</span>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[#E6BEAE]/30 text-[#7A6A5C] uppercase tracking-wider">Client Portal</span>
+        </div>
+        <p class="text-[11px] text-[#7A6A5C]">Interactive 3D Architectural Proposal</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 md:gap-4">
+      <div class="text-right hidden sm:block">
+        <div id="header-client-name" class="text-xs font-bold text-[#2C2724]">Loading Proposal...</div>
+        <div id="header-quote-id" class="text-[11px] text-[#7A6A5C] font-mono">QT-00000000</div>
+      </div>
+      <button onclick="copyShareLink()" id="btn-share" class="px-3 py-1.5 bg-[#F7F3ED] hover:bg-[#EDE5DC] border border-[#DDD5CA] rounded-lg text-xs font-semibold text-[#2C2724] flex items-center gap-1.5 transition">
+        <svg class="w-3.5 h-3.5 text-[#B2967D]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+        <span>Share</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main Workspace: 3D Experience + Client Decision Pane ──────────────── -->
+  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+
+    <!-- ── Left: Interactive 3D Orbit Viewport ─────────────────────────────── -->
+    <main class="flex-1 relative bg-[#FAF7F2] flex flex-col min-h-[420px]">
+      <!-- Viewport Badges & Hint -->
+      <div class="absolute top-4 left-4 z-10 flex items-center gap-2 pointer-events-none">
+        <div class="px-3 py-1.5 rounded-xl bg-[#FFFFFF]/90 backdrop-blur border border-[#DDD5CA] text-xs font-medium text-[#7A6A5C] flex items-center gap-2 shadow-sm">
+          <span class="w-2 h-2 rounded-full bg-[#3D6B69] animate-pulse"></span>
+          <span>Rotate 360° & Zoom with finger or mouse</span>
+        </div>
+      </div>
+
+      <!-- Lighting Mood & Angle Shortcuts -->
+      <div class="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <!-- Day / Evening Lighting Mood -->
+        <div class="flex items-center gap-1 bg-[#FFFFFF]/90 backdrop-blur border border-[#DDD5CA] p-1 rounded-xl shadow-sm">
+          <button onclick="setLightingMood('day')" id="btn-mood-day" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#2C2724] text-[#FAF7F2] shadow flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-amber-300" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"/></svg>
+            <span>Day</span>
+          </button>
+          <button onclick="setLightingMood('evening')" id="btn-mood-eve" class="px-2.5 py-1 text-xs font-medium rounded-lg text-[#7A6A5C] hover:text-[#2C2724] flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/></svg>
+            <span>Evening</span>
+          </button>
+        </div>
+
+        <!-- Camera Angles -->
+        <div class="flex items-center gap-1 bg-[#FFFFFF]/90 backdrop-blur border border-[#DDD5CA] p-1 rounded-xl shadow-sm">
+          <button onclick="setCameraMode('persp')" id="btn-cam-persp" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#2C2724] text-[#FAF7F2] shadow">Orbit</button>
+          <button onclick="setCameraMode('front')" id="btn-cam-front" class="px-2.5 py-1 text-xs font-medium rounded-lg text-[#7A6A5C] hover:text-[#2C2724]">Front</button>
+          <button onclick="setCameraMode('top')" id="btn-cam-top" class="px-2.5 py-1 text-xs font-medium rounded-lg text-[#7A6A5C] hover:text-[#2C2724]">Top</button>
+        </div>
+      </div>
+
+      <!-- 3D Canvas -->
+      <div id="canvas-container" class="w-full h-full"></div>
+
+      <!-- Live Dimension Ticker at Bottom -->
+      <div class="absolute bottom-4 left-4 z-10 bg-[#FFFFFF]/90 backdrop-blur border border-[#DDD5CA] px-3.5 py-2 rounded-xl text-xs flex items-center gap-3 text-[#7A6A5C] shadow-sm">
+        <div>Wall: <span id="wall-dim-label" class="font-bold text-[#2C2724]">4,000mm</span></div>
+        <div class="w-px h-3 bg-[#DDD5CA]"></div>
+        <div>Layout: <span id="wall-shape-label" class="font-bold text-[#B2967D]">L-Shape Corner</span></div>
+        <div class="w-px h-3 bg-[#DDD5CA]"></div>
+        <div>Cabinets: <span id="cab-count-label" class="font-bold text-[#2C2724]">4 Custom Units</span></div>
+      </div>
+    </main>
+
+    <!-- ── Right / Bottom: Client Decision & Styling Center ────────────────── -->
+    <aside class="w-full lg:w-[420px] bg-[#FFFFFF] border-t lg:border-t-0 lg:border-l border-[#DDD5CA] flex flex-col shrink-0 overflow-y-auto max-h-[50vh] lg:max-h-full">
+      <div class="p-5 space-y-5">
+
+        <!-- 1. Style & Material Customizer -->
+        <div>
+          <div class="flex items-center justify-between mb-2.5">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#7A6A5C]">Personalize Your Finish</h3>
+            <span id="current-style-tag" class="text-[10px] font-extrabold px-2 py-0.5 rounded bg-[#E6BEAE]/30 text-[#7A6A5C] uppercase">Japandi</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <!-- Japandi -->
+            <button onclick="switchStyle('japandi')" id="style-japandi" class="style-card active p-3 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-left transition flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded-full bg-[#c4a47c] border border-black/10 shadow-sm"></span>
+                <span class="text-xs font-bold text-[#2C2724]">Japandi Natural</span>
+              </div>
+              <span class="text-[10px] text-[#7A6A5C]">Light oak & warm brass</span>
+            </button>
+
+            <!-- Nordic -->
+            <button onclick="switchStyle('nordic')" id="style-nordic" class="style-card p-3 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-left transition flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded-full bg-[#d2bc9e] border border-black/10 shadow-sm"></span>
+                <span class="text-xs font-bold text-[#2C2724]">Nordic Sage</span>
+              </div>
+              <span class="text-[10px] text-[#7A6A5C]">Blonde timber & satin</span>
+            </button>
+
+            <!-- Minimalist -->
+            <button onclick="switchStyle('minimalist')" id="style-minimalist" class="style-card p-3 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-left transition flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded-full bg-[#2e3340] border border-black/10 shadow-sm"></span>
+                <span class="text-xs font-bold text-[#2C2724]">Minimalist Pure</span>
+              </div>
+              <span class="text-[10px] text-[#7A6A5C]">Charcoal & pure white</span>
+            </button>
+
+            <!-- Industrial -->
+            <button onclick="switchStyle('industrial')" id="style-industrial" class="style-card p-3 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-left transition flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded-full bg-[#483c34] border border-black/10 shadow-sm"></span>
+                <span class="text-xs font-bold text-[#2C2724]">Industrial Luxe</span>
+              </div>
+              <span class="text-[10px] text-[#7A6A5C]">Smoked oak & graphite</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Transparent Pricing Summary -->
+        <div class="bg-[#F7F3ED] border border-[#DDD5CA] rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#7A6A5C]">Investment Breakdown</span>
+            <span class="text-[11px] text-[#7A6A5C]">Fixed 30-Day Guarantee</span>
+          </div>
+
+          <div class="space-y-1.5 text-xs">
+            <div class="flex justify-between text-[#7A6A5C]">
+              <span>Precision CNC Cabinets & Hardware</span>
+              <span id="portal-subtotal" class="font-medium text-[#2C2724]">$4,620.00</span>
+            </div>
+            <div class="flex justify-between text-[#7A6A5C]">
+              <span>GST (10%)</span>
+              <span id="portal-gst" class="font-medium text-[#2C2724]">$462.00</span>
+            </div>
+            <div class="pt-2.5 border-t border-[#DDD5CA] flex justify-between items-baseline">
+              <div>
+                <div class="text-sm font-bold text-[#2C2724]">Total Complete Proposal</div>
+                <div class="text-[10px] text-[#7A6A5C]">Fully manufactured & delivered</div>
+              </div>
+              <div id="portal-total" class="text-xl font-extrabold text-[#2C2724]">$5,082.00 AUD</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Slot Commitment Action Card -->
+        <div id="deposit-action-card" class="bg-gradient-to-b from-[#EEE4E1] to-[#E7D8C9] border border-[#DDD5CA] rounded-2xl p-4 space-y-3">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-xl bg-[#2C2724] text-[#FAF7F2] flex items-center justify-center shrink-0 shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-[#2C2724]">Factory Queue Reservation</h4>
+              <p class="text-[11px] text-[#7A6A5C]">Lock your pricing and guarantee a 3-4 week manufacturing slot with a fully refundable $250 commitment.</p>
+            </div>
+          </div>
+
+          <div id="deposit-status-area">
+            <button onclick="handlePayDeposit()" id="btn-pay-deposit" class="w-full py-3 bg-[#2C2724] hover:bg-[#1E1A17] rounded-xl text-xs font-extrabold text-[#FAF7F2] flex items-center justify-center gap-2 shadow-md transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+              <span>Pay $250 Slot Deposit Now</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Download Agreement & Consultant Info -->
+        <div class="space-y-2">
+          <button onclick="downloadClientPdf()" class="w-full py-2.5 bg-[#FAF7F2] hover:bg-[#F7F3ED] border border-[#DDD5CA] rounded-xl text-xs font-semibold text-[#2C2724] flex items-center justify-center gap-2 transition">
+            <svg class="w-4 h-4 text-[#7A6A5C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <span>Download Signed PDF Agreement</span>
+          </button>
+
+          <div class="p-3 rounded-xl bg-[#F7F3ED] border border-[#DDD5CA] flex items-center justify-between text-xs text-[#7A6A5C]">
+            <span>Prepared by: <strong id="portal-salesperson" class="text-[#2C2724] font-semibold">agent_sydney_02</strong></span>
+            <span class="text-[10px] text-[#3D6B69] font-bold flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-[#3D6B69]"></span>
+              Verified Proposal
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── 3D Engine & Proposal Controller Script ──────────────────────────────── -->
+  <script>
+    let scene, camera, renderer, controls;
+    let project = null;
+    let currentStyle = 'japandi';
+    const urlParams = new URLSearchParams(window.location.search);
+    const quoteId = urlParams.get('quote_id') || urlParams.get('id') || 'QT-992AC14B';
+
+    const STYLE_PRESETS = {
+      japandi: { name: 'Japandi Natural', mult: 1.0, wall: 0xf5f3ed, base: 0xc4a47c, top: 0xf8f7f2, wallCab: 0xeeebe2, handle: 0xd4af37 },
+      nordic: { name: 'Nordic Sage', mult: 1.08, wall: 0xebf2ed, base: 0xd2bc9e, top: 0xe8e4dc, wallCab: 0xd6ded7, handle: 0xcccccc },
+      minimalist: { name: 'Minimalist Pure', mult: 1.0, wall: 0xf8f9fa, base: 0x2e3340, top: 0xffffff, wallCab: 0xf3f4f6, handle: 0x999999 },
+      industrial: { name: 'Industrial Luxe', mult: 1.18, wall: 0xd8dbdf, base: 0x483c34, top: 0x36383e, wallCab: 0x282a30, handle: 0x111111 }
+    };
+
+    let ambientLight, sunLight, fillLight;
+    let currentMood = 'day';
+
+    function setLightingMood(mood) {
+      currentMood = mood;
+      const bDay = document.getElementById('btn-mood-day');
+      const bEve = document.getElementById('btn-mood-eve');
+      if (mood === 'evening') {
+        if (scene) {
+          scene.background = new THREE.Color(0xEDE5DC);
+          if (scene.fog) scene.fog.color.setHex(0xEDE5DC);
+        }
+        if (ambientLight) { ambientLight.color.setHex(0xf5e2cf); ambientLight.intensity = 0.8; }
+        if (sunLight) { sunLight.color.setHex(0xffb870); sunLight.intensity = 1.8; }
+        if (fillLight) { fillLight.color.setHex(0x5c4a40); fillLight.intensity = 0.4; }
+        if (bDay) bDay.className = 'px-2.5 py-1 text-xs font-medium rounded-lg text-[#7A6A5C] hover:text-[#2C2724] flex items-center gap-1';
+        if (bEve) bEve.className = 'px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#2C2724] text-[#FAF7F2] shadow flex items-center gap-1';
+      } else {
+        if (scene) {
+          scene.background = new THREE.Color(0xFAF7F2);
+          if (scene.fog) scene.fog.color.setHex(0xFAF7F2);
+        }
+        if (ambientLight) { ambientLight.color.setHex(0xfff8f0); ambientLight.intensity = 0.9; }
+        if (sunLight) { sunLight.color.setHex(0xffedd5); sunLight.intensity = 1.6; }
+        if (fillLight) { fillLight.color.setHex(0xe8dcd0); fillLight.intensity = 0.5; }
+        if (bDay) bDay.className = 'px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#2C2724] text-[#FAF7F2] shadow flex items-center gap-1';
+        if (bEve) bEve.className = 'px-2.5 py-1 text-xs font-medium rounded-lg text-[#7A6A5C] hover:text-[#2C2724] flex items-center gap-1';
+      }
+    }
+
+    function initPortalScene() {
+      const container = document.getElementById('canvas-container');
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xFAF7F2);
+      scene.fog = new THREE.FogExp2(0xFAF7F2, 0.02);
+
+      camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+      camera.position.set(2.8, 2.2, 4.8);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(w, h);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      container.appendChild(renderer.domElement);
+
+      const OrbitCtrl = window.OrbitControls || THREE.OrbitControls;
+      if (OrbitCtrl) {
+        controls = new OrbitCtrl(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.maxPolarAngle = Math.PI / 2 + 0.05; // Don't orbit below ground
+      }
+
+      // Warm Lighting
+      ambientLight = new THREE.AmbientLight(0xfff8f0, 0.9);
+      scene.add(ambientLight);
+
+      sunLight = new THREE.DirectionalLight(0xffedd5, 1.6);
+      sunLight.position.set(5, 8, 6);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.set(2048, 2048);
+      scene.add(sunLight);
+
+      fillLight = new THREE.DirectionalLight(0xe8dcd0, 0.5);
+      fillLight.position.set(-6, 5, -3);
+      scene.add(fillLight);
+
+      // Continuous Wide-Plank Oak Floor
+      const oakCanvas = document.createElement('canvas');
+      oakCanvas.width = 512;
+      oakCanvas.height = 512;
+      const octx = oakCanvas.getContext('2d');
+      octx.fillStyle = '#C8AD8D';
+      octx.fillRect(0, 0, 512, 512);
+      octx.strokeStyle = '#B39675';
+      octx.lineWidth = 2;
+      for (let y = 0; y < 512; y += 64) {
+        octx.beginPath();
+        octx.moveTo(0, y);
+        octx.lineTo(512, y);
+        octx.stroke();
+      }
+      for (let y = 0; y < 512; y += 64) {
+        const shift = (y / 64) % 2 === 0 ? 0 : 128;
+        for (let x = shift; x < 512; x += 256) {
+          octx.beginPath();
+          octx.moveTo(x, y);
+          octx.lineTo(x, y + 64);
+          octx.stroke();
+        }
+      }
+      const oakTexture = new THREE.CanvasTexture(oakCanvas);
+      oakTexture.wrapS = THREE.RepeatWrapping;
+      oakTexture.wrapT = THREE.RepeatWrapping;
+      oakTexture.repeat.set(10, 10);
+
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 30),
+        new THREE.MeshStandardMaterial({
+          map: oakTexture,
+          roughness: 0.8,
+          metalness: 0.04,
+        })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      window.addEventListener('resize', onResize);
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (controls) controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function onResize() {
+      const container = document.getElementById('canvas-container');
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    function setCameraMode(mode) {
+      if (!controls) return;
+      const wallH = project?.wall?.height_mm ? project.wall.height_mm * 0.001 : 2.7;
+      if (mode === 'front') {
+        camera.position.set(0, wallH / 2, 4.5);
+        controls.target.set(0, wallH / 2, 0.5);
+      } else if (mode === 'top') {
+        camera.position.set(0, 5.5, 0.5);
+        controls.target.set(0, 0, 0.5);
+      } else {
+        camera.position.set(2.8, 2.2, 4.8);
+        controls.target.set(-0.3, wallH * 0.4, 0.8);
+      }
+      controls.update();
+    }
+
+    function render3DProposal() {
+      if (!project) return;
+
+      // Remove existing meshes
+      scene.children
+        .filter(o => o.userData.isProjectMesh)
+        .forEach(o => scene.remove(o));
+
+      const wall = project.wall || {};
+      const W = (wall.width_mm || 4000) * 0.001;
+      const H = (wall.height_mm || 2700) * 0.001;
+      const D = (wall.depth_mm || 150) * 0.001;
+
+      const colors = STYLE_PRESETS[currentStyle] || STYLE_PRESETS.japandi;
+
+      // Main Wall Mesh
+      const wallGeo = new THREE.BoxGeometry(W, H, D);
+      const wallMat = new THREE.MeshStandardMaterial({ color: colors.wall, roughness: 0.85 });
+      const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+      wallMesh.position.set(0, H / 2, D / 2);
+      wallMesh.receiveShadow = true;
+      wallMesh.userData.isProjectMesh = true;
+      scene.add(wallMesh);
+
+      // Multi-Wall Support (L-Shape Return Wall)
+      const shape = wall.shape || 'singleWall';
+      const returnMm = wall.return_mm ? wall.return_mm * 0.001 : 0;
+      if (shape === 'lShape' && returnMm > 0) {
+        const returnGeo = new THREE.BoxGeometry(D, H, returnMm);
+        const returnMesh = new THREE.Mesh(returnGeo, wallMat);
+        returnMesh.position.set(-W / 2 + D / 2, H / 2, D + returnMm / 2);
+        returnMesh.receiveShadow = true;
+        returnMesh.userData.isProjectMesh = true;
+        scene.add(returnMesh);
+      }
+
+      // Cabinets
+      const cabinets = project.placed_cabinets || [];
+      const handleMat = new THREE.MeshStandardMaterial({
+        color: colors.handle,
+        metalness: 0.85,
+        roughness: 0.2,
+      });
+
+      cabinets.forEach(cab => {
+        const cw = (cab.width_mm || 600) * 0.001;
+        const ch = (cab.height_mm || 850) * 0.001;
+        const cd = (cab.depth_mm || 600) * 0.001;
+        const isWall = (cab.cabinet_type || '').includes('wall');
+
+        const cabGroup = new THREE.Group();
+        cabGroup.userData.isProjectMesh = true;
+
+        const bodyColor = isWall ? colors.wallCab : colors.base;
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(cw, ch, cd),
+          new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
+        );
+        body.castShadow = true;
+        body.receiveShadow = true;
+        cabGroup.add(body);
+
+        // Countertop cap & Recessed Toe-Kick Plinth
+        if (!isWall) {
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(cw + 0.02, 0.04, cd + 0.02),
+            new THREE.MeshStandardMaterial({ color: colors.top, roughness: 0.35, metalness: 0.1 })
+          );
+          cap.position.y = ch / 2 + 0.02;
+          cabGroup.add(cap);
+
+          // 150mm Recessed Plinth
+          const kick = new THREE.Mesh(
+            new THREE.BoxGeometry(cw, 0.12, cd - 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.9 })
+          );
+          kick.position.set(0, -ch / 2 + 0.06, -0.04);
+          cabGroup.add(kick);
+        }
+
+        // Contemporary Bar Handle
+        const handle = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, 0.015, 0.018),
+          handleMat
+        );
+        handle.position.set(0, isWall ? -ch / 4 : ch / 4, cd / 2 + 0.01);
+        cabGroup.add(handle);
+
+        const cx = (cab.x_mm || 0) * 0.001;
+        const cy = isWall ? 1.4 + ch / 2 : ch / 2;
+        const cz = D + cd / 2;
+
+        cabGroup.position.set(cx, cy, cz);
+        scene.add(cabGroup);
+      });
+
+      if (controls) {
+        controls.target.set(-0.3, H * 0.4, 0.8);
+        controls.update();
+      }
+    }
+
+    async function loadProposal() {
+      try {
+        const res = await fetch(`/api/projects/${quoteId}`);
+        if (!res.ok) throw new Error('Proposal not found');
+        project = await res.json();
+
+        // Update Header
+        document.getElementById('header-client-name').textContent = `Proposal for ${project.client_name || 'Homeowner'}`;
+        document.getElementById('header-quote-id').textContent = project.quote_id;
+        document.getElementById('portal-salesperson').textContent = project.salesperson_id || 'Static Trace Consultant';
+
+        // Update Wall Info
+        const wall = project.wall || {};
+        document.getElementById('wall-dim-label').textContent = `${(wall.width_mm || 4000).toLocaleString()}mm`;
+        document.getElementById('wall-shape-label').textContent = wall.shape === 'lShape' ? 'L-Shape Corner' : (wall.shape === 'galley' ? 'Galley Double' : 'Single Straight');
+        document.getElementById('cab-count-label').textContent = `${(project.placed_cabinets || []).length} Custom Units`;
+
+        // Update Initial Style
+        currentStyle = project.style_archetype || 'japandi';
+        updateStyleButtonsUI();
+
+        // Update Financials
+        refreshFinancials();
+
+        // Update Deposit State
+        updateDepositUI();
+
+        // Render 3D
+        render3DProposal();
+
+      } catch (err) {
+        console.error('Error loading proposal:', err);
+        alert('Could not load proposal: ' + err.message);
+      }
+    }
+
+    function switchStyle(styleKey) {
+      currentStyle = styleKey;
+      updateStyleButtonsUI();
+      refreshFinancials();
+      render3DProposal();
+    }
+
+    function updateStyleButtonsUI() {
+      document.querySelectorAll('.style-card').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById(`style-${currentStyle}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const preset = STYLE_PRESETS[currentStyle] || STYLE_PRESETS.japandi;
+      document.getElementById('current-style-tag').textContent = preset.name;
+    }
+
+    function refreshFinancials() {
+      if (!project) return;
+      const cabs = project.placed_cabinets || [];
+      const basePrices = { base_800: 420.0, base_600: 340.0, wall_600: 280.0, tall_600: 620.0 };
+      const labourPerCab = 120.0;
+      const mult = STYLE_PRESETS[currentStyle]?.mult || 1.0;
+
+      let cabTotal = 0;
+      let hasBase = false;
+      cabs.forEach(c => {
+        const p = basePrices[c.cabinet_type] || 340.0;
+        cabTotal += p * mult;
+        if ((c.cabinet_type || '').includes('base')) hasBase = true;
+      });
+
+      const labourTotal = cabs.length * labourPerCab;
+      let benchtopTotal = 0;
+      if (hasBase) {
+        const wallW = (project.wall?.width_mm || 4000) * 0.001;
+        const returnM = (project.wall?.shape === 'lShape' && project.wall?.return_mm) ? project.wall.return_mm * 0.001 : 0;
+        benchtopTotal = Math.round((wallW + returnM) * 450.0);
+      }
+
+      const subtotal = Math.round((cabTotal + labourTotal + benchtopTotal) * 100) / 100;
+      const gst = Math.round(subtotal * 0.10 * 100) / 100;
+      const total = Math.round((subtotal + gst) * 100) / 100;
+
+      document.getElementById('portal-subtotal').textContent = `$${subtotal.toFixed(2)}`;
+      document.getElementById('portal-gst').textContent = `$${gst.toFixed(2)}`;
+      document.getElementById('portal-total').textContent = `$${total.toFixed(2)} AUD`;
+    }
+
+    function updateDepositUI() {
+      const area = document.getElementById('deposit-status-area');
+      if (project.deposit_paid > 0) {
+        area.innerHTML = `
+          <div class="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl flex items-center justify-between">
+            <div class="flex items-center gap-2 text-emerald-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div>
+                <div class="text-xs font-bold text-white">Production Slot Reserved ($250 Paid)</div>
+                <div class="text-[10px] text-emerald-300">Priority CNC Queue #104 — Estimated Delivery: 3-4 Weeks</div>
+              </div>
+            </div>
+            <span class="px-2 py-1 rounded bg-emerald-500 text-white font-extrabold text-[10px] uppercase">Locked</span>
+          </div>
+        `;
+      } else {
+        area.innerHTML = `
+          <button onclick="handlePayDeposit()" id="btn-pay-deposit" class="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 rounded-xl text-xs font-extrabold text-white flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+            <span>Pay $250 Slot Deposit Now</span>
+          </button>
+        `;
+      }
+    }
+
+    function handlePayDeposit() {
+      openCheckoutModal();
+    }
+
+    function openCheckoutModal() {
+      const m = document.getElementById('checkout-modal');
+      if (m) {
+        m.classList.remove('hidden');
+        m.classList.add('flex');
+      }
+    }
+
+    function closeCheckoutModal() {
+      const m = document.getElementById('checkout-modal');
+      if (m) {
+        m.classList.add('hidden');
+        m.classList.remove('flex');
+      }
+    }
+
+    async function confirmDepositPayment() {
+      const btn = document.getElementById('btn-confirm-checkout');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+          <svg class="animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          Authorizing Bank Transfer...
+        `;
+      }
+
+      try {
+        const res = await fetch(`/api/projects/${quoteId}/deposit`, { method: 'POST' });
+        if (!res.ok) throw new Error('Payment processing failed');
+        const data = await res.json();
+        project.deposit_paid = 250.0;
+        closeCheckoutModal();
+        updateDepositUI();
+        
+        // Show celebratory toast / banner
+        const toast = document.createElement('div');
+        toast.className = 'fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl font-bold text-xs flex items-center gap-2 border border-emerald-400 animate-bounce';
+        toast.innerHTML = '🎉 $250 Deposit Authorized! Production Slot Guaranteed for 30 Days.';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+      } catch (e) {
+        alert('Deposit error: ' + e.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>Authorize $250.00 & Lock Production Slot</span>';
+        }
+      }
+    }
+
+    function downloadClientPdf() {
+      if (!project) return;
+      window.open(`/pdf/${project.quote_id}`, '_blank');
+    }
+
+    function copyShareLink() {
+      navigator.clipboard.writeText(window.location.href);
+      const btn = document.getElementById('btn-share');
+      const original = btn.innerHTML;
+      btn.innerHTML = '<span class="text-emerald-400 font-bold text-xs">Link Copied!</span>';
+      setTimeout(() => btn.innerHTML = original, 2000);
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    function boot() {
+      initPortalScene();
+      loadProposal();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', boot);
+    } else {
+      boot();
+    }
+  </script>
+
+  <!-- ── Interactive Deposit Checkout Drawer Modal ──────────────────────────── -->
+  <div id="checkout-modal" class="fixed inset-0 z-50 bg-[#2C2724]/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-[#FFFFFF] border border-[#DDD5CA] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 text-[#2C2724]">
+      <div class="flex items-center justify-between border-b border-[#DDD5CA] pb-4">
+        <div>
+          <h3 class="text-base font-bold text-[#2C2724] flex items-center gap-2">
+            <span>Lock Production Queue Slot</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[#3D6B69]/15 text-[#3D6B69]">$250 AUD</span>
+          </h3>
+          <p class="text-xs text-[#7A6A5C]">Guarantees 30-day material price freeze & priority factory queue</p>
+        </div>
+        <button onclick="closeCheckoutModal()" class="text-[#7A6A5C] hover:text-[#2C2724] text-lg">✕</button>
+      </div>
+
+      <!-- Payment Method Selector -->
+      <div class="grid grid-cols-3 gap-2">
+        <button type="button" class="p-2.5 rounded-xl border border-[#2C2724] bg-[#F7F3ED] text-xs font-bold text-[#2C2724] flex flex-col items-center gap-1 shadow-sm">
+          <svg class="w-4 h-4 text-[#B2967D]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+          Credit Card
+        </button>
+        <button type="button" class="p-2.5 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-xs font-medium text-[#7A6A5C] flex flex-col items-center gap-1">
+          <span class="font-bold">Pay</span>
+          Apple Pay
+        </button>
+        <button type="button" class="p-2.5 rounded-xl border border-[#DDD5CA] bg-[#FAF7F2] hover:bg-[#F7F3ED] text-xs font-medium text-[#7A6A5C] flex flex-col items-center gap-1">
+          <span class="font-bold">GPay</span>
+          Google Pay
+        </button>
+      </div>
+
+      <!-- Mock Card Form -->
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-[#7A6A5C] mb-1 font-medium">Card Number</label>
+          <div class="relative">
+            <input type="text" value="•••• •••• •••• 4242" class="w-full bg-[#FAF7F2] border border-[#DDD5CA] rounded-xl px-3 py-2 text-[#2C2724] font-mono focus:outline-none" readonly>
+            <span class="absolute right-3 top-2 text-[10px] text-[#3D6B69] font-bold uppercase">TEST VISA</span>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[#7A6A5C] mb-1 font-medium">Expires</label>
+            <input type="text" value="12 / 28" class="w-full bg-[#FAF7F2] border border-[#DDD5CA] rounded-xl px-3 py-2 text-[#2C2724] font-mono focus:outline-none" readonly>
+          </div>
+          <div>
+            <label class="block text-[#7A6A5C] mb-1 font-medium">CVC / CVV</label>
+            <input type="text" value="888" class="w-full bg-[#FAF7F2] border border-[#DDD5CA] rounded-xl px-3 py-2 text-[#2C2724] font-mono focus:outline-none" readonly>
+          </div>
+        </div>
+      </div>
+
+      <!-- Price Guarantee Notice -->
+      <div class="p-3 bg-[#3D6B69]/10 border border-[#3D6B69]/20 rounded-xl flex items-center gap-2 text-[11px] text-[#3D6B69]">
+        <svg class="w-4 h-4 shrink-0 text-[#3D6B69]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+        <span>100% Refundable within 14 days if design is cancelled.</span>
+      </div>
+
+      <!-- Submit Button -->
+      <button onclick="confirmDepositPayment()" id="btn-confirm-checkout" class="w-full py-3 bg-[#2C2724] hover:bg-[#1E1A17] rounded-xl text-xs font-extrabold text-[#FAF7F2] flex items-center justify-center gap-2 shadow-md transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        <span>Authorize $250.00 & Lock Production Slot</span>
+      </button>
+    </div>
+  </div>
+</body>
+</html>

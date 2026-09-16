@@ -1,0 +1,1047 @@
+{
+  "QT-816BB0DC": {
+    "quote_id": "QT-816BB0DC",
+    "salesperson_id": "agent_melbourne_01",
+    "created_at": "2026-09-15T15:40:00Z",
+    "client_name": "Emma Watson",
+    "client_phone": "+61 411 222 333",
+    "client_email": "emma.watson@example.com",
+    "deposit_paid": 250.0,
+    "style_archetype": "industrial",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0
+    },
+    "obstacles": [
+      {
+        "type": "window",
+        "distance_from_left_mm": 1400.0,
+        "distance_from_floor_mm": 1000.0,
+        "width_mm": 1200.0,
+        "height_mm": 1100.0
+      }
+    ],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm (Industrial Luxe)",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1200.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      },
+      {
+        "cabinet_type": "base_600",
+        "label": "Base 600mm (Industrial Luxe)",
+        "width_mm": 600.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -400.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      },
+      {
+        "cabinet_type": "tall_600",
+        "label": "Tall 600mm (Industrial Luxe)",
+        "width_mm": 600.0,
+        "height_mm": 2100.0,
+        "depth_mm": 600.0,
+        "x_mm": 300.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      },
+      {
+        "cabinet_type": "wall_600",
+        "label": "Wall 600mm (Industrial Luxe)",
+        "width_mm": 600.0,
+        "height_mm": 720.0,
+        "depth_mm": 350.0,
+        "x_mm": 1000.0,
+        "y_mm": 1400.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Industrial Luxe)",
+        "qty": 1,
+        "unit_price": 495.6,
+        "total": 495.6
+      },
+      {
+        "description": "Cabinet \u2014 Base 600 (Industrial Luxe)",
+        "qty": 1,
+        "unit_price": 401.2,
+        "total": 401.2
+      },
+      {
+        "description": "Cabinet \u2014 Tall 600 (Industrial Luxe)",
+        "qty": 1,
+        "unit_price": 731.6,
+        "total": 731.6
+      },
+      {
+        "description": "Cabinet \u2014 Wall 600 (Industrial Luxe)",
+        "qty": 1,
+        "unit_price": 330.4,
+        "total": 330.4
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 4,
+        "unit_price": 120.0,
+        "total": 480.0
+      },
+      {
+        "description": "Window Cutout Allowance",
+        "qty": 1,
+        "unit_price": -50.0,
+        "total": -50.0
+      }
+    ],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_url": "/pdf/QT-816BB0DC",
+    "has_signature": true,
+    "updated_at": "2026-09-16T04:17:20.455610Z"
+  },
+  "QT-992AC14B": {
+    "quote_id": "QT-992AC14B",
+    "salesperson_id": "agent_sydney_02",
+    "created_at": "2026-09-15T14:15:00Z",
+    "client_name": "Marcus Aurelius",
+    "client_phone": "+61 422 999 888",
+    "client_email": "marcus@rome.org",
+    "deposit_paid": 250.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3600,
+      "height_mm": 2700,
+      "depth_mm": 150,
+      "shape": "lShape",
+      "return_mm": 2400
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm (Natural Oak)",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -800,
+        "id": "cab_101",
+        "cabinet_id": "cab_101"
+      },
+      {
+        "cabinet_type": "base_600",
+        "label": "Base 600mm (Natural Oak)",
+        "width_mm": 600,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100,
+        "id": "cab_102",
+        "cabinet_id": "cab_102"
+      },
+      {
+        "cabinet_type": "corner_900",
+        "label": "Corner 900mm",
+        "width_mm": 900,
+        "height_mm": 850,
+        "depth_mm": 900,
+        "x_mm": 700,
+        "id": "cab_103",
+        "cabinet_id": "cab_103"
+      },
+      {
+        "id": "cab_1789532278720_wngf",
+        "cabinet_id": "cab_1789532278720_wngf",
+        "cabinet_type": "base_600",
+        "label": "Base Cabinet 600mm",
+        "width_mm": 600,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": 1550,
+        "y_mm": 0,
+        "z_mm": 0,
+        "wall_index": 0
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Japandi Natural)",
+        "qty": 1,
+        "unit_price": 420.0,
+        "total": 420.0
+      },
+      {
+        "description": "Cabinet \u2014 Base 600 (Japandi Natural)",
+        "qty": 1,
+        "unit_price": 340.0,
+        "total": 340.0
+      },
+      {
+        "description": "Cabinet \u2014 Corner 900 (Japandi Natural)",
+        "qty": 1,
+        "unit_price": 580.0,
+        "total": 580.0
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 3,
+        "unit_price": 120.0,
+        "total": 360.0
+      }
+    ],
+    "subtotal": 4620,
+    "gst": 462,
+    "total_price": 5082,
+    "pdf_url": "/pdf/QT-992AC14B",
+    "has_signature": true,
+    "updated_at": "2026-09-16T08:17:41.128533Z",
+    "deposit_paid_at": "2026-09-16T08:17:41.128521Z"
+  },
+  "QT-FF187852": {
+    "quote_id": "QT-FF187852",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T04:12:09.790735Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "352945d7-b559-487b-a62e-d46911ce2d29"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-FF187852_vsb4xxup.pdf",
+    "pdf_url": "/pdf/QT-FF187852",
+    "has_signature": false
+  },
+  "QT-DE93A6A5": {
+    "quote_id": "QT-DE93A6A5",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T04:17:20.441957Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "3b64fdb3-c55c-497a-b074-e046aac3949f"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-DE93A6A5_5jeg0x10.pdf",
+    "pdf_url": "/pdf/QT-DE93A6A5",
+    "has_signature": false
+  },
+  "QT-64DAB91D": {
+    "quote_id": "QT-64DAB91D",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T04:19:13.344274Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "299fcad4-cdd8-4ca4-96d8-579f21988c2b"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-64DAB91D__1arpwwy.pdf",
+    "pdf_url": "/pdf/QT-64DAB91D",
+    "has_signature": false
+  },
+  "QT-63275017": {
+    "quote_id": "QT-63275017",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T04:19:13.368450Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-63275017_q_45w9ai.pdf",
+    "pdf_url": "/pdf/QT-63275017",
+    "has_signature": false,
+    "updated_at": "2026-09-16T04:19:13.380330Z"
+  },
+  "QT-CC1FEB62": {
+    "quote_id": "QT-CC1FEB62",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T04:22:00.104094Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "902be262-ce82-4566-9f8f-b4cc52bd053b"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-CC1FEB62_jbf2n6cy.pdf",
+    "pdf_url": "/pdf/QT-CC1FEB62",
+    "has_signature": false
+  },
+  "QT-F207B3A5": {
+    "quote_id": "QT-F207B3A5",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T04:22:00.127930Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-F207B3A5_rrxp87pv.pdf",
+    "pdf_url": "/pdf/QT-F207B3A5",
+    "has_signature": false,
+    "updated_at": "2026-09-16T04:22:00.141923Z"
+  },
+  "QT-9CCF8732": {
+    "quote_id": "QT-9CCF8732",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T04:41:21.483577Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "694a5c51-ca75-4854-8ca7-d77c25de872a"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-9CCF8732_b_bs306a.pdf",
+    "pdf_url": "/pdf/QT-9CCF8732",
+    "has_signature": false
+  },
+  "QT-6533B982": {
+    "quote_id": "QT-6533B982",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T04:41:21.506326Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-6533B982_czn1cl5w.pdf",
+    "pdf_url": "/pdf/QT-6533B982",
+    "has_signature": false,
+    "updated_at": "2026-09-16T04:41:21.517977Z"
+  },
+  "QT-19A53D04": {
+    "quote_id": "QT-19A53D04",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T05:50:39.265184Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "dcad97b4-2666-4be5-be64-a00916788c4e"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-19A53D04_v63hsfa3.pdf",
+    "pdf_url": "/pdf/QT-19A53D04",
+    "has_signature": false
+  },
+  "QT-37442AB6": {
+    "quote_id": "QT-37442AB6",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T05:50:39.289601Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-37442AB6_rhw9s8ey.pdf",
+    "pdf_url": "/pdf/QT-37442AB6",
+    "has_signature": false,
+    "updated_at": "2026-09-16T05:50:39.303401Z"
+  },
+  "QT-0C9BD1ED": {
+    "quote_id": "QT-0C9BD1ED",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T07:04:23.991016Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "df128ebc-be98-469c-b61e-737c11f80689"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-0C9BD1ED_hihpdrjt.pdf",
+    "pdf_url": "/pdf/QT-0C9BD1ED",
+    "has_signature": false
+  },
+  "QT-743704DB": {
+    "quote_id": "QT-743704DB",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T07:04:24.022518Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-743704DB_3kad_90b.pdf",
+    "pdf_url": "/pdf/QT-743704DB",
+    "has_signature": false,
+    "updated_at": "2026-09-16T07:04:24.038993Z"
+  },
+  "QT-C6CB676F": {
+    "quote_id": "QT-C6CB676F",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T08:06:49.375647Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "2a3f9699-07b0-4161-a92b-2415d48d0ea0"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-C6CB676F__fmag2e4.pdf",
+    "pdf_url": "/pdf/QT-C6CB676F",
+    "has_signature": false
+  },
+  "QT-B8406963": {
+    "quote_id": "QT-B8406963",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T08:07:11.603729Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "eb6557a4-1a26-40ab-9846-b2ff32ab07b3"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-B8406963_pnuau6bw.pdf",
+    "pdf_url": "/pdf/QT-B8406963",
+    "has_signature": false
+  },
+  "QT-3D131D08": {
+    "quote_id": "QT-3D131D08",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T08:07:11.629058Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "id": "cab-1",
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-3D131D08_9fat10ae.pdf",
+    "pdf_url": "/pdf/QT-3D131D08",
+    "has_signature": false,
+    "cabinets": [
+      {
+        "id": "cab-1",
+        "type": "base_800",
+        "cabinet_type": "base_800",
+        "width": 0.8,
+        "height": 0.85,
+        "depth": 0.6,
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x": 1.7,
+        "x_mm": -100.0,
+        "distance_from_left_mm": 1700,
+        "isWallMounted": false
+      }
+    ],
+    "updated_at": "2026-09-16T08:07:11.641950Z",
+    "id": "QT-3D131D08",
+    "style": "japandi"
+  },
+  "QT-EB1EB899": {
+    "quote_id": "QT-EB1EB899",
+    "salesperson_id": "rep_sydney_02",
+    "created_at": "2026-09-16T08:17:41.022138Z",
+    "client_name": "Test Coordinate Client",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 250.0,
+    "style_archetype": "nordic",
+    "wall": {
+      "width_mm": 4200.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "lShape",
+      "return_mm": 2400.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800.0,
+        "height_mm": 850.0,
+        "depth_mm": 600.0,
+        "x_mm": -1250.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0,
+        "id": "4f0773ec-80c8-439d-809d-3f9b58e845b9"
+      }
+    ],
+    "line_items": [
+      {
+        "description": "Cabinet \u2014 Base 800 (Warm Nordic)",
+        "qty": 1,
+        "unit_price": 487.2,
+        "total": 487.2
+      },
+      {
+        "description": "Installation Labour",
+        "qty": 1,
+        "unit_price": 125.0,
+        "total": 125.0
+      }
+    ],
+    "subtotal": 612.2,
+    "gst": 61.22,
+    "total_price": 673.42,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-EB1EB899_kid4x_g1.pdf",
+    "pdf_url": "/pdf/QT-EB1EB899",
+    "has_signature": false
+  },
+  "QT-75019DCB": {
+    "quote_id": "QT-75019DCB",
+    "salesperson_id": "test_rep",
+    "created_at": "2026-09-16T08:17:41.047476Z",
+    "client_name": "Client Walk-in",
+    "client_phone": "",
+    "client_email": "",
+    "deposit_paid": 0.0,
+    "style_archetype": "japandi",
+    "wall": {
+      "width_mm": 3000.0,
+      "height_mm": 2700.0,
+      "depth_mm": 150.0,
+      "shape": "singleWall",
+      "return_mm": 0.0,
+      "aisle_mm": 0.0
+    },
+    "obstacles": [],
+    "placed_cabinets": [
+      {
+        "id": "cab-1",
+        "cabinet_type": "base_800",
+        "label": "Base 800mm",
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x_mm": -100.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0,
+        "wall_index": 0
+      }
+    ],
+    "line_items": [],
+    "subtotal": 5200.0,
+    "gst": 520.0,
+    "total_price": 5720.0,
+    "pdf_path": "C:\\Users\\User\\AppData\\Local\\Temp\\QT-75019DCB_06h7ed8r.pdf",
+    "pdf_url": "/pdf/QT-75019DCB",
+    "has_signature": false,
+    "cabinets": [
+      {
+        "id": "cab-1",
+        "type": "base_800",
+        "cabinet_type": "base_800",
+        "width": 0.8,
+        "height": 0.85,
+        "depth": 0.6,
+        "width_mm": 800,
+        "height_mm": 850,
+        "depth_mm": 600,
+        "x": 1.7,
+        "x_mm": -100.0,
+        "distance_from_left_mm": 1700,
+        "isWallMounted": false
+      }
+    ],
+    "updated_at": "2026-09-16T08:17:41.061576Z",
+    "id": "QT-75019DCB",
+    "style": "japandi"
+  }
+}

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Factory CNC Handover & Precision Cutlist — Static Trace</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-[#FAF7F2] text-[#2C2724] min-h-screen flex flex-col antialiased">
+
+  <!-- Header -->
+  <header class="h-16 border-b border-[#DDD5CA] bg-white px-6 flex items-center justify-between shadow-sm">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-[#EDE5DC] text-[#2C2724] border border-[#DDD5CA] flex items-center justify-center font-bold text-xs">
+        CNC
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-extrabold text-sm text-[#2C2724]">STATIC TRACE FACTORY DISPATCH</span>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#EBF3ED] text-[#2D5A43] border border-[#D1E5D8]">Phase 5 Production Spec</span>
+        </div>
+        <p class="text-[11px] text-[#7A6A5C]">AutoCAD R12 Layer Coordination & Automated CNC Nesting Schedule</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <a href="/studio/" class="px-3 py-1.5 bg-[#F7F3ED] hover:bg-[#EDE5DC] border border-[#DDD5CA] rounded-xl text-xs font-semibold text-[#2C2724] flex items-center gap-1.5 transition">
+        <svg class="w-3.5 h-3.5 text-[#7A6A5C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+        <span>Studio Workbench</span>
+      </a>
+      <button onclick="downloadDxf()" class="px-3.5 py-1.5 bg-white hover:bg-[#F7F3ED] border border-[#DDD5CA] rounded-xl text-xs font-bold text-[#2C2724] flex items-center gap-1.5 shadow-sm transition">
+        <svg class="w-3.5 h-3.5 text-[#B2967D]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Download AutoCAD DXF
+      </button>
+      <button onclick="downloadCutlist()" class="px-3.5 py-1.5 bg-[#2C2724] hover:bg-[#1A1816] rounded-xl text-xs font-bold text-[#FAF7F2] flex items-center gap-1.5 shadow-sm transition">
+        <svg class="w-3.5 h-3.5 text-[#E6BEAE]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Download Cutlist CSV
+      </button>
+    </div>
+  </header>
+
+  <!-- Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+    <!-- Project Banner & DXF Layer Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- Project Metadata Card -->
+      <div class="bg-white border border-[#DDD5CA] rounded-2xl p-5 space-y-2.5 shadow-sm">
+        <span class="text-xs font-bold uppercase tracking-wider text-[#7A6A5C]">Production Order</span>
+        <div class="text-lg font-extrabold text-[#2C2724]" id="proj-client">Loading Client...</div>
+        <div class="text-xs text-[#7A6A5C] mono font-semibold" id="proj-id">--</div>
+        <div class="pt-2 border-t border-[#EDE5DC] flex justify-between text-xs">
+          <span class="text-[#7A6A5C]">Layout Geometry:</span>
+          <span class="font-bold text-[#965A3E]" id="proj-geometry">--</span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-[#7A6A5C]">Style / Finish:</span>
+          <span class="font-bold text-[#2C2724] capitalize" id="proj-style">--</span>
+        </div>
+      </div>
+
+      <!-- AutoCAD DXF Layer Spec -->
+      <div class="bg-white border border-[#DDD5CA] rounded-2xl p-5 space-y-2.5 col-span-2 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-[#7A6A5C]">AutoCAD R12 Layer Separation Matrix</span>
+          <span class="text-[10px] mono text-[#B2967D] font-bold">AC1009 / 8 Standard Layers</span>
+        </div>
+        <div class="grid grid-cols-4 gap-2 text-xs pt-1">
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#2C2724]"></span>
+            <div><div class="font-bold text-[#2C2724] mono text-[11px]">WALL_MAIN</div><div class="text-[9px] text-[#7A6A5C]">Layer 7 Primary</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#4A7298]"></span>
+            <div><div class="font-bold text-[#4A7298] mono text-[11px]">WALL_RETURN</div><div class="text-[9px] text-[#7A6A5C]">Layer 5 Blue</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#3D6B69]"></span>
+            <div><div class="font-bold text-[#3D6B69] mono text-[11px]">CABINETS_BASE</div><div class="text-[9px] text-[#7A6A5C]">Layer 3 Green</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#D4A373]"></span>
+            <div><div class="font-bold text-[#A46830] mono text-[11px]">DIMENSIONS</div><div class="text-[9px] text-[#7A6A5C]">Layer 2 Ochre</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#C97A58]"></span>
+            <div><div class="font-bold text-[#A85834] mono text-[11px]">PART_NUMBERS</div><div class="text-[9px] text-[#7A6A5C]">Layer 30 Terracotta</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#5B8296]"></span>
+            <div><div class="font-bold text-[#41697E] mono text-[11px]">CABINETS_WALL</div><div class="text-[9px] text-[#7A6A5C]">Layer 4 Cyan</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#966B8E]"></span>
+            <div><div class="font-bold text-[#7E4D76] mono text-[11px]">CABINETS_TALL</div><div class="text-[9px] text-[#7A6A5C]">Layer 6 Mulberry</div></div>
+          </div>
+          <div class="p-2 rounded-xl bg-[#FAF7F2] border border-[#DDD5CA] flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-[#B85042]"></span>
+            <div><div class="font-bold text-[#B85042] mono text-[11px]">OBSTACLES</div><div class="text-[9px] text-[#7A6A5C]">Layer 1 Coral</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CNC Yield & Nesting Efficiency Banner -->
+    <div class="bg-[#F7F3ED] border border-[#DDD5CA] rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-[#EBF3ED] text-[#2D5A43] border border-[#D1E5D8] flex items-center justify-center font-bold text-sm">
+          91%
+        </div>
+        <div>
+          <div class="text-xs font-bold text-[#2C2724] flex items-center gap-2">
+            <span>Automated CNC Sheet Nesting Efficiency</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#EBF3ED] text-[#2D5A43] border border-[#D1E5D8] font-bold uppercase">Optimal Yield</span>
+          </div>
+          <p class="text-[11px] text-[#7A6A5C]">Estimated requirement: 6× 18mm MR MDF Sheets (2400×1200) + 2× 6mm Backing Panels. Offcut scrap &lt; 9%.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 text-xs">
+        <span class="text-[#7A6A5C]">Tooling kerf: <strong class="text-[#2C2724] font-mono">6.35mm</strong></span>
+        <span class="text-[#DDD5CA]">|</span>
+        <span class="text-[#7A6A5C]">Trim margin: <strong class="text-[#2C2724] font-mono">10mm</strong></span>
+      </div>
+    </div>
+
+    <!-- CNC Precision Cutting Schedule Table -->
+    <div class="bg-white border border-[#DDD5CA] rounded-2xl overflow-hidden shadow-sm">
+      <div class="p-4 border-b border-[#DDD5CA] flex items-center justify-between bg-white">
+        <div>
+          <h3 class="text-sm font-bold text-[#2C2724]">CNC Nesting Cutting Schedule (BOM Cutlist)</h3>
+          <p class="text-xs text-[#7A6A5C]">Itemised beam saw panel breakdown with thickness, grain, and edgebanding</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="part-count-badge" class="px-2.5 py-1 rounded-full bg-[#EDE5DC] text-[#2C2724] font-bold text-xs">
+            0 Panels Scheduled
+          </span>
+        </div>
+      </div>
+
+      <!-- Search & Material Filter Bar -->
+      <div class="p-3 bg-[#FAF7F2] border-b border-[#DDD5CA] flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="flex items-center gap-2 w-full sm:w-72">
+          <input id="part-search-input" oninput="filterParts()" type="text" placeholder="Filter panel, cabinet or material..." class="w-full bg-white border border-[#DDD5CA] rounded-xl px-3 py-1.5 text-xs text-[#2C2724] placeholder-[#9C8B7E] focus:outline-none focus:border-[#2C2724] shadow-sm">
+        </div>
+        <div class="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+          <button onclick="setPartFilter('all')" id="flt-all" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#2C2724] text-white">All Panels</button>
+          <button onclick="setPartFilter('carcase')" id="flt-carcase" class="px-2.5 py-1 rounded-lg text-xs font-medium text-[#7A6A5C] hover:text-[#2C2724] bg-white border border-[#DDD5CA]">18mm Carcase</button>
+          <button onclick="setPartFilter('door')" id="flt-door" class="px-2.5 py-1 rounded-lg text-xs font-medium text-[#7A6A5C] hover:text-[#2C2724] bg-white border border-[#DDD5CA]">Doors & Fronts</button>
+          <button onclick="setPartFilter('back')" id="flt-back" class="px-2.5 py-1 rounded-lg text-xs font-medium text-[#7A6A5C] hover:text-[#2C2724] bg-white border border-[#DDD5CA]">Backing</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto max-h-[480px] overflow-y-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-[#F7F3ED] text-[#7A6A5C] uppercase tracking-wider text-[10px] sticky top-0 border-b border-[#DDD5CA]">
+            <tr>
+              <th class="py-2.5 px-3">Part ID</th>
+              <th class="py-2.5 px-3">Cabinet Ref</th>
+              <th class="py-2.5 px-3">Part Name</th>
+              <th class="py-2.5 px-3">Core Material</th>
+              <th class="py-2.5 px-3 text-center">L × W × T (mm)</th>
+              <th class="py-2.5 px-3 text-center">Qty</th>
+              <th class="py-2.5 px-3">Edgebanding</th>
+              <th class="py-2.5 px-3">Grain</th>
+            </tr>
+          </thead>
+          <tbody id="cutlist-body" class="divide-y divide-[#EDE5DC] text-[#2C2724] mono text-[11px]">
+            <tr><td colspan="8" class="py-6 text-center text-[#7A6A5C]">Loading CNC cutlist schedule...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    let activeQuoteId = urlParams.get('quote_id') || urlParams.get('id');
+    let allPanels = [];
+    let currentFilter = 'all';
+
+    async function loadData() {
+      try {
+        // If quoteId not given, fetch available projects list to pick first valid project
+        if (!activeQuoteId) {
+          const listRes = await fetch('/api/projects');
+          if (listRes.ok) {
+            const projects = await listRes.json();
+            if (projects && projects.length > 0) {
+              activeQuoteId = projects[0].quote_id || projects[0].id;
+            }
+          }
+        }
+
+        if (!activeQuoteId) {
+          activeQuoteId = 'QT-992AC14B';
+        }
+
+        let pRes = await fetch(`/api/projects/${activeQuoteId}`);
+        if (!pRes.ok) {
+          // Fallback to project list first entry
+          const listRes = await fetch('/api/projects');
+          if (listRes.ok) {
+            const projects = await listRes.json();
+            if (projects && projects.length > 0) {
+              activeQuoteId = projects[0].quote_id || projects[0].id;
+              pRes = await fetch(`/api/projects/${activeQuoteId}`);
+            }
+          }
+        }
+
+        const project = await pRes.json();
+        const cRes = await fetch(`/api/export/${activeQuoteId}/cutlist`);
+        const cutlistCsv = await cRes.text();
+
+        document.getElementById('proj-client').textContent = project.client_name || 'Client';
+        document.getElementById('proj-id').textContent = activeQuoteId;
+        document.getElementById('proj-style').textContent = (project.style_archetype || 'japandi').toUpperCase();
+        
+        const w = project.wall || {};
+        const shapeStr = w.shape === 'lShape' ? `L-Shape (${w.width_mm} × ${w.return_mm} mm)` : `Straight (${w.width_mm} mm)`;
+        document.getElementById('proj-geometry').textContent = shapeStr;
+
+        // Parse CSV
+        const lines = cutlistCsv.trim().split('\n');
+        allPanels = lines.slice(1).map(l => l.split(','));
+        renderPanelsTable(allPanels);
+
+      } catch (err) {
+        console.error('Failed to load factory data:', err);
+        document.getElementById('cutlist-body').innerHTML = '<tr><td colspan="8" class="py-6 text-center text-red-500 font-sans">Failed to load project CNC cutlist data</td></tr>';
+      }
+    }
+
+    function renderPanelsTable(rows) {
+      document.getElementById('part-count-badge').textContent = `${rows.length} Panels Scheduled`;
+      const tbody = document.getElementById('cutlist-body');
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-[#7A6A5C] font-sans">No matching panels found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(r => `
+        <tr class="hover:bg-[#FAF7F2] transition">
+          <td class="py-2 px-3 font-bold text-[#A85834]">${r[0] || ''}</td>
+          <td class="py-2 px-3 font-semibold text-[#2C2724]">${r[1] || ''}</td>
+          <td class="py-2 px-3 text-[#2C2724]">${r[3] || ''}</td>
+          <td class="py-2 px-3 text-[#7A6A5C] truncate max-w-[200px]">${r[4] || ''}</td>
+          <td class="py-2 px-3 text-center text-[#3D6B69] font-medium">${r[6]} × ${r[7]} × ${r[8]}</td>
+          <td class="py-2 px-3 text-center font-bold text-[#2C2724]">${r[9]}</td>
+          <td class="py-2 px-3 text-[#7A6A5C] text-[10px]">${r[10]}</td>
+          <td class="py-2 px-3 text-[#7A6A5C]">${r[11]}</td>
+        </tr>
+      `).join('');
+    }
+
+    function filterParts() {
+      const q = (document.getElementById('part-search-input').value || '').toLowerCase();
+      let filtered = allPanels.filter(r => {
+        const text = r.join(' ').toLowerCase();
+        return text.includes(q);
+      });
+
+      if (currentFilter === 'carcase') {
+        filtered = filtered.filter(r => (r[4] || '').toLowerCase().includes('carcase') || (r[8] || '').includes('18'));
+      } else if (currentFilter === 'door') {
+        filtered = filtered.filter(r => (r[3] || '').toLowerCase().includes('door') || (r[3] || '').toLowerCase().includes('front'));
+      } else if (currentFilter === 'back') {
+        filtered = filtered.filter(r => (r[3] || '').toLowerCase().includes('back') || (r[8] || '').includes('6'));
+      }
+
+      renderPanelsTable(filtered);
+    }
+
+    function setPartFilter(filter) {
+      currentFilter = filter;
+      ['all', 'carcase', 'door', 'back'].forEach(f => {
+        const btn = document.getElementById(`flt-${f}`);
+        if (!btn) return;
+        if (f === filter) {
+          btn.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-[#2C2724] text-white shadow-sm';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded-lg text-xs font-medium text-[#7A6A5C] hover:text-[#2C2724] bg-white border border-[#DDD5CA]';
+        }
+      });
+      filterParts();
+    }
+
+    function downloadDxf() {
+      if (!activeQuoteId) return;
+      window.location.href = `/api/export/${activeQuoteId}/dxf`;
+    }
+
+    function downloadCutlist() {
+      if (!activeQuoteId) return;
+      window.location.href = `/api/export/${activeQuoteId}/cutlist`;
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
