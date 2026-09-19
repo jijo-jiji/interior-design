@@ -396,7 +396,9 @@ function initScene() {
 // ── Wall generation (Grid Cell Box Decomposition) ───────────────────────────
 // Divides the wall into a grid of clean BoxGeometry blocks around obstacles.
 // 100% eliminates Earcut triangulation bugs, diagonal shadow splits, and door floor glitches.
-function buildWall(wallData, obstacles) {
+// `sceneData` is the full payload when reopening a saved consultation, so the
+// wall, its joinery and its style come back together.
+function buildWall(wallData, obstacles, sceneData = {}) {
   // Remove any existing wall meshes
   scene.children
     .filter(o => o.userData.isWall || o.userData.isObstacleMarker)
@@ -504,18 +506,26 @@ function buildWall(wallData, obstacles) {
   // Obstacle colour overlays
   obstacles.forEach(obs => addObstacleMarker(obs, W));
 
-  // Restore pre-placed cabinets if loading an existing consultation or draft
-  if (Array.isArray(parsed.placed_cabinets) && parsed.placed_cabinets.length > 0) {
-    parsed.placed_cabinets.forEach(c => {
-      if (window.spawnCabinetAt) {
-        window.spawnCabinetAt(c.cabinet_type, c.x_mm, c.id);
-      }
-    });
-  }
+  // Restore pre-placed cabinets if loading an existing consultation or draft.
+  // This block referenced an undefined `parsed`, so buildWall threw here on
+  // every load: the saved joinery and style were silently dropped and the
+  // client's design came back as an empty room.
+  const preplaced = Array.isArray(sceneData.placed_cabinets) ? sceneData.placed_cabinets : [];
+  preplaced.forEach((c, index) => {
+    const type = c.cabinet_type || c.type;
+    if (!CABINET_SPECS[type]) {
+      console.warn('buildWall: unknown cabinet type', type);
+      return;
+    }
+    const xMm = (typeof c.x_mm === 'number')
+      ? c.x_mm
+      : (typeof c.distance_from_left_mm === 'number' ? c.distance_from_left_mm : 0);
+    window.spawnCabinetAt(type, xMm, c.id || `restored_${index}`);
+  });
 
   // Restore style archetype if specified
-  if (parsed.style_archetype && window.applyStyleArchetype) {
-    window.applyStyleArchetype(parsed.style_archetype);
+  if (sceneData.style_archetype && window.applyStyleArchetype) {
+    window.applyStyleArchetype(sceneData.style_archetype);
   }
 }
 
@@ -784,6 +794,15 @@ const CABINET_SPECS = {
   wall_600:   { w: 0.600, h: 0.700, d: 0.320, isWall: true,  mountH: 1.40, label: 'Wall 600mm', bodyColor: 0xeeebe2, topColor: 0xffffff },
   tall_600:   { w: 0.600, h: 2.100, d: 0.600, isWall: false, mountH: 0,    label: 'Tall 600mm', bodyColor: 0xc4a47c, topColor: 0xffffff },
   corner_900: { w: 0.900, h: 0.850, d: 0.900, isWall: false, mountH: 0,    label: 'Corner 900', bodyColor: 0xc4a47c, topColor: 0xf8f7f2 },
+
+  // ── Appliance modules ──────────────────────────────────────────────────
+  // Stainless fronts read as appliances rather than joinery in the scene.
+  sink_600:          { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Sink 600',      bodyColor: 0xc4a47c, topColor: 0xd9dde0 },
+  cooktop_600:       { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Cooktop 600',   bodyColor: 0xc4a47c, topColor: 0x2f3234 },
+  dishwasher_600:    { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Dishwasher',    bodyColor: 0xb8bcc0, topColor: 0xf8f7f2 },
+  oven_tower_600:    { w: 0.600, h: 2.100, d: 0.600, isWall: false, mountH: 0,    label: 'Oven Tower',    bodyColor: 0xb8bcc0, topColor: 0xffffff },
+  fridge_recess_700: { w: 0.700, h: 2.100, d: 0.650, isWall: false, mountH: 0,    label: 'Fridge Recess', bodyColor: 0xcfd3d6, topColor: 0xffffff },
+  rangehood_900:     { w: 0.900, h: 0.450, d: 0.500, isWall: true,  mountH: 1.55, label: 'Rangehood 900', bodyColor: 0xb8bcc0, topColor: 0xffffff },
 };
 
 // ── Magnetic Snap Guide Line ───────────────────────────────────────────────
@@ -1280,22 +1299,16 @@ window.setNativeMode = function(isNative) {
   onResize();
 };
 
-window.spawnCabinet = function(type) {
-  if (typeof spawnCabinet === 'function') {
-    spawnCabinet(type);
-  }
-};
-
-window.removeSelectedCabinet = function() {
-  if (typeof removeSelectedCabinet === 'function') {
-    removeSelectedCabinet();
-  }
-};
+// spawnCabinet and removeSelectedCabinet are already defined on `window`
+// above and are called from Flutter directly. Re-wrapping them here used to
+// overwrite the real implementations with functions that resolved the bare
+// identifier back to themselves — every "add module" tap blew the call stack,
+// so no cabinet could be placed from the app at all.
 
 window.loadScene = function(jsonString) {
   try {
-    const { wall, obstacles = [] } = JSON.parse(jsonString);
-    buildWall(wall, obstacles);
+    const parsed = JSON.parse(jsonString);
+    buildWall(parsed.wall, parsed.obstacles || [], parsed);
   } catch (e) { console.error('loadScene error:', e); }
 };
 

@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // Vitest specs run in Node, so they are typechecked here rather than in the
+  // browser project.
+  "include": ["vite.config.ts", "src/**/*.test.ts"]
 }

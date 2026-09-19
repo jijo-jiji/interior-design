@@ -5,15 +5,96 @@ import { createCabinetWoodTexture, createCalacattaMarbleTexture } from './materi
 export type DoorStyle = 'slab' | 'shaker' | 'fluted';
 export type CabinetFinish = 'japandi' | 'nordic' | 'minimalist' | 'industrial';
 
+/** `corner_900` only ever arrives from mobile traces; the studio cannot spawn it. */
+export type CabinetType =
+  | 'base_800'
+  | 'base_600'
+  | 'wall_600'
+  | 'tall_600'
+  | 'corner_900'
+  | 'sink_600'
+  | 'cooktop_600'
+  | 'dishwasher_600'
+  | 'oven_tower_600'
+  | 'fridge_recess_700'
+  | 'rangehood_900';
+
+/** Modules that hang on the wall rather than stand on the floor. */
+const WALL_MOUNTED: string[] = ['wall_600', 'rangehood_900'];
+/** Full-height modules: no benchtop over them. */
+const FULL_HEIGHT: string[] = ['tall_600', 'oven_tower_600', 'fridge_recess_700'];
+/** Appliance fronts read as steel, not timber. */
+const APPLIANCE_FRONTS: string[] = [
+  'dishwasher_600', 'oven_tower_600', 'fridge_recess_700', 'rangehood_900',
+];
+
 export interface CabinetData {
   id: string;
-  type: 'base_800' | 'base_600' | 'wall_600' | 'tall_600';
+  type: CabinetType;
   x: number; // in meters along wall
   width: number;
   height: number;
   depth: number;
   isWallMounted?: boolean;
 }
+
+interface FinishSpec {
+  base: string;
+  grain: string;
+  carcaseColor: string;
+  handleColor: string;
+  roughness: number;
+}
+
+const FINISH_SPECS: Record<CabinetFinish, FinishSpec> = {
+  japandi: {
+    base: '#D4C0A8',
+    grain: 'rgba(160, 135, 110, 0.25)',
+    carcaseColor: '#C8B39B',
+    handleColor: '#D4B982', // Champagne gold
+    roughness: 0.35,
+  },
+  nordic: {
+    base: '#EAE1D5',
+    grain: 'rgba(180, 160, 140, 0.2)',
+    carcaseColor: '#EEE4E1',
+    handleColor: '#C8A97E', // Soft brass
+    roughness: 0.4,
+  },
+  minimalist: {
+    base: '#F0EAE1',
+    grain: 'rgba(215, 205, 195, 0.15)',
+    carcaseColor: '#EEE4E1',
+    handleColor: '#2C2724', // Matte graphite
+    roughness: 0.55,
+  },
+  industrial: {
+    base: '#4A4038',
+    grain: 'rgba(30, 25, 20, 0.35)',
+    carcaseColor: '#3C342E',
+    handleColor: '#1A1816', // Dark steel
+    roughness: 0.45,
+  },
+};
+
+// Each texture is a 1024² canvas. Building one per cabinet made every added
+// module noticeably slower, so they are generated once and shared.
+const woodTextureCache = new Map<CabinetFinish, THREE.CanvasTexture>();
+let marbleTextureCache: THREE.CanvasTexture | null = null;
+
+const getWoodTexture = (finish: CabinetFinish): THREE.CanvasTexture => {
+  const cached = woodTextureCache.get(finish);
+  if (cached) return cached;
+  const spec = FINISH_SPECS[finish] ?? FINISH_SPECS.japandi;
+  const texture = createCabinetWoodTexture(spec.base, spec.grain);
+  woodTextureCache.set(finish, texture);
+  return texture;
+};
+
+const getMarbleTexture = (): THREE.CanvasTexture => {
+  marbleTextureCache ??= createCalacattaMarbleTexture();
+  return marbleTextureCache;
+};
 
 interface CabinetMeshProps {
   cabinet: CabinetData;
@@ -31,9 +112,10 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
   onSelect,
 }) => {
   const { width, height, depth, x, type } = cabinet;
-  const isWall = type === 'wall_600';
-  const isTall = type === 'tall_600';
+  const isWall = WALL_MOUNTED.includes(type);
+  const isTall = FULL_HEIGHT.includes(type);
   const isBase = !isWall && !isTall;
+  const isAppliance = APPLIANCE_FRONTS.includes(type);
 
   // Elevation placement
   const elevation = isWall ? 1.48 : 0;
@@ -41,49 +123,14 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
   const carcaseHeight = isWall ? height : (isTall ? height - toeKickHeight : 0.72);
   const benchtopThickness = isWall || isTall ? 0 : 0.02;
 
-  // Materials based on finish
-  const { woodMap, carcaseColor, handleColor, roughness } = useMemo(() => {
-    switch (finish) {
-      case 'japandi':
-        return {
-          woodMap: createCabinetWoodTexture('#D4C0A8', 'rgba(160, 135, 110, 0.25)'),
-          carcaseColor: '#C8B39B',
-          handleColor: '#D4B982', // Champagne gold
-          roughness: 0.35,
-        };
-      case 'nordic':
-        return {
-          woodMap: createCabinetWoodTexture('#EAE1D5', 'rgba(180, 160, 140, 0.2)'),
-          carcaseColor: '#EEE4E1',
-          handleColor: '#C8A97E', // Soft brass
-          roughness: 0.4,
-        };
-      case 'minimalist':
-        return {
-          woodMap: createCabinetWoodTexture('#F0EAE1', 'rgba(215, 205, 195, 0.15)'),
-          carcaseColor: '#EEE4E1',
-          handleColor: '#2C2724', // Matte graphite
-          roughness: 0.55,
-        };
-      case 'industrial':
-        return {
-          woodMap: createCabinetWoodTexture('#4A4038', 'rgba(30, 25, 20, 0.35)'),
-          carcaseColor: '#3C342E',
-          handleColor: '#1A1816', // Dark steel
-          roughness: 0.45,
-        };
-      default:
-        return {
-          woodMap: createCabinetWoodTexture('#D4C0A8', 'rgba(160, 135, 110, 0.25)'),
-          carcaseColor: '#C8B39B',
-          handleColor: '#D4B982',
-          roughness: 0.35,
-        };
-    }
-  }, [finish]);
-
-  // Calacatta Marble Benchtop Texture
-  const marbleTexture = useMemo(() => createCalacattaMarbleTexture(), []);
+  // Materials based on finish (textures are shared across every module)
+  const spec = FINISH_SPECS[finish] ?? FINISH_SPECS.japandi;
+  // Integrated appliances show a brushed steel front whatever the joinery finish.
+  const carcaseColor = isAppliance ? '#C3C7CA' : spec.carcaseColor;
+  const handleColor = isAppliance ? '#8A9095' : spec.handleColor;
+  const roughness = isAppliance ? 0.3 : spec.roughness;
+  const woodMap = useMemo(() => getWoodTexture(finish), [finish]);
+  const marbleTexture = useMemo(() => getMarbleTexture(), []);
 
   // Center X relative to wall start
   const posX = x + width / 2;
@@ -259,3 +306,4 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
     </group>
   );
 };
+

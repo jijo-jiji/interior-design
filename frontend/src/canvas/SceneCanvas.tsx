@@ -23,22 +23,40 @@ interface SceneCanvasProps {
 }
 
 // Controller to smoothly animate camera between view angles
-const CameraViewController: React.FC<{ view: CameraView; targetX: number }> = ({ view, targetX }) => {
-  const { camera } = useThree();
+const CameraViewController: React.FC<{
+  view: CameraView;
+  targetX: number;
+  wallWidthM: number;
+}> = ({ view, targetX, wallWidthM }) => {
+  const { camera, size } = useThree();
   const controlsRef = useRef<any>(null);
 
   useEffect(() => {
     const target = new THREE.Vector3(targetX, 0.85, 0.4);
 
+    // Distance at which `spanM` of wall fills the frame, so plan and elevation
+    // show the whole run instead of a close-up of its middle.
+    const perspective = camera as THREE.PerspectiveCamera;
+    const aspect = perspective.aspect || size.width / Math.max(1, size.height);
+    const vFov = ((perspective.fov ?? 42) * Math.PI) / 180;
+    const fitDistance = (spanM: number) =>
+      Math.max(2.4, spanM / (2 * Math.tan(vFov / 2) * Math.max(0.5, aspect)));
+
     let destPos: THREE.Vector3;
     if (view === 'top') {
-      destPos = new THREE.Vector3(targetX, 4.0, 0.41);
+      destPos = new THREE.Vector3(targetX, 0.85 + fitDistance(wallWidthM * 1.15), 0.41);
     } else if (view === 'front') {
-      destPos = new THREE.Vector3(targetX, 1.15, 3.2);
+      destPos = new THREE.Vector3(targetX, 1.15, 0.4 + fitDistance(wallWidthM * 1.1));
     } else {
       // 3D Orbit default: intimate eye-level view showing both base and wall joinery
       destPos = new THREE.Vector3(targetX + 0.35, 1.45, 3.2);
     }
+
+    // Looking straight down makes the default up vector parallel to the view
+    // direction, which leaves the plan at an arbitrary rotation. Point "up"
+    // along the room's depth axis instead so plan view lands square.
+    camera.up.set(0, view === 'top' ? 0 : 1, view === 'top' ? -1 : 0);
+    if (controlsRef.current) controlsRef.current.update();
 
     // Smooth transition
     let progress = 0;
@@ -60,17 +78,20 @@ const CameraViewController: React.FC<{ view: CameraView; targetX: number }> = ({
     }, 16);
 
     return () => clearInterval(interval);
-  }, [view, targetX, camera]);
+  }, [view, targetX, wallWidthM, camera, size.width, size.height]);
 
   return (
     <OrbitControls
       ref={controlsRef}
       makeDefault
       target={[targetX, 0.95, 0.35]}
-      minPolarAngle={Math.PI / 6}
+      // The plan view sits directly overhead; the 30° floor applies to the
+      // other views, where it stops the camera dropping through the ceiling.
+      minPolarAngle={view === 'top' ? 0 : Math.PI / 6}
       maxPolarAngle={Math.PI / 2 + 0.02}
       minDistance={1.2}
-      maxDistance={7.0}
+      // Wide rooms need to pull back further than the old fixed 7m ceiling.
+      maxDistance={Math.max(7, wallWidthM * 2.2)}
       dampingFactor={0.08}
     />
   );
@@ -96,13 +117,15 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
     : wallWidthM / 2;
 
   return (
-    <div
-      className="w-full h-full relative cursor-grab active:cursor-grabbing"
-      onClick={() => onSelectCabinet(null)}
-    >
+    <div className="w-full h-full relative cursor-grab active:cursor-grabbing">
       <Canvas
         shadows
         camera={{ position: [cabinetCenterX + 0.35, 1.45, 3.2], fov: 42 }}
+        // Deselect only when the click hits no module. A DOM handler on the
+        // wrapper would also fire for clicks on a cabinet — R3F's
+        // stopPropagation cannot stop the native event bubbling out of the
+        // canvas — which made modules impossible to select.
+        onPointerMissed={() => onSelectCabinet(null)}
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
@@ -137,7 +160,11 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
         </group>
 
         {/* Camera View Controls */}
-        <CameraViewController view={cameraView} targetX={cabinetCenterX} />
+        <CameraViewController
+          view={cameraView}
+          targetX={cabinetCenterX}
+          wallWidthM={wallWidthM}
+        />
       </Canvas>
     </div>
   );

@@ -24,4 +24,11 @@ class AppConfig {
   static String get backendBaseUrl => 'http://$backendHost:$backendPort';
 
   static String get quoteEndpoint => '$backendBaseUrl/quote';
+
+  /// Signed proposal PDF for a finalised quote.
+  static String pdfEndpoint(String quoteId) => '$backendBaseUrl/pdf/$quoteId';
+
+  /// Client-facing 3D proposal the customer can open on their own phone.
+  /// Reachable only from the same network as the backend.
+  static String portalUrl(String quoteId) => '$backendBaseUrl/view/$quoteId';
 }

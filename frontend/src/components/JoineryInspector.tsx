@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Sparkles,
   Layers,
@@ -11,9 +11,15 @@ import {
   ChevronRight,
   ChevronLeft,
   Receipt,
+  AlertTriangle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { CabinetFinish, DoorStyle, CabinetData } from '../canvas/CabinetMesh';
+import type { QuoteTotals } from '../pricing';
+import { formatMyr } from '../pricing';
+import { ActionButton, LinkButton, SectionLabel, SegmentedControl } from './ui';
+
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 interface JoineryInspectorProps {
   finish: CabinetFinish;
@@ -23,13 +29,64 @@ interface JoineryInspectorProps {
   selectedCabinet: CabinetData | null;
   onNudgeCabinet: (direction: -1 | 1) => void;
   onDeleteCabinet: (id: string) => void;
-  cabinets: CabinetData[];
+  cabinetCount: number;
+  totals: QuoteTotals;
+  styleMultipliers: Record<string, number>;
+  benchtopMaterial: string | null;
+  onSelectBenchtop: (material: string | null) => void;
+  /** Length of base/corner run the benchtop covers. */
+  benchtopMetres: number;
+  benchtopRates: Record<string, number>;
+  benchtopNames: Record<string, string>;
   quoteId: string;
   onSaveRevisions: () => void;
-  isSaving: boolean;
+  saveState: SaveState;
+  saveError: string | null;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 type InspectorTab = 'finishes' | 'module' | 'commercial';
+
+/** Material swatches describe the physical finish, not the UI chrome. */
+const FINISHES: { value: CabinetFinish; name: string; blurb: string; swatch: string }[] = [
+  {
+    value: 'japandi',
+    name: 'Japandi Natural',
+    blurb: 'French white oak & champagne gold',
+    swatch: '#C8B39B',
+  },
+  {
+    value: 'nordic',
+    name: 'Warm Nordic',
+    blurb: 'Bleached birch & brushed brass',
+    swatch: '#EAE1D5',
+  },
+  {
+    value: 'minimalist',
+    name: 'Modern Minimalist',
+    blurb: 'Matte cashmere & graphite',
+    swatch: '#F0EAE1',
+  },
+  {
+    value: 'industrial',
+    name: 'Smoked Charcoal Oak',
+    blurb: 'Dark smoked timber & steel',
+    swatch: '#4A4038',
+  },
+];
+
+const DOOR_OPTIONS: { value: DoorStyle; label: string }[] = [
+  { value: 'slab', label: 'Slab J-Pull' },
+  { value: 'shaker', label: 'Slim Shaker' },
+  { value: 'fluted', label: 'Fluted Reed' },
+];
+
+const TABS: { value: InspectorTab; label: string; icon: React.ReactNode }[] = [
+  { value: 'finishes', label: 'Finishes', icon: <Sparkles className="h-3.5 w-3.5" /> },
+  { value: 'module', label: 'Module', icon: <Layers className="h-3.5 w-3.5" /> },
+  { value: 'commercial', label: 'Pricing', icon: <Receipt className="h-3.5 w-3.5" /> },
+];
 
 export const JoineryInspector: React.FC<JoineryInspectorProps> = ({
   finish,
@@ -39,409 +96,388 @@ export const JoineryInspector: React.FC<JoineryInspectorProps> = ({
   selectedCabinet,
   onNudgeCabinet,
   onDeleteCabinet,
-  cabinets,
+  cabinetCount,
+  totals,
+  styleMultipliers,
+  benchtopMaterial,
+  onSelectBenchtop,
+  benchtopMetres,
+  benchtopRates,
+  benchtopNames,
   quoteId,
   onSaveRevisions,
-  isSaving,
+  saveState,
+  saveError,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('finishes');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const previousSaveState = useRef<SaveState>(saveState);
 
-  // If user selects a cabinet, automatically switch to 'module' tab if they want
-  // but keep tab control flexible
-  const baseCabinetPrices: Record<string, number> = {
-    base_800: 420,
-    base_600: 340,
-    wall_600: 280,
-    tall_600: 620,
-  };
-
-  const finishMultiplier: Record<CabinetFinish, number> = {
-    japandi: 1.0,
-    minimalist: 1.08,
-    nordic: 1.12,
-    industrial: 1.18,
-  };
-
-  const doorStyleMultiplier: Record<DoorStyle, number> = {
-    slab: 1.0,
-    shaker: 1.06,
-    fluted: 1.14,
-  };
-
-  let materialSubtotal = cabinets.reduce((sum, cab) => {
-    return sum + (baseCabinetPrices[cab.type] || 380);
-  }, 0);
-
-  materialSubtotal = materialSubtotal * finishMultiplier[finish] * doorStyleMultiplier[doorStyle];
-
-  const baseWidthMeters = cabinets
-    .filter((c) => c.type === 'base_800' || c.type === 'base_600')
-    .reduce((sum, c) => sum + c.width, 0);
-  const benchtopCost = baseWidthMeters * 450;
-
-  const totalBeforeGst = materialSubtotal + benchtopCost;
-  const gst = totalBeforeGst * 0.1;
-  const grandTotal = totalBeforeGst + gst;
-
-  const handleSaveWithCelebration = () => {
-    onSaveRevisions();
-    confetti({
-      particleCount: 65,
-      spread: 55,
-      origin: { y: 0.85 },
-      colors: ['#E6BEAE', '#E7D8C9', '#B2967D', '#2C2724'],
-    });
-  };
+  // Celebrate only once the backend has actually accepted the revision.
+  useEffect(() => {
+    if (saveState === 'saved' && previousSaveState.current !== 'saved') {
+      confetti({
+        particleCount: 65,
+        spread: 55,
+        origin: { y: 0.85 },
+        colors: ['#E6BEAE', '#E7D8C9', '#A25F41', '#2C2724'],
+      });
+    }
+    previousSaveState.current = saveState;
+  }, [saveState]);
 
   return (
     <aside
-      className={`fixed right-6 top-20 z-20 transition-all duration-300 flex items-start ${
-        isCollapsed ? 'translate-x-[calc(100%-14px)]' : 'translate-x-0'
+      className={`relative z-20 flex h-full shrink-0 border-l border-line bg-surface-muted transition-[width] duration-200 ${
+        isCollapsed ? 'w-0' : 'w-[22rem]'
       }`}
     >
-      {/* ── Collapse/Expand Tab ────────────────────────────────────── */}
+      {/* ── Collapse handle ───────────────────────────────────────────── */}
       <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="mt-6 -ml-3 z-30 w-6 h-12 rounded-l-xl bg-white/90 border border-r-0 border-[#DDD5CA] flex items-center justify-center text-[#7A6A5C] hover:text-[#2C2724] shadow-md transition-all cursor-pointer"
-        title={isCollapsed ? 'Expand Studio Panel' : 'Collapse Studio Panel'}
+        type="button"
+        onClick={onToggleCollapse}
+        aria-expanded={!isCollapsed}
+        aria-label={isCollapsed ? 'Expand the studio panel' : 'Collapse the studio panel'}
+        title={isCollapsed ? 'Expand the studio panel' : 'Collapse the studio panel'}
+        className="absolute top-4 -left-3.5 z-30 flex h-12 w-7 cursor-pointer items-center justify-center rounded-l-xl border border-r-0 border-line bg-surface text-ink-muted shadow-md transition-colors hover:text-ink"
       >
-        {isCollapsed ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        {isCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
       </button>
 
-      {/* ── Floating Architectural Glass Card ──────────────────────── */}
-      <div className="w-88 max-h-[calc(100vh-6.5rem)] glass-panel rounded-2xl shadow-xl border border-[#DDD5CA] flex flex-col overflow-hidden bg-[#FAF7F2]/95 backdrop-blur-2xl">
-        {/* Navigation Tabs Header */}
-        <div className="p-3 border-b border-[#DDD5CA] bg-white/70">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setActiveTab('finishes')}
-              className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
-                activeTab === 'finishes'
-                  ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                  : 'bg-white/80 text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Finishes</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('module')}
-              className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 relative cursor-pointer border ${
-                activeTab === 'module'
-                  ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                  : 'bg-white/80 text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Module</span>
-              {selectedCabinet && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[#E6BEAE]" />
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('commercial')}
-              className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
-                activeTab === 'commercial'
-                  ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                  : 'bg-white/80 text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>Pricing</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Body Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* ── TAB 1: FINISHES & DOORS ──────────────────────────────── */}
-          {activeTab === 'finishes' && (
-            <div className="space-y-5">
-              <div>
-                <span className="text-xs uppercase tracking-wider font-semibold text-[#8C725C] block mb-3">
-                  Architectural Materials
-                </span>
-                <div className="space-y-2.5">
-                  {/* Japandi Natural */}
+      {!isCollapsed && (
+        <div className="flex h-full w-full min-w-0 flex-col">
+          {/* ── Tabs ──────────────────────────────────────────────────── */}
+          <div className="border-b border-line bg-surface px-3 py-2.5">
+            <div role="tablist" aria-label="Inspector sections" className="flex items-center gap-1">
+              {TABS.map((tab) => {
+                const active = activeTab === tab.value;
+                return (
                   <button
-                    onClick={() => onSelectFinish('japandi')}
-                    className={`w-full p-3.5 rounded-xl border text-left transition-all flex items-center justify-between ${
-                      finish === 'japandi'
-                        ? 'bg-white border-[#B2967D] shadow-sm ring-1 ring-[#B2967D]'
-                        : 'bg-white/60 border-[#E5DDD3] hover:bg-white hover:border-[#B2967D]'
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveTab(tab.value)}
+                    className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[13px] font-medium transition-colors ${
+                      active
+                        ? 'border-espresso bg-espresso text-surface-muted'
+                        : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:text-ink'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-[#C8B39B] border border-black/10 shadow-inner flex-shrink-0" />
-                      <div>
-                        <h4 className="text-xs font-semibold text-[#2C2724]">Japandi Natural</h4>
-                        <p className="text-[11px] text-[#8C725C]">French White Oak & Champagne Gold</p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-[#8C725C]">1.00×</span>
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                    {tab.value === 'module' && selectedCabinet && (
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-clay-soft' : 'bg-clay'}`}
+                      />
+                    )}
                   </button>
-
-                  {/* Warm Nordic */}
-                  <button
-                    onClick={() => onSelectFinish('nordic')}
-                    className={`w-full p-3.5 rounded-xl border text-left transition-all flex items-center justify-between ${
-                      finish === 'nordic'
-                        ? 'bg-white border-[#B2967D] shadow-sm ring-1 ring-[#B2967D]'
-                        : 'bg-white/60 border-[#E5DDD3] hover:bg-white hover:border-[#B2967D]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-[#EEE4E1] border border-black/10 shadow-inner flex-shrink-0" />
-                      <div>
-                        <h4 className="text-xs font-semibold text-[#2C2724]">Warm Nordic</h4>
-                        <p className="text-[11px] text-[#8C725C]">Bleached Birch & Brushed Brass</p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-[#8C725C]">1.12×</span>
-                  </button>
-
-                  {/* Modern Minimalist */}
-                  <button
-                    onClick={() => onSelectFinish('minimalist')}
-                    className={`w-full p-3.5 rounded-xl border text-left transition-all flex items-center justify-between ${
-                      finish === 'minimalist'
-                        ? 'bg-white border-[#B2967D] shadow-sm ring-1 ring-[#B2967D]'
-                        : 'bg-white/60 border-[#E5DDD3] hover:bg-white hover:border-[#B2967D]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-[#F0EAE1] border border-black/10 shadow-inner flex-shrink-0" />
-                      <div>
-                        <h4 className="text-xs font-semibold text-[#2C2724]">Modern Minimalist</h4>
-                        <p className="text-[11px] text-[#8C725C]">Matte Cashmere & Graphite</p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-[#8C725C]">1.08×</span>
-                  </button>
-
-                  {/* Smoked Oak */}
-                  <button
-                    onClick={() => onSelectFinish('industrial')}
-                    className={`w-full p-3.5 rounded-xl border text-left transition-all flex items-center justify-between ${
-                      finish === 'industrial'
-                        ? 'bg-white border-[#B2967D] shadow-sm ring-1 ring-[#B2967D]'
-                        : 'bg-white/60 border-[#E5DDD3] hover:bg-white hover:border-[#B2967D]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-[#4A4038] border border-black/10 shadow-inner flex-shrink-0" />
-                      <div>
-                        <h4 className="text-xs font-semibold text-[#2C2724]">Smoked Charcoal Oak</h4>
-                        <p className="text-[11px] text-[#8C725C]">Dark Smoked Timber & Steel</p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-[#8C725C]">1.18×</span>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-xs uppercase tracking-wider font-semibold text-[#8C725C] block mb-2.5">
-                  Door Face Profile
-                </span>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    onClick={() => onSelectDoorStyle('slab')}
-                    className={`py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border text-center ${
-                      doorStyle === 'slab'
-                        ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                        : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-                    }`}
-                  >
-                    Slab J-Pull
-                  </button>
-                  <button
-                    onClick={() => onSelectDoorStyle('shaker')}
-                    className={`py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border text-center ${
-                      doorStyle === 'shaker'
-                        ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                        : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-                    }`}
-                  >
-                    Slim Shaker
-                  </button>
-                  <button
-                    onClick={() => onSelectDoorStyle('fluted')}
-                    className={`py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border text-center ${
-                      doorStyle === 'fluted'
-                        ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                        : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724]'
-                    }`}
-                  >
-                    Fluted Reed
-                  </button>
-                </div>
-              </div>
+                );
+              })}
             </div>
-          )}
+          </div>
 
-          {/* ── TAB 2: ACTIVE MODULE INSPECTOR ───────────────────────── */}
-          {activeTab === 'module' && (
-            <div className="space-y-5">
-              <span className="text-xs uppercase tracking-wider font-semibold text-[#8C725C] block mb-2">
-                Joinery Specification
-              </span>
+          {/* ── Panel body ────────────────────────────────────────────── */}
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
+            {/* ── Finishes ────────────────────────────────────────────── */}
+            {activeTab === 'finishes' && (
+              <>
+                <section className="space-y-3">
+                  <SectionLabel>Architectural materials</SectionLabel>
+                  <div className="space-y-2">
+                    {FINISHES.map((item) => {
+                      const active = finish === item.value;
+                      const multiplier = styleMultipliers[item.value] ?? 1;
+                      return (
+                        <button
+                          key={item.value}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => onSelectFinish(item.value)}
+                          className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${
+                            active
+                              ? 'border-clay bg-surface ring-1 ring-clay'
+                              : 'border-line bg-surface hover:border-line-strong'
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span
+                              aria-hidden
+                              className="h-7 w-7 shrink-0 rounded-full border border-black/10 shadow-inner"
+                              style={{ backgroundColor: item.swatch }}
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate text-[13px] font-semibold text-ink">
+                                {item.name}
+                              </span>
+                              <span className="block truncate text-xs text-ink-muted">
+                                {item.blurb}
+                              </span>
+                            </span>
+                          </span>
+                          <span className="shrink-0 font-mono text-xs text-ink-muted">
+                            {multiplier.toFixed(2)}×
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
 
-              {selectedCabinet ? (
-                <div className="bg-white rounded-xl p-4 border border-[#E5DDD3] shadow-xs space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#E5DDD3]">
-                    <div>
-                      <h4 className="text-sm font-semibold uppercase text-[#2C2724]">
-                        {selectedCabinet.type.replace('_', ' ')}
-                      </h4>
-                      <p className="text-xs text-[#8C725C]">Module #{selectedCabinet.id.slice(-6)}</p>
+                <section className="space-y-2">
+                  <SectionLabel>Door face profile</SectionLabel>
+                  <SegmentedControl
+                    label="Door face profile"
+                    size="sm"
+                    className="w-full [&>button]:flex-1 [&>button]:justify-center"
+                    options={DOOR_OPTIONS}
+                    value={doorStyle}
+                    onChange={onSelectDoorStyle}
+                  />
+                  <p className="text-xs text-ink-muted">
+                    Visual profile only — the quotation does not price door faces separately.
+                  </p>
+                </section>
+
+                {/* ── Benchtop ──────────────────────────────────────────── */}
+                <section className="space-y-2">
+                  <SectionLabel>Benchtop</SectionLabel>
+                  <p className="text-xs text-ink-muted">
+                    {benchtopMetres > 0
+                      ? `${benchtopMetres.toFixed(2)} linear metres of base run measured`
+                      : 'Place base joinery to measure the run.'}
+                  </p>
+
+                  <div className="space-y-2">
+                    {Object.entries(benchtopRates).map(([key, rate]) => {
+                      const active = benchtopMaterial === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => onSelectBenchtop(key)}
+                          className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${
+                            active
+                              ? 'border-clay bg-surface ring-1 ring-clay'
+                              : 'border-line bg-surface hover:border-line-strong'
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-[13px] font-semibold text-ink">
+                              {benchtopNames[key] ?? key}
+                            </span>
+                            <span className="block text-xs text-ink-muted">
+                              {formatMyr(rate)} per linear metre
+                            </span>
+                          </span>
+                          <span className="shrink-0 font-mono text-xs text-ink">
+                            {benchtopMetres > 0 ? `+${formatMyr(rate * benchtopMetres)}` : '—'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {benchtopMaterial && (
+                    <ActionButton
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => onSelectBenchtop(null)}
+                    >
+                      Remove benchtop from quote
+                    </ActionButton>
+                  )}
+                </section>
+              </>
+            )}
+
+            {/* ── Selected module ─────────────────────────────────────── */}
+            {activeTab === 'module' && (
+              <section className="space-y-3">
+                <SectionLabel>Joinery specification</SectionLabel>
+
+                {selectedCabinet ? (
+                  <div className="space-y-4 rounded-xl border border-line bg-surface p-4">
+                    <div className="flex items-start justify-between gap-2 border-b border-line pb-3">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-semibold uppercase text-ink">
+                          {selectedCabinet.type.replace(/_/g, ' ')}
+                        </h4>
+                        <p className="truncate font-mono text-xs text-ink-muted">
+                          {selectedCabinet.id}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-sand px-2.5 py-1 font-mono text-xs font-semibold text-ink">
+                        {(selectedCabinet.x * 1000).toFixed(0)}mm from left
+                      </span>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full bg-[#E7D8C9] text-xs font-mono font-semibold text-[#2C2724]">
-                      {(selectedCabinet.width * 1000).toFixed(0)}mm
+
+                    <dl className="grid grid-cols-3 gap-2 rounded-lg border border-line bg-surface-muted py-2.5 text-center">
+                      {[
+                        { label: 'Width', value: selectedCabinet.width },
+                        { label: 'Height', value: selectedCabinet.height },
+                        { label: 'Depth', value: selectedCabinet.depth },
+                      ].map((dim) => (
+                        <div key={dim.label}>
+                          <dt className="text-[11px] uppercase tracking-wide text-ink-muted">
+                            {dim.label}
+                          </dt>
+                          <dd className="font-mono text-[13px] font-semibold text-ink">
+                            {(dim.value * 1000).toFixed(0)}mm
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <div className="space-y-2">
+                      <SectionLabel>Nudge along wall rail</SectionLabel>
+                      <div className="flex items-center gap-2">
+                        <ActionButton
+                          className="flex-1 font-mono"
+                          icon={<ArrowLeft className="h-4 w-4" />}
+                          onClick={() => onNudgeCabinet(-1)}
+                          aria-label="Move module 50 millimetres left"
+                        >
+                          50mm
+                        </ActionButton>
+                        <ActionButton
+                          className="flex-1 font-mono"
+                          onClick={() => onNudgeCabinet(1)}
+                          aria-label="Move module 50 millimetres right"
+                        >
+                          50mm
+                          <ArrowRight className="h-4 w-4" />
+                        </ActionButton>
+                        <ActionButton
+                          variant="danger"
+                          onClick={() => onDeleteCabinet(selectedCabinet.id)}
+                          aria-label="Delete this module"
+                          title="Delete module"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </ActionButton>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-dashed border-line bg-surface p-6 text-center">
+                    <Layers className="mx-auto h-6 w-6 text-clay" />
+                    <p className="text-[13px] text-ink-soft">No module selected.</p>
+                    <p className="text-xs text-ink-muted">
+                      Click a module in the 3D scene, or press 1–4 to add one.
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* ── Commercial ──────────────────────────────────────────── */}
+            {activeTab === 'commercial' && (
+              <section className="space-y-4">
+                <SectionLabel>Commercial summary</SectionLabel>
+
+                <div className="rounded-xl border border-line bg-surface p-4">
+                  <dl className="space-y-2">
+                    {totals.lineItems.map((line) => (
+                      <div key={line.description} className="flex justify-between gap-3 text-[13px]">
+                        <dt className="min-w-0 text-ink-soft">
+                          <span className="block truncate">{line.description}</span>
+                          {line.qty > 1 && (
+                            <span className="font-mono text-xs text-ink-muted">
+                              {line.qty} × {formatMyr(line.unit_price)}
+                            </span>
+                          )}
+                        </dt>
+                        <dd className="shrink-0 font-mono text-ink">{formatMyr(line.total)}</dd>
+                      </div>
+                    ))}
+
+                    {totals.lineItems.length === 0 && (
+                      <p className="text-[13px] text-ink-muted">
+                        No modules placed — add joinery to price this room.
+                      </p>
+                    )}
+
+                    <div className="flex justify-between gap-3 border-t border-line pt-2 text-[13px]">
+                      <dt className="text-ink-soft">Subtotal</dt>
+                      <dd className="font-mono text-ink">{formatMyr(totals.subtotal)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3 text-[13px]">
+                      <dt className="text-ink-soft">SST (8%)</dt>
+                      <dd className="font-mono text-ink">{formatMyr(totals.gst)}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">
+                    <span className="text-sm font-semibold text-ink">Total incl. SST</span>
+                    <span className="font-mono text-xl font-bold text-ink">
+                      {formatMyr(totals.total)}
                     </span>
                   </div>
-
-                  {/* Dimensions Breakdown */}
-                  <div className="grid grid-cols-3 gap-2 text-center py-2 bg-[#FAF7F2] rounded-lg border border-[#E5DDD3]">
-                    <div>
-                      <span className="text-[10px] text-[#8C725C] uppercase block">Width</span>
-                      <span className="text-xs font-mono font-bold text-[#2C2724]">
-                        {(selectedCabinet.width * 1000).toFixed(0)}mm
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#8C725C] uppercase block">Height</span>
-                      <span className="text-xs font-mono font-bold text-[#2C2724]">
-                        {(selectedCabinet.height * 1000).toFixed(0)}mm
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#8C725C] uppercase block">Depth</span>
-                      <span className="text-xs font-mono font-bold text-[#2C2724]">
-                        {(selectedCabinet.depth * 1000).toFixed(0)}mm
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Nudge & Actions */}
-                  <div className="space-y-2 pt-2">
-                    <span className="text-xs text-[#8C725C] block">Nudge Along Wall Rail</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => onNudgeCabinet(-1)}
-                        className="flex-1 py-2 rounded-lg bg-[#FAF7F2] border border-[#E5DDD3] text-[#2C2724] hover:bg-[#E7D8C9] font-mono text-xs font-semibold flex items-center justify-center gap-1 transition-all"
-                      >
-                        <ArrowLeft className="w-3.5 h-3.5" />
-                        <span>-50mm</span>
-                      </button>
-
-                      <button
-                        onClick={() => onNudgeCabinet(1)}
-                        className="flex-1 py-2 rounded-lg bg-[#FAF7F2] border border-[#E5DDD3] text-[#2C2724] hover:bg-[#E7D8C9] font-mono text-xs font-semibold flex items-center justify-center gap-1 transition-all"
-                      >
-                        <span>+50mm</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        onClick={() => onDeleteCabinet(selectedCabinet.id)}
-                        className="p-2 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-all"
-                        title="Delete Module"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-6 rounded-xl border border-dashed border-[#E5DDD3] bg-white/50 text-center space-y-2">
-                  <Layers className="w-6 h-6 text-[#B2967D] mx-auto opacity-50" />
-                  <p className="text-xs text-[#8C725C]">No cabinet selected in 3D scene.</p>
-                  <p className="text-[11px] text-[#B2967D]">
-                    Click any module in 3D or press 1–4 on your keyboard to spawn new joinery.
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {cabinetCount} module{cabinetCount === 1 ? '' : 's'} · rates from the live
+                    catalogue
                   </p>
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* ── TAB 3: PRICING & PRODUCTION HANDOVER ─────────────────── */}
-          {activeTab === 'commercial' && (
-            <div className="space-y-5">
-              <span className="text-xs uppercase tracking-wider font-semibold text-[#8C725C] block mb-2">
-                Commercial Summary & Export
-              </span>
-
-              <div className="bg-white rounded-xl p-4 border border-[#E5DDD3] space-y-3 shadow-xs">
-                <div className="flex justify-between text-xs text-[#8C725C]">
-                  <span>Joinery Subtotal ({cabinets.length} units)</span>
-                  <span className="font-mono font-medium">${materialSubtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-[#8C725C]">
-                  <span>20mm Calacatta Quartz Stone</span>
-                  <span className="font-mono font-medium">${benchtopCost.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-[#8C725C]">
-                  <span>GST (10%)</span>
-                  <span className="font-mono font-medium">${gst.toFixed(2)}</span>
-                </div>
-
-                <div className="pt-3 border-t border-[#E5DDD3] flex justify-between items-baseline">
-                  <span className="font-bold text-sm text-[#2C2724]">Total AUD</span>
-                  <span className="font-mono font-bold text-xl text-[#2C2724]">
-                    ${grandTotal.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="space-y-2.5 pt-2">
-                <button
-                  onClick={handleSaveWithCelebration}
-                  disabled={isSaving}
-                  className="w-full py-3 px-4 rounded-xl bg-[#2C2724] text-[#FAF7F2] text-xs font-semibold hover:bg-[#1E1A17] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-md"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-[#E6BEAE]" />
-                  <span>{isSaving ? 'Locking Studio BOQ...' : 'Save & Lock Studio BOQ'}</span>
-                </button>
-
-                <a
-                  href={`/quote/pdf/${quoteId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-2.5 px-3 rounded-xl bg-white border border-[#E5DDD3] text-[#2C2724] text-xs font-semibold hover:bg-[#FAF7F2] transition-all flex items-center justify-center gap-2 shadow-xs"
-                >
-                  <FileText className="w-4 h-4 text-[#8C725C]" />
-                  <span>Download Signed PDF Proposal</span>
-                </a>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href={`/api/export/${quoteId}/dxf`}
-                    download
-                    className="py-2 px-3 rounded-lg bg-white border border-[#E5DDD3] text-[#8C725C] hover:text-[#2C2724] text-xs font-medium hover:bg-[#FAF7F2] transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                <div className="space-y-2">
+                  <ActionButton
+                    variant="primary"
+                    className="w-full py-2.5"
+                    onClick={onSaveRevisions}
+                    disabled={saveState === 'saving'}
+                    icon={<CheckCircle2 className="h-4 w-4 text-clay-soft" />}
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>AutoCAD DXF</span>
-                  </a>
+                    {saveState === 'saving' ? 'Saving revision…' : 'Save & lock studio BOQ'}
+                  </ActionButton>
 
-                  <a
-                    href={`/api/export/${quoteId}/cutlist`}
-                    download
-                    className="py-2 px-3 rounded-lg bg-white border border-[#E5DDD3] text-[#8C725C] hover:text-[#2C2724] text-xs font-medium hover:bg-[#FAF7F2] transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                  {saveState === 'saved' && (
+                    <p className="flex items-center gap-1.5 text-xs text-sage">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Revision saved to the consultation record.
+                    </p>
+                  )}
+                  {saveState === 'error' && (
+                    <p className="flex items-start gap-1.5 text-xs text-danger">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>{saveError ?? 'Could not save this revision.'}</span>
+                    </p>
+                  )}
+
+                  <LinkButton
+                    href={`/pdf/${quoteId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full"
+                    icon={<FileText className="h-4 w-4 text-ink-muted" />}
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Cutlist CSV</span>
-                  </a>
+                    Signed PDF proposal
+                  </LinkButton>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <LinkButton
+                      href={`/api/export/${quoteId}/dxf`}
+                      download
+                      icon={<Download className="h-4 w-4 text-ink-muted" />}
+                    >
+                      DXF
+                    </LinkButton>
+                    <LinkButton
+                      href={`/api/export/${quoteId}/cutlist`}
+                      download
+                      icon={<Download className="h-4 w-4 text-ink-muted" />}
+                    >
+                      Cutlist
+                    </LinkButton>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
+              </section>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 };

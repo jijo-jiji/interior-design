@@ -122,6 +122,7 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
       'obstacles': project['obstacles'] ?? [],
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
+      'benchtop_material': project['benchtop_material'],
       'client_name': project['client_name'] ?? 'Client',
       'client_phone': project['client_phone'] ?? '',
       'client_email': project['client_email'] ?? '',
@@ -623,7 +624,7 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                                             ),
                                           ),
                                           Text(
-                                            '\$${totalPrice.toStringAsFixed(0)} AUD',
+                                            'RM${totalPrice.toStringAsFixed(0)}',
                                             style: const TextStyle(
                                               color: AppTheme.textPrimary,
                                               fontSize: 15,

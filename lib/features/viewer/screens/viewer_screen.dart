@@ -9,6 +9,8 @@ import '../../../shared/config.dart';
 import '../models/cpq_engine.dart';
 import '../widgets/closing_modal.dart';
 import '../utils/offline_store.dart';
+import '../utils/proposal_delivery.dart';
+import 'proposal_preview_screen.dart';
 
 /// Touch-First 3D Viewer & Sales Closing Canvas.
 /// Embeds Three.js via local WebView with:
@@ -35,6 +37,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   String _currentStyle = 'japandi';
 
+  /// null = no stone quoted yet. Priced per linear metre of base/corner run.
+  String? _benchtopMaterial;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +49,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
       _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
+      _benchtopMaterial = parsed['benchtop_material'] as String?;
       if (parsed['placed_cabinets'] != null) {
         final cabs = parsed['placed_cabinets'] as List<dynamic>;
         for (final c in cabs) {
@@ -159,6 +165,250 @@ class _ViewerScreenState extends State<ViewerScreen> {
       placedCabinets: _placedCabinets,
       obstacles: _obstacles,
       styleArchetype: _currentStyle,
+      benchtopMaterial: _benchtopMaterial,
+    );
+  }
+
+  /// Appliance modules. They price like joinery (the cabinetry, cutouts and
+  /// services), so they spawn through the same path as a cabinet.
+  static const List<({String type, String label, String blurb, IconData icon})>
+      _appliances = [
+    (type: 'sink_600', label: 'Sink 600', blurb: 'Undermount bowl & tap cutout', icon: Icons.water_drop_outlined),
+    (type: 'cooktop_600', label: 'Cooktop 600', blurb: 'Induction cutout & isolator', icon: Icons.local_fire_department_outlined),
+    (type: 'dishwasher_600', label: 'Dishwasher 600', blurb: 'Integrated, under bench', icon: Icons.local_laundry_service_outlined),
+    (type: 'oven_tower_600', label: 'Oven Tower 600', blurb: 'Wall oven + microwave stack', icon: Icons.microwave_outlined),
+    (type: 'fridge_recess_700', label: 'Fridge Recess 700', blurb: 'Framed recess & panels', icon: Icons.kitchen_outlined),
+    (type: 'rangehood_900', label: 'Rangehood 900', blurb: 'Wall mounted, ducted', icon: Icons.air_outlined),
+  ];
+
+  void _showApplianceSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      // Six modules do not fit a default sheet on a phone — let it scroll.
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Add Appliance',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Cabinetry, cutouts and services — appliance supply is quoted separately.',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 14),
+
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+              ..._appliances.map((item) {
+                final price = CPQEngine.cabinetPrices[item.type] ?? 0;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      _spawnCabinet(item.type);
+                      Navigator.pop(sheetContext);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(item.icon, size: 20, color: AppTheme.accent),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.label,
+                                  style: const TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  item.blurb,
+                                  style: const TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '+RM${price.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Benchtop chooser. The rates already existed in CPQEngine but nothing ever
+  /// selected one, so every quote priced stone at zero.
+  void _showBenchtopSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final metres = _cpqSummary.benchtopLinearMetres;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Benchtop Material',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  metres > 0
+                      ? '${metres.toStringAsFixed(2)} linear metres of run measured'
+                      : 'Place base cabinets first to measure the run.',
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+
+                ...CPQEngine.benchtopRates.entries.map((entry) {
+                  final selected = _benchtopMaterial == entry.key;
+                  final cost = metres * entry.value;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        setState(() => _benchtopMaterial = entry.key);
+                        HapticFeedback.selectionClick();
+                        Navigator.pop(sheetContext);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: selected ? AppTheme.surfaceRaised : AppTheme.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected ? AppTheme.accentTaupe : AppTheme.border,
+                            width: selected ? 1.6 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              selected
+                                  ? Icons.radio_button_checked_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              size: 20,
+                              color: selected ? AppTheme.accent : AppTheme.textTertiary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    CPQEngine.benchtopNames[entry.key] ?? entry.key,
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    'RM${entry.value.toStringAsFixed(0)} per linear metre',
+                                    style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              metres > 0 ? '+RM${cost.toStringAsFixed(0)}' : '—',
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+
+                if (_benchtopMaterial != null)
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() => _benchtopMaterial = null);
+                      Navigator.pop(sheetContext);
+                    },
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                    label: const Text('Remove benchtop from quote'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -192,6 +442,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       'placed_cabinets': _placedCabinets,
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
+      'benchtop_material': _benchtopMaterial,
       'client_name': clientName,
       'client_phone': clientPhone,
       'client_email': clientEmail,
@@ -241,7 +492,6 @@ class _ViewerScreenState extends State<ViewerScreen> {
   ) {
     final quoteId = result['quote_id'] ?? 'QT-SUCCESS';
     final total = result['total_price'] ?? _cpqSummary.totalPrice.toStringAsFixed(2);
-    final pdfUrl = result['pdf_url'] ?? '';
 
     showDialog(
       context: context,
@@ -284,37 +534,39 @@ class _ViewerScreenState extends State<ViewerScreen> {
             ),
             const SizedBox(height: 14),
             _SummaryTile(label: 'Quote Number', value: quoteId),
-            _SummaryTile(label: 'Total Value', value: '\$$total AUD'),
+            _SummaryTile(label: 'Total Value', value: 'RM$total'),
             _SummaryTile(
               label: 'Slot Status',
-              value: depositLocked ? 'Priority Locked (\$250)' : 'Estimate Sent',
+              value: depositLocked ? 'Priority Locked (RM250)' : 'Estimate Sent',
             ),
             _SummaryTile(label: 'Style Archetype', value: _cpqSummary.styleName),
-            if (pdfUrl.isNotEmpty) ...[
+            if (isOfflineQueued) ...[
               const SizedBox(height: 8),
-              _SummaryTile(label: 'PDF Document', value: pdfUrl),
+              const Text(
+                'The signed PDF becomes available once this quote syncs.',
+                style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+              ),
             ],
           ],
         ),
+        actionsOverflowButtonSpacing: 8,
         actions: [
           TextButton.icon(
-            onPressed: () {
-              final text = Uri.encodeComponent(
-                'Hi $clientName! Here is your custom interior design quotation ($quoteId) '
-                'for \$$total AUD in ${_cpqSummary.styleName} style. '
-                'Slot status: ${depositLocked ? "Priority Locked (\$250)" : "Estimate"}.',
-              );
-              final cleanPhone = clientPhone.replaceAll(RegExp(r'[^\d]'), '');
-              Clipboard.setData(ClipboardData(text: 'https://wa.me/$cleanPhone?text=$text'));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('WhatsApp proposal link generated and copied to clipboard!'),
-                  backgroundColor: AppTheme.accent,
-                ),
-              );
-            },
-            icon: const Icon(Icons.share_rounded, size: 16),
-            label: const Text('Share to WhatsApp'),
+            onPressed: isOfflineQueued ? null : () => _openProposal(quoteId, clientName),
+            icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+            label: const Text('Open proposal'),
+          ),
+          TextButton.icon(
+            onPressed: () => _sendToWhatsApp(
+              clientName: clientName,
+              clientPhone: clientPhone,
+              quoteId: quoteId,
+              total: '$total',
+              depositLocked: depositLocked,
+              isOfflineQueued: isOfflineQueued,
+            ),
+            icon: const Icon(Icons.chat_rounded, size: 16),
+            label: const Text('Send to WhatsApp'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -326,6 +578,87 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ],
       ),
     );
+  }
+
+  /// Downloads the signed PDF and shows it full-screen for the client.
+  Future<void> _openProposal(String quoteId, String clientName) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: AppTheme.accentTerracotta),
+      ),
+    );
+
+    try {
+      final file = await ProposalDelivery.downloadProposalPdf(quoteId);
+      navigator.pop(); // Dismiss the spinner.
+      if (!mounted) return;
+
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => ProposalPreviewScreen(
+            pdfFile: file,
+            quoteId: quoteId,
+            clientName: clientName,
+          ),
+        ),
+      );
+    } on ProposalUnavailable catch (e) {
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: AppTheme.danger),
+      );
+    }
+  }
+
+  /// Opens WhatsApp on the client's chat with the proposal message ready.
+  Future<void> _sendToWhatsApp({
+    required String clientName,
+    required String clientPhone,
+    required String quoteId,
+    required String total,
+    required bool depositLocked,
+    required bool isOfflineQueued,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    final message = ProposalDelivery.buildMessage(
+      clientName: clientName,
+      quoteId: quoteId,
+      total: total,
+      styleName: _cpqSummary.styleName,
+      depositLocked: depositLocked,
+      isOfflineQueued: isOfflineQueued,
+    );
+
+    final result = await ProposalDelivery.sendViaWhatsApp(
+      phone: clientPhone,
+      message: message,
+    );
+
+    if (!mounted) return;
+
+    final (text, colour) = switch (result) {
+      WhatsAppResult.opened => ('Opening WhatsApp…', AppTheme.success),
+      WhatsAppResult.openedWithoutNumber => (
+          'No phone number on file — pick the contact in WhatsApp.',
+          AppTheme.accent,
+        ),
+      WhatsAppResult.openedInBrowser => (
+          'WhatsApp is not installed — opening wa.me in the browser.',
+          AppTheme.accent,
+        ),
+      WhatsAppResult.copiedToClipboard => (
+          'No app could open the link. Message copied to the clipboard.',
+          AppTheme.accent,
+        ),
+    };
+
+    messenger.showSnackBar(SnackBar(content: Text(text), backgroundColor: colour));
   }
 
   void _showBOQSheet() {
@@ -363,16 +696,22 @@ class _ViewerScreenState extends State<ViewerScreen> {
             const SizedBox(height: 8),
             _SummaryTile(
               label: 'Base Cabinets',
-              value: '\$${summary.baseCabinetTotal.toStringAsFixed(2)}',
+              value: 'RM${summary.baseCabinetTotal.toStringAsFixed(2)}',
             ),
             _SummaryTile(
               label: 'Wall Cabinets',
-              value: '\$${summary.wallCabinetTotal.toStringAsFixed(2)}',
+              value: 'RM${summary.wallCabinetTotal.toStringAsFixed(2)}',
             ),
             if (summary.tallCabinetTotal > 0)
               _SummaryTile(
                 label: 'Tall Cabinets',
-                value: '\$${summary.tallCabinetTotal.toStringAsFixed(2)}',
+                value: 'RM${summary.tallCabinetTotal.toStringAsFixed(2)}',
+              ),
+            if (summary.benchtopTotal > 0)
+              _SummaryTile(
+                label:
+                    '${summary.benchtopMaterial} (${summary.benchtopLinearMetres.toStringAsFixed(2)} lm)',
+                value: 'RM${summary.benchtopTotal.toStringAsFixed(2)}',
               ),
             _SummaryTile(
               label: 'Finish Multiplier (${summary.styleName})',
@@ -380,21 +719,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
             ),
             _SummaryTile(
               label: 'Installation Labour (${summary.totalModules} units)',
-              value: '\$${summary.labourTotal.toStringAsFixed(2)}',
+              value: 'RM${summary.labourTotal.toStringAsFixed(2)}',
             ),
             if (summary.obstacleAllowance != 0)
               _SummaryTile(
                 label: 'Cutout Allowance (Doors/Windows)',
-                value: '-\$${summary.obstacleAllowance.abs().toStringAsFixed(2)}',
+                value: '-RM${summary.obstacleAllowance.abs().toStringAsFixed(2)}',
               ),
             _SummaryTile(
-              label: 'GST (10%)',
-              value: '\$${summary.gst.toStringAsFixed(2)}',
+              label: 'SST (8%)',
+              value: 'RM${summary.gst.toStringAsFixed(2)}',
             ),
             const Divider(color: AppTheme.border),
             _SummaryTile(
               label: 'Total Project Price',
-              value: '\$${summary.totalPrice.toStringAsFixed(2)} AUD',
+              value: 'RM${summary.totalPrice.toStringAsFixed(2)}',
               isBold: true,
             ),
           ],
@@ -410,13 +749,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('3D Live Co-Design'),
+        // The BOQ button lives in the bottom HUD; repeating it here squeezed
+        // the title down to "3D Live …".
+        title: const Text('Co-Design'),
         actions: [
-          IconButton(
-            tooltip: 'View Itemized BOQ',
-            onPressed: _showBOQSheet,
-            icon: const Icon(Icons.receipt_long_rounded),
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: ElevatedButton.icon(
@@ -472,6 +808,80 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     color: const Color(0xFF483C34),
                     onTap: () => _switchStyle('industrial'),
                   ),
+
+                  // ── Appliance entry point ──────────────────────────────
+                  const SizedBox(width: 14),
+                  InkWell(
+                    onTap: _showApplianceSheet,
+                    borderRadius: BorderRadius.circular(30),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.kitchen_outlined, size: 15, color: AppTheme.textSecondary),
+                          SizedBox(width: 6),
+                          Text(
+                            'Appliances',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ── Benchtop entry point ───────────────────────────────
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _showBenchtopSheet,
+                    borderRadius: BorderRadius.circular(30),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: _benchtopMaterial != null
+                            ? AppTheme.accent
+                            : AppTheme.surface.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(
+                          color: _benchtopMaterial != null
+                              ? AppTheme.accent
+                              : AppTheme.border,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.countertops_outlined,
+                            size: 15,
+                            color: _benchtopMaterial != null
+                                ? Colors.white
+                                : AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _benchtopMaterial != null ? 'Benchtop ✓' : 'Benchtop',
+                            style: TextStyle(
+                              color: _benchtopMaterial != null
+                                  ? Colors.white
+                                  : AppTheme.textPrimary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -486,44 +896,50 @@ class _ViewerScreenState extends State<ViewerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // ── Native Joinery Module Drawer ─────────────────────────
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _JoineryModuleButton(
+                // Four cards never fit a phone at their old size, so the row
+                // clipped the last one mid-card. They now share the width.
+                Row(
+                  children: [
+                    Expanded(
+                      child: _JoineryModuleButton(
                         type: 'base_800',
                         label: 'Base 800',
-                        dims: '800mm',
+                        dims: '800mm wide',
                         icon: Icons.view_agenda_outlined,
                         onAdd: () => _spawnCabinet('base_800'),
                       ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _JoineryModuleButton(
                         type: 'base_600',
                         label: 'Base 600',
-                        dims: '600mm',
+                        dims: '600mm wide',
                         icon: Icons.crop_square_rounded,
                         onAdd: () => _spawnCabinet('base_600'),
                       ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _JoineryModuleButton(
                         type: 'wall_600',
                         label: 'Wall 600',
-                        dims: '600mm',
+                        dims: '600mm wide, wall mounted',
                         icon: Icons.table_rows_outlined,
                         onAdd: () => _spawnCabinet('wall_600'),
                       ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _JoineryModuleButton(
                         type: 'tall_600',
                         label: 'Tall 600',
-                        dims: '2100mm',
+                        dims: '2100mm tall',
                         icon: Icons.view_sidebar_outlined,
                         onAdd: () => _spawnCabinet('tall_600'),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
 
                 const SizedBox(height: 10),
@@ -555,21 +971,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
                             children: [
                               Row(
                                 children: [
-                                  TweenAnimationBuilder<double>(
-                                    tween: Tween<double>(begin: 0, end: summary.totalPrice),
-                                    duration: const Duration(milliseconds: 400),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (context, val, _) {
-                                      return Text(
-                                        '\$${val.toStringAsFixed(0)} AUD',
-                                        style: const TextStyle(
-                                          color: AppTheme.textPrimary,
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: -0.5,
-                                        ),
-                                      );
-                                    },
+                                  // Four-digit totals used to push the module
+                                  // chip past the edge of the HUD.
+                                  Flexible(
+                                    child: TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(begin: 0, end: summary.totalPrice),
+                                      duration: const Duration(milliseconds: 400),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, val, _) {
+                                        return FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            'RM${val.toStringAsFixed(0)}',
+                                            maxLines: 1,
+                                            style: const TextStyle(
+                                              color: AppTheme.textPrimary,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: -0.5,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
                                   Container(
@@ -593,8 +1018,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
                               const SizedBox(height: 3),
                               Text(
                                 summary.totalPrice > 0
-                                    ? '\$${summary.monthlyPayment.toStringAsFixed(0)}/mo (36mo) • \$250 Slot Deposit'
+                                    ? 'RM${summary.monthlyPayment.toStringAsFixed(0)}/mo (36mo) • RM250 Slot Deposit'
                                     : 'Tap modules above to place along wall rails',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: AppTheme.textSecondary.withOpacity(0.85),
                                   fontSize: 11,
@@ -801,59 +1228,44 @@ class _JoineryModuleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onAdd,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: AppTheme.surface.withOpacity(0.95),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.border, width: 1.0),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2C2724).withOpacity(0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: AppTheme.accent),
-            const SizedBox(width: 6),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
+    return Tooltip(
+      message: 'Add $label — $dims',
+      child: InkWell(
+        onTap: onAdd,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          decoration: BoxDecoration(
+            color: AppTheme.surface.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.border, width: 1.0),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2C2724).withOpacity(0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: AppTheme.accent),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
                   label,
+                  maxLines: 1,
                   style: const TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(
-                  dims,
-                  style: TextStyle(
-                    color: AppTheme.textSecondary.withOpacity(0.8),
-                    fontSize: 9.5,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: AppTheme.accent.withOpacity(0.12),
-                shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.add_rounded, size: 12, color: AppTheme.accent),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
