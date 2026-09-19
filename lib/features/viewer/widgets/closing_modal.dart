@@ -247,7 +247,7 @@ class _ClosingModalState extends State<ClosingModal> {
                               ),
                             ),
                             Text(
-                              '\$${widget.totalPrice.toStringAsFixed(2)}',
+                              'RM${widget.totalPrice.toStringAsFixed(2)}',
                               style: const TextStyle(
                                 color: AppTheme.accent,
                                 fontSize: 20,
@@ -268,7 +268,7 @@ class _ClosingModalState extends State<ClosingModal> {
                               ),
                             ),
                             Text(
-                              '\$${(widget.totalPrice / 36 * 1.05).toStringAsFixed(0)}/mo',
+                              'RM${(widget.totalPrice / 36 * 1.05).toStringAsFixed(0)}/mo',
                               style: const TextStyle(
                                 color: AppTheme.success,
                                 fontSize: 12,
@@ -410,7 +410,7 @@ class _ClosingModalState extends State<ClosingModal> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Lock in Slot with \$${widget.depositAmount.toStringAsFixed(0)} Deposit',
+                                'Lock in Slot with RM${widget.depositAmount.toStringAsFixed(0)} Deposit',
                                 style: const TextStyle(
                                   color: AppTheme.textPrimary,
                                   fontSize: 13,
@@ -487,7 +487,7 @@ class _ClosingModalState extends State<ClosingModal> {
                                 const SizedBox(width: 8),
                                 Text(
                                   _depositLocked
-                                      ? 'Sign & Lock In Slot (\$${widget.depositAmount.toStringAsFixed(0)})'
+                                      ? 'Sign & Lock In Slot (RM${widget.depositAmount.toStringAsFixed(0)})'
                                       : 'Sign & Generate Proposal',
                                   style: const TextStyle(
                                     fontSize: 15,

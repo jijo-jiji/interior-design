@@ -1,66 +1,92 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Atelier Architekt — Studio design tokens
+
+   Semantic names only: components reference `bg-surface`, `text-ink-muted`,
+   `border-line` … never raw hex. Changing a value here re-themes the studio.
+   Text tones are kept at 4.5:1 or better against `canvas`/`surface`.
+   ──────────────────────────────────────────────────────────────────────────── */
+
 @theme {
-  --color-earth-mist: #ECF8F8;
-  --color-earth-linen: #EEE4E1;
-  --color-earth-sand: #E7D8C9;
-  --color-earth-terracotta: #E6BEAE;
-  --color-earth-taupe: #B2967D;
-  --color-earth-dark-taupe: #8C725C;
-  --color-earth-espresso: #2C2724;
-  --color-earth-deep: #1E1A17;
-  --color-earth-cream: #FAF7F2;
-  --color-earth-border: #E5DDD3;
-  --color-earth-card: rgba(255, 255, 255, 0.85);
+  /* Surfaces — warm neutral, lightest at the top of the stack */
+  --color-canvas: #F3EDE5;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #FAF7F2;
+  --color-surface-sunken: #EFE7DC;
+
+  /* Hairlines */
+  --color-line: #E2D9CD;
+  --color-line-strong: #CDBFAD;
+
+  /* Text — ink on warm neutral */
+  --color-ink: #241F1B;
+  --color-ink-soft: #574A3E;
+  --color-ink-muted: #6E6052;
+
+  /* Accents */
+  --color-clay: #A25F41;
+  --color-clay-soft: #E6BEAE;
+  --color-clay-tint: #F6E7E0;
+  --color-sand: #E7D8C9;
+  --color-espresso: #2C2724;
+  --color-espresso-deep: #1E1A17;
+
+  /* Status */
+  --color-sage: #3D6B69;
+  --color-sage-tint: #E4F0EE;
+  --color-danger: #A33A2A;
+  --color-danger-tint: #F7E7E3;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Geist", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* There is deliberately no hand-written `* { margin: 0; padding: 0 }` reset.
+   An unlayered rule like that outranks every layered Tailwind utility whatever
+   its specificity, which silently stripped all padding, margin and space-y
+   spacing from the studio. Tailwind's preflight already applies that reset. */
+
+@layer base {
+  html, body, #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-html, body, #root {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--color-earth-cream);
-  color: var(--color-earth-espresso);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Every control shares one visible focus treatment */
+:where(button, a, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-clay);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
 }
 
 /* Custom subtle scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(178, 150, 125, 0.3);
+  background: rgba(178, 150, 125, 0.35);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(178, 150, 125, 0.6);
+  background: rgba(178, 150, 125, 0.65);
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(250, 247, 242, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(229, 221, 211, 0.8);
-  box-shadow: 0 4px 20px -2px rgba(44, 39, 36, 0.05);
-}
-
-.glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(229, 221, 211, 0.6);
+/* Translucency is reserved for the one panel that floats over the 3D scene */
+.floating-panel {
+  background: rgba(250, 247, 242, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px -8px rgba(36, 31, 27, 0.22);
 }

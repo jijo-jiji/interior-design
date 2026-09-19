@@ -5,7 +5,23 @@ class CPQEngine {
     'wall_600': 280.00,
     'tall_600': 620.00,
     'corner_900': 580.00,
+    // Appliance modules: cabinetry, cutouts and services for each unit.
+    'sink_600': 480.00,
+    'cooktop_600': 520.00,
+    'dishwasher_600': 360.00,
+    'oven_tower_600': 1450.00,
+    'fridge_recess_700': 390.00,
+    'rangehood_900': 690.00,
   };
+
+  /// Which modules carry benchtop over them. Mirrored in backend/main.py and
+  /// frontend/src/pricing.ts — the pricing contract test fails if they drift.
+  static const List<String> benchtopTypePrefixes = [
+    'base', 'corner', 'sink', 'cooktop', 'dishwasher',
+  ];
+
+  static bool _carriesBenchtop(String type) =>
+      benchtopTypePrefixes.any(type.startsWith);
 
   static const Map<String, double> styleMultipliers = {
     'japandi': 1.00,
@@ -24,7 +40,9 @@ class CPQEngine {
   static const double labourRatePerCabinet = 120.00;
   static const double windowAllowance = -50.00;
   static const double doorAllowance = -80.00;
-  static const double gstRate = 0.10;
+  // Malaysian service tax. Mirrors GST_RATE in backend/main.py; the field is
+  // still named gst on the wire so stored consultations keep working.
+  static const double gstRate = 0.08;
 
   static const Map<String, double> benchtopRates = {
     'quartz_calacatta': 380.00,
@@ -57,19 +75,22 @@ class CPQEngine {
       final basePrice = cabinetPrices[type] ?? 300.00;
       final adjustedPrice = basePrice * mult;
 
-      if (type.startsWith('base')) {
-        baseCabinetTotal += adjustedPrice;
-        final wMm = (cab['width_mm'] as num?)?.toDouble() ?? (type == 'base_800' ? 800.0 : 600.0);
-        benchtopLinearMetres += wMm * 0.001;
-      } else if (type.startsWith('wall')) {
-        wallCabinetTotal += adjustedPrice;
-      } else if (type.startsWith('tall')) {
-        tallCabinetTotal += adjustedPrice;
-      } else if (type.startsWith('corner')) {
+      if (type.startsWith('corner')) {
         cornerCabinetTotal += adjustedPrice;
         benchtopLinearMetres += 1.8; // 900mm along each wing
+      } else if (type.startsWith('wall') || type.startsWith('rangehood')) {
+        wallCabinetTotal += adjustedPrice;
+      } else if (type.startsWith('tall') ||
+          type.startsWith('oven_tower') ||
+          type.startsWith('fridge')) {
+        tallCabinetTotal += adjustedPrice;
       } else {
         baseCabinetTotal += adjustedPrice;
+        if (_carriesBenchtop(type)) {
+          final wMm = (cab['width_mm'] as num?)?.toDouble() ??
+              (type == 'base_800' ? 800.0 : 600.0);
+          benchtopLinearMetres += wMm * 0.001;
+        }
       }
     }
 

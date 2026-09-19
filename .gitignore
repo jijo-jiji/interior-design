@@ -63,3 +63,6 @@ __pycache__/
 temp_video_recordings/
 *.webm
 
+
+# Generated quotation PDFs
+backend/generated_pdfs/

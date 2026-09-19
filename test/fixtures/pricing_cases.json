@@ -1,0 +1,300 @@
+{
+  "README": [
+    "Shared pricing contract between the mobile CPQEngine (lib/features/viewer/models/cpq_engine.dart)",
+    "and the backend quote engine (backend/main.py price_quote).",
+    "The salesperson quotes from the app; the client signs the PDF the backend renders.",
+    "If these two ever disagree the client signs a different number than they were shown,",
+    "so both sides are checked against these figures:",
+    "  flutter test test/pricing_contract_test.dart",
+    "  python backend/test_pricing_contract.py",
+    "Changing a rate means updating both engines AND the expected values here, deliberately."
+  ],
+  "cases": [
+    {
+      "name": "two_base_japandi_no_benchtop",
+      "style_archetype": "japandi",
+      "benchtop_material": null,
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "base_600",
+          "label": "base_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 1000.0,
+        "gst": 80.0,
+        "total_price": 1080.0
+      }
+    },
+    {
+      "name": "two_base_japandi_quartz",
+      "style_archetype": "japandi",
+      "benchtop_material": "quartz_calacatta",
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "base_600",
+          "label": "base_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 1532.0,
+        "gst": 122.56,
+        "total_price": 1654.56
+      }
+    },
+    {
+      "name": "mixed_nordic_quartz",
+      "style_archetype": "nordic",
+      "benchtop_material": "quartz_calacatta",
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "base_600",
+          "label": "base_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "corner_900",
+          "label": "corner_900",
+          "width_mm": 900,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "wall_600",
+          "label": "wall_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 3510.4,
+        "gst": 280.83,
+        "total_price": 3791.23
+      }
+    },
+    {
+      "name": "industrial_laminate_with_obstacles",
+      "style_archetype": "industrial",
+      "benchtop_material": "laminate_matte",
+      "obstacles": [
+        {
+          "type": "window",
+          "distance_from_left_mm": 0,
+          "distance_from_floor_mm": 900,
+          "width_mm": 1200,
+          "height_mm": 900
+        },
+        {
+          "type": "door",
+          "distance_from_left_mm": 0,
+          "distance_from_floor_mm": 0,
+          "width_mm": 820,
+          "height_mm": 2100
+        }
+      ],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "tall_600",
+          "label": "tall_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 1465.2,
+        "gst": 117.22,
+        "total_price": 1582.42
+      }
+    },
+    {
+      "name": "unknown_type_falls_back",
+      "style_archetype": "minimalist",
+      "benchtop_material": null,
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "island_1200",
+          "label": "island_1200",
+          "width_mm": 1200,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "base_600",
+          "label": "base_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 931.2,
+        "gst": 74.5,
+        "total_price": 1005.7
+      }
+    },
+    {
+      "name": "empty_layout",
+      "style_archetype": "japandi",
+      "benchtop_material": "granite_black",
+      "obstacles": [],
+      "placed_cabinets": [],
+      "expected": {
+        "subtotal": 0,
+        "gst": 0.0,
+        "total_price": 0.0
+      }
+    },
+    {
+      "name": "full_kitchen_with_appliances",
+      "style_archetype": "japandi",
+      "benchtop_material": "quartz_calacatta",
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "sink_600",
+          "label": "sink_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "cooktop_600",
+          "label": "cooktop_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "dishwasher_600",
+          "label": "dishwasher_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "oven_tower_600",
+          "label": "oven_tower_600",
+          "width_mm": 600,
+          "height_mm": 2100,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "fridge_recess_700",
+          "label": "fridge_recess_700",
+          "width_mm": 700,
+          "height_mm": 2100,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "rangehood_900",
+          "label": "rangehood_900",
+          "width_mm": 900,
+          "height_mm": 600,
+          "depth_mm": 320,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 6138.0,
+        "gst": 491.04,
+        "total_price": 6629.04
+      }
+    },
+    {
+      "name": "appliances_only_no_benchtop_material",
+      "style_archetype": "nordic",
+      "benchtop_material": null,
+      "obstacles": [],
+      "placed_cabinets": [
+        {
+          "cabinet_type": "sink_600",
+          "label": "sink_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        },
+        {
+          "cabinet_type": "rangehood_900",
+          "label": "rangehood_900",
+          "width_mm": 900,
+          "height_mm": 600,
+          "depth_mm": 320,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 1550.4,
+        "gst": 124.03,
+        "total_price": 1674.43
+      }
+    }
+  ]
+}
