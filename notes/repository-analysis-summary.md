@@ -139,3 +139,5 @@ User chose: build **both** the checklist and the generator; **kitchen** first; c
 - Items in §8.2, §8.5–7 still open.
 
 **Next steps:** send the checklist; when answers return, replace `KitchenCatalog.placeholder` / `KitchenRules.placeholder` and replay the 5 real projects through the generator to compare against what was actually built; then catalog-as-data (tenant-scoped) and pricing.
+
+**Update (same session):** the full checklist felt too long to send cold, so `notes/SS-Love-designer-quick-questions.xlsx` is **what goes to the designer first**: one page with 3 things to send (5 kitchen drawings, standard sizes list, one quote) and 6 quick questions. Most of the remaining rules can be read off the 5 drawings. The full checklist is now the user's own interview guide for a later 30-minute chat, not something to send.
