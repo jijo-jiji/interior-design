@@ -6,6 +6,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/theme.dart';
 import '../../../shared/config.dart';
+import '../../layout/kitchen_layout_generator.dart';
+import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
 import '../widgets/closing_modal.dart';
 import '../utils/offline_store.dart';
@@ -35,12 +37,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   String _currentStyle = 'japandi';
 
+  /// Auto-generated layouts (A Value / B Balanced / C Premium) for this room.
+  List<LayoutVariant> _variants = const [];
+  String? _activeVariantKey;
+
   @override
   void initState() {
     super.initState();
 
+    Map<String, dynamic>? parsed;
     try {
-      final parsed = jsonDecode(widget.jsonPayload) as Map<String, dynamic>;
+      parsed = jsonDecode(widget.jsonPayload) as Map<String, dynamic>;
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
       _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
@@ -53,6 +60,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
     } catch (_) {
       _wallData = {};
       _obstacles = [];
+    }
+
+    // Generate layouts on-device (works offline). An empty room starts on the
+    // Balanced variant; a restored draft keeps its own cabinets.
+    if (parsed != null) {
+      try {
+        _variants = const KitchenLayoutGenerator().generateAll(KitchenRoom.fromPayload(parsed));
+        final initial = _variants.where((v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
+        if (_placedCabinets.isEmpty && initial.isNotEmpty) {
+          _activeVariantKey = initial.first.key;
+          _placedCabinets.addAll(initial.first.toPlacedCabinets());
+        }
+      } catch (_) {
+        _variants = const [];
+      }
     }
 
     _webViewController = WebViewController()
@@ -115,12 +137,55 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
     await _webViewController.runJavaScript("setNativeMode(true)");
     await _webViewController.runJavaScript("loadScene('$escaped')");
+    if (_activeVariantKey != null) {
+      await _pushCabinetsToScene();
+      _showVariantWarnings(_variants.firstWhere((v) => v.key == _activeVariantKey));
+    }
     if (mounted) setState(() => _sceneLoaded = true);
   }
 
   void _spawnCabinet(String type) {
     _webViewController.runJavaScript("spawnCabinet('$type')");
     HapticFeedback.lightImpact();
+  }
+
+  /// Replaces every cabinet in the 3D scene with [_placedCabinets].
+  Future<void> _pushCabinetsToScene() {
+    // Double-encoded: the inner JSON becomes a safe JS string literal.
+    return _webViewController.runJavaScript('replaceCabinets(${jsonEncode(jsonEncode(_placedCabinets))})');
+  }
+
+  void _selectVariant(LayoutVariant variant) {
+    setState(() {
+      _activeVariantKey = variant.key;
+      _placedCabinets
+        ..clear()
+        ..addAll(variant.toPlacedCabinets());
+    });
+    _pushCabinetsToScene();
+    HapticFeedback.lightImpact();
+    _showVariantWarnings(variant);
+  }
+
+  void _clearLayout() {
+    setState(() {
+      _activeVariantKey = null;
+      _placedCabinets.clear();
+    });
+    _pushCabinetsToScene();
+    HapticFeedback.lightImpact();
+  }
+
+  void _showVariantWarnings(LayoutVariant variant) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    if (variant.warnings.isEmpty) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('${variant.key} · ${variant.name}: ${variant.warnings.join(' ')}'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   void _onJsMessage(JavaScriptMessage message) {
@@ -136,6 +201,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
         setState(() {
           _placedCabinets.removeWhere((c) => c['id'] == data['id']);
         });
+      } else if (type == 'cabinet_moved') {
+        // Keep the saved position in sync with drags in the 3D view.
+        final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
+        if (i >= 0) _placedCabinets[i] = {..._placedCabinets[i], 'x_mm': data['x_mm']};
       } else if (type == 'cabinet_snapped') {
         // Haptic feedback when magnetic snapping engages
         HapticFeedback.selectionClick();
@@ -485,6 +554,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // ── Auto-layout variants (A / B / C) ─────────────────────
+                if (_variants.isNotEmpty) ...[
+                  _LayoutVariantBar(
+                    variants: _variants,
+                    activeKey: _activeVariantKey,
+                    onSelect: _selectVariant,
+                    onClear: _placedCabinets.isEmpty ? null : _clearLayout,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+
                 // ── Native Joinery Module Drawer ─────────────────────────
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -735,6 +815,129 @@ class _StylePill extends StatelessWidget {
                 color: isSelected ? Colors.white : AppTheme.textSecondary,
                 fontSize: 11,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The A / B / C switcher the salesperson flips through with the client.
+class _LayoutVariantBar extends StatelessWidget {
+  final List<LayoutVariant> variants;
+  final String? activeKey;
+  final ValueChanged<LayoutVariant> onSelect;
+  final VoidCallback? onClear;
+
+  const _LayoutVariantBar({
+    required this.variants,
+    required this.activeKey,
+    required this.onSelect,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sample = variants.any((v) => v.usesPlaceholderCatalog);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withOpacity(0.97),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border, width: 1.0),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+            child: Row(
+              children: [
+                const Icon(Icons.auto_awesome_rounded, size: 14, color: AppTheme.accent),
+                const SizedBox(width: 6),
+                const Text(
+                  'Auto layouts',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 11.5, fontWeight: FontWeight.bold),
+                ),
+                if (sample)
+                  Text(
+                    '  ·  sample catalog',
+                    style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.85), fontSize: 10.5),
+                  ),
+                const Spacer(),
+                if (onClear != null)
+                  GestureDetector(
+                    onTap: onClear,
+                    child: const Text(
+                      'Clear',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              for (var i = 0; i < variants.length; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                Expanded(
+                  child: _VariantChip(
+                    variant: variants[i],
+                    selected: variants[i].key == activeKey,
+                    onTap: () => onSelect(variants[i]),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VariantChip extends StatelessWidget {
+  final LayoutVariant variant;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _VariantChip({required this.variant, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.accent : AppTheme.surfaceRaised,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? AppTheme.accent : AppTheme.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${variant.key} · ${variant.name}',
+              style: TextStyle(
+                color: selected ? Colors.white : AppTheme.textPrimary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              variant.summary,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? Colors.white.withOpacity(0.85) : AppTheme.textSecondary,
+                fontSize: 9.5,
               ),
             ),
           ],

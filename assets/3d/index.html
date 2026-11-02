@@ -301,6 +301,7 @@ let scene, camera, renderer, controls;
 let placedCabinets = [];
 let cabinetCount = 0;
 let currentWallDepth = 0.15; // default 150mm depth
+let scenePayload = {};       // last payload passed to loadScene()
 
 // ── Scene init ─────────────────────────────────────────────────────────────
 function initScene() {
@@ -478,11 +479,14 @@ function buildWall(wallData, obstacles) {
   const shape = wallData.shape || 'singleWall';
   const returnMm = wallData.return_mm ? (wallData.return_mm * MM) : 0;
   if (shape === 'lShape' && returnMm > 0) {
-    const returnGeo = new THREE.BoxGeometry(D, H, returnMm);
+    // Sits just outside the measured main-wall width (its inner face is at
+    // x = -W/2) and runs from the back of the main wall, so both measured
+    // lengths are clear interior space for cabinets.
+    const returnGeo = new THREE.BoxGeometry(D, H, D + returnMm);
     const returnMesh = new THREE.Mesh(returnGeo, mat);
     returnMesh.castShadow = true;
     returnMesh.receiveShadow = true;
-    returnMesh.position.set(-W / 2 + D / 2, H / 2, D + returnMm / 2);
+    returnMesh.position.set(-W / 2 - D / 2, H / 2, (D + returnMm) / 2);
     wallGroup.add(returnMesh);
   } else if (shape === 'galley') {
     const aisleMm = wallData.aisle_mm ? (wallData.aisle_mm * MM) : 1.2;
@@ -505,17 +509,13 @@ function buildWall(wallData, obstacles) {
   obstacles.forEach(obs => addObstacleMarker(obs, W));
 
   // Restore pre-placed cabinets if loading an existing consultation or draft
-  if (Array.isArray(parsed.placed_cabinets) && parsed.placed_cabinets.length > 0) {
-    parsed.placed_cabinets.forEach(c => {
-      if (window.spawnCabinetAt) {
-        window.spawnCabinetAt(c.cabinet_type, c.x_mm, c.id);
-      }
-    });
+  if (Array.isArray(scenePayload.placed_cabinets) && scenePayload.placed_cabinets.length > 0) {
+    scenePayload.placed_cabinets.forEach(c => spawnFromEntry(c));
   }
 
   // Restore style archetype if specified
-  if (parsed.style_archetype && window.applyStyleArchetype) {
-    window.applyStyleArchetype(parsed.style_archetype);
+  if (scenePayload.style_archetype && window.applyStyleArchetype) {
+    window.applyStyleArchetype(scenePayload.style_archetype);
   }
 }
 
@@ -840,7 +840,7 @@ window.applyStyleArchetype = function(archetypeId) {
 
     let bodyColor = style.baseBodyColor;
     if (spec.isWall) bodyColor = style.wallBodyColor;
-    else if (cab.userData.cabinetType === 'tall_600') bodyColor = style.tallBodyColor;
+    else if (cab.userData.cabinetType === 'tall_600' || spec.kind === 'tall') bodyColor = style.tallBodyColor;
 
     // Body is child 0
     if (cab.children[0] && cab.children[0].isMesh) {
@@ -1012,6 +1012,131 @@ window.spawnCabinetAt = function(type, x_mm, customId) {
   document.getElementById('cabinet-count').textContent = placedCabinets.length;
 };
 
+// ── Generated layouts (lib/features/layout) ────────────────────────────────
+// Entries carry their own dimensions, kind (base / drawer / sink / hob / tall /
+// corner / wall / filler) and run ('main' or 'return' for an L-shape), so any
+// catalog width renders without a CABINET_SPECS entry.
+function spawnFromEntry(c) {
+  if (c && c.generated) spawnGeneratedCabinet(c);
+  else if (c && window.spawnCabinetAt) window.spawnCabinetAt(c.cabinet_type, c.x_mm, c.id);
+}
+
+function frontLines(w, h, d, lines) {
+  const mat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
+  const z = d / 2 + 0.001;
+  const m = 0.03;
+  const outline = [
+    [-w / 2 + m, -h / 2 + m], [-w / 2 + m, h / 2 - m], [w / 2 - m, h / 2 - m],
+    [w / 2 - m, -h / 2 + m], [-w / 2 + m, -h / 2 + m],
+  ].map(([x, y]) => new THREE.Vector3(x, y, z));
+  const group = [new THREE.Line(new THREE.BufferGeometry().setFromPoints(outline), mat)];
+  lines.forEach(([a, b]) => {
+    group.push(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(a[0], a[1], z), new THREE.Vector3(b[0], b[1], z),
+    ]), mat));
+  });
+  return group;
+}
+
+function spawnGeneratedCabinet(c) {
+  const kind = c.kind || 'base';
+  const isWall = (c.mount_mm || 0) > 0;
+  const palette = isWall ? CABINET_SPECS.wall_600 : (kind === 'tall' ? CABINET_SPECS.tall_600 : CABINET_SPECS.base_600);
+  const spec = {
+    w: c.width_mm * MM, h: c.height_mm * MM, d: c.depth_mm * MM,
+    isWall, mountH: (c.mount_mm || 0) * MM, label: c.label || c.cabinet_type,
+    bodyColor: palette.bodyColor, topColor: palette.topColor, kind,
+  };
+  const { w, h, d } = spec;
+  const hasWorktop = !isWall && kind !== 'tall';
+
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({ color: spec.bodyColor, roughness: 0.7, metalness: 0.05 })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body); // child 0: body (restyled by applyStyleArchetype)
+
+  if (hasWorktop) {
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.002, 0.04, d + 0.02),
+      new THREE.MeshStandardMaterial({ color: spec.topColor, roughness: 0.4, metalness: 0.1 })
+    );
+    cap.position.y = h / 2 + 0.02;
+    group.add(cap); // child 1: worktop
+  }
+
+  // Fronts: doors, drawers, appliances
+  if (kind !== 'filler') {
+    const lines = [];
+    if (kind === 'drawer') {
+      lines.push([[-w / 2 + 0.03, h / 6], [w / 2 - 0.03, h / 6]]);
+      lines.push([[-w / 2 + 0.03, -h / 6], [w / 2 - 0.03, -h / 6]]);
+    } else if (kind === 'tall') {
+      lines.push([[-w / 2 + 0.03, h / 6], [w / 2 - 0.03, h / 6]]);
+    } else if (w >= 0.5 && kind !== 'corner') {
+      lines.push([[0, -h / 2 + 0.03], [0, h / 2 - 0.03]]); // pair of doors
+    }
+    frontLines(w, h, d, lines).forEach(l => group.add(l));
+  }
+  if (kind === 'hob' || kind === 'sink') {
+    const insetW = Math.min(w - 0.12, kind === 'hob' ? 0.58 : 0.7);
+    const inset = new THREE.Mesh(
+      new THREE.BoxGeometry(insetW, 0.004, Math.min(d - 0.12, 0.45)),
+      new THREE.MeshStandardMaterial({
+        color: kind === 'hob' ? 0x111111 : 0xc3c8cd, // black glass hob / brushed steel sink
+        roughness: kind === 'hob' ? 0.15 : 0.35,
+        metalness: kind === 'hob' ? 0.2 : 0.25,
+      })
+    );
+    inset.position.set(0, h / 2 + 0.042, 0);
+    group.add(inset);
+  }
+
+  const y = isWall ? spec.mountH + h / 2 : h / 2;
+  if (c.run === 'return') {
+    // L-shape return wall: back against its inner face (x = -W/2), facing +x.
+    group.rotation.y = Math.PI / 2;
+    group.position.set(-currentWallW / 2 + d / 2, y, currentWallDepth + (c.offset_mm || 0) * MM);
+  } else {
+    group.position.set((c.x_mm || 0) * MM, y, currentWallDepth + d / 2);
+  }
+
+  group.userData = {
+    cabinetType: c.cabinet_type, spec, id: c.id || `cabinet_${Date.now()}`,
+    label: spec.label, run: c.run || 'main', generated: true,
+  };
+  scene.add(group);
+  placedCabinets.push(group);
+}
+
+function disposeCabinet(cab) {
+  scene.remove(cab);
+  cab.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+      else child.material.dispose();
+    }
+  });
+}
+
+// Swaps the whole layout (e.g. variant A → B) without notifying Flutter,
+// which already holds the new list.
+window.replaceCabinets = function(jsonString) {
+  try {
+    const list = JSON.parse(jsonString);
+    deselectCabinet();
+    placedCabinets.forEach(disposeCabinet);
+    placedCabinets = [];
+    list.forEach(c => spawnFromEntry(c));
+    cabinetCount = placedCabinets.length;
+    document.getElementById('cabinet-count').textContent = placedCabinets.length;
+  } catch (e) { console.error('replaceCabinets error:', e); }
+};
+
 // ── Cabinet touch-drag & selection ──────────────────────────────────────────
 const raycaster = new THREE.Raycaster();
 const pointer   = new THREE.Vector2();
@@ -1086,6 +1211,11 @@ function setupCabinetDrag() {
     touchStartX = clientX;
     touchStartY = clientY;
     const hit = getHit(clientX, clientY);
+    if (hit && hit.userData.run === 'return') {
+      // Drag only slides along the main wall; return-wall units are tap-to-select.
+      selectCabinet(hit);
+      return;
+    }
     if (hit) {
       dragCabinet = hit;
       dragOffsetY = hit.position.y;
@@ -1294,7 +1424,8 @@ window.removeSelectedCabinet = function() {
 
 window.loadScene = function(jsonString) {
   try {
-    const { wall, obstacles = [] } = JSON.parse(jsonString);
+    scenePayload = JSON.parse(jsonString);
+    const { wall, obstacles = [] } = scenePayload;
     buildWall(wall, obstacles);
   } catch (e) { console.error('loadScene error:', e); }
 };
