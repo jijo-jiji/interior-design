@@ -95,14 +95,14 @@ Organized by priority — full detail was given in chat; key blocking items:
 
 **The 3 items flagged as most urgent ("this week")**: (1) designer's module list, (2) 5 finished projects with floor plans, (3) one real quote example.
 
-User asked for this as a one-page checklist/spreadsheet to send the designer directly — **not yet produced**, offered but not confirmed/built.
+User asked for this as a one-page checklist/spreadsheet to send the designer directly — **done 2026-11-02**: `notes/SS-Love-designer-checklist.xlsx` (see §10).
 
 ## 8. Open decisions / questions, unresolved as of this note
 
-1. **Room type to prototype first** — kitchen vs. wardrobe. Not decided. (Wardrobe suggested as possibly faster to prove the concept: fewer rules, no plumbing.)
+1. ~~**Room type to prototype first**~~ — **decided 2026-11-02: kitchen** (single wall + L-shape). Built, see §10.
 2. **The 25 untracked `.glb` files** — unclear why they were added if nothing loads them; not confirmed whether user intended to switch rendering approach. Current recommendation: keep parametric, don't use them (§4), but user's original intent for downloading them is unconfirmed.
-3. **Where to start building** — generator-with-placeholder-data (recommended, to get a demo to show the client fast) vs. catalog-structure-first. Not yet decided/started.
-4. **The checklist/spreadsheet deliverable** for the designer — offered, not yet created.
+3. ~~**Where to start building**~~ — **decided 2026-11-02: generator with placeholder data first.** Built, see §10.
+4. ~~**The checklist/spreadsheet deliverable**~~ — **done**, see §10. Not yet sent to the designer as far as this note knows.
 5. **Partnership/data-ownership terms** — entirely open, flagged as the client's and a lawyer's call, not something to resolve in code.
 6. **Pricing reconciliation (§2)** — deliberately not touched; will need resourcing once the client answers the pricing-workflow questions.
 7. **`plan/coohom_workflow_report.pdf` and `assets/3d/models/` + `assets/3d/textures/`** — still untracked in the repo as of this note. Not committed in this session (this notes file is the only thing being committed/pushed per the current instruction).
@@ -114,3 +114,28 @@ User asked for this as a one-page checklist/spreadsheet to send the designer dir
 3. Decide whether to commit `plan/coohom_workflow_report.pdf` and clean up / .gitignore the unused `assets/3d/models/` and `assets/3d/textures/` (46MB, untracked, confirmed unused).
 4. Produce the one-page checklist/spreadsheet for the designer if not already sent.
 5. Do not start on pricing reconciliation or multi-tenant backend work until the §7 blocking items come back from the client.
+
+## 10. Session 2026-11-02 (cloud session) — what was built
+
+User chose: build **both** the checklist and the generator; **kitchen** first; checklist **bilingual EN + BM**.
+
+**Designer checklist** — `notes/SS-Love-designer-checklist.xlsx`. Start sheet (purpose, how to fill, the 3 urgent items, progress tracker, "working together" questions) + 8 sheets: modules, standard sizes, layout rules + standard layouts per wall length, appliances, finishes (pre-filled with the six materials from her site), styles & past projects, sales process & site conditions, pricing (only the sample quote marked urgent). Yellow = fill in, grey = example row. Business / partnership / PDPA questions were deliberately left out — those are for the owner (and a lawyer), not the designer. The BM text should be checked by a native speaker before sending.
+
+**Kitchen layout generator** — `lib/features/layout/` (pure Dart, no Flutter imports, runs offline on-device):
+- `kitchen_catalog.dart` — **all placeholder numbers in one place** (module widths, heights/depths, wall-cabinet mounting height, and rules: sink↔hob ≥ 600, ≥ 300 worktop each side of hob, ≥ 300 between sink and tall unit, fillers 25–150, door clearance 50, etc.). Each rule maps to a question in the checklist; swapping in the designer's answers is the only change needed.
+- `kitchen_layout_generator.dart` — deterministic: split walls around doors/low windows → corner unit for L → tall units at outer ends → search sink (under window first) + hob positions → fill gaps with catalog widths via DP (leftover → filler) → score plans, keep best → fill the wall-cabinet band (aligned with base modules where possible; nothing over hob/window/door/tall). Three variants: **A Value** (doors only, no tall), **B Balanced** (1 tall, drawers between sink and hob), **C Premium** (up to 2 talls, drawer banks). Drops talls, then the hob, when a wall is too short, and says why in `warnings`. ~3–35 ms per room for all three variants on a desktop VM.
+- Galley/studio shapes are not generated yet (falls back to the main wall with a note). Wardrobes not started.
+- Tests: `test/kitchen_layout_generator_test.dart` — rule invariants (no overlaps, clear of doors/windows, hob/sink/tall rules, wall-cabinet rules, full coverage) across single wall / L / door / low window / short wall / low ceiling, plus a sweep of every wall length 1800–4800 mm in 5 mm steps.
+
+**Viewer wiring** — `viewer_screen.dart` generates A/B/C when the viewer opens; an empty room starts on B; an "Auto layouts" bar (labelled "sample catalog") switches variants live; "Clear" empties the room; manual module tray still works on top. `assets/3d/index.html`:
+- **Bug fix**: `buildWall()` referenced an undefined `parsed` variable, so `placed_cabinets` (restored drafts) and `style_archetype` never loaded — threw inside `loadScene`'s try/catch. Now uses `scenePayload`.
+- L-shape return wall moved to sit **outside** the measured main-wall width (it used to overlap the first 150 mm), so both measured lengths are usable interior.
+- New `spawnGeneratedCabinet()` renders any width/kind (door pairs, drawer lines, black-glass hob, steel sink, no worktop on talls), rotates return-wall cabinets, and `replaceCabinets()` swaps whole layouts. Return-wall units are tap-to-select only (drag only slides along the main wall).
+- Flutter now handles the `cabinet_moved` event so dragged positions are saved.
+
+**Known gaps / not done:**
+- Pricing untouched (still parked). Generated module types like `base_drawer_600` / `filler_base` fall back to the $300 default in **both** the Dart CPQ and backend `/quote`, so the odometer and quote are placeholder numbers — fillers are currently charged as cabinets.
+- Not tested on a real device / WebView — verified with unit tests, `flutter analyze`, and headless-Chromium renders of the transformed `index.html`.
+- Items in §8.2, §8.5–7 still open.
+
+**Next steps:** send the checklist; when answers return, replace `KitchenCatalog.placeholder` / `KitchenRules.placeholder` and replay the 5 real projects through the generator to compare against what was actually built; then catalog-as-data (tenant-scoped) and pricing.
