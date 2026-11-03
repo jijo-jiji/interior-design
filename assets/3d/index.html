@@ -1417,6 +1417,15 @@ const pointer   = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const dragPoint  = new THREE.Vector3();
 let isDragging = false, dragCabinet = null, dragOffsetY = 0;
+// Cabinets can only be selected or dragged while editing. In the app the
+// salesperson turns this on with "Edit"; otherwise touches just orbit, so
+// looking around with the client can't move anything by accident.
+let editMode = true;
+let dragStartX = 0;
+window.setEditMode = function(on) {
+  editMode = !!on;
+  if (!editMode) deselectCabinet();
+};
 let touchStartX = 0, touchStartY = 0;
 let selectedCabinet = null;
 let selectionBox = null;
@@ -1437,14 +1446,17 @@ function selectCabinet(cab) {
   if (nameEl) nameEl.textContent = cab.userData.label || 'Cabinet';
   if (bar) bar.classList.add('show');
   invalidate();
+  notifyFlutter({ event: 'cabinet_selected', id: cab.userData.id, label: cab.userData.label || 'Cabinet' });
 }
 
 window.deselectCabinet = function() {
+  const hadSelection = !!selectedCabinet;
   selectedCabinet = null;
   if (selectionBox) selectionBox.visible = false;
   invalidate();
   const bar = document.getElementById('cabinet-action-bar');
   if (bar) bar.classList.remove('show');
+  if (hadSelection) notifyFlutter({ event: 'cabinet_deselected' });
 };
 
 window.removeSelectedCabinet = function() {
@@ -1479,6 +1491,7 @@ function setupCabinetDrag() {
   function onDragStart(clientX, clientY) {
     touchStartX = clientX;
     touchStartY = clientY;
+    if (!editMode) return;
     const hit = getHit(clientX, clientY);
     if (hit && hit.userData.run === 'return') {
       // Drag only slides along the main wall; return-wall units are tap-to-select.
@@ -1487,6 +1500,7 @@ function setupCabinetDrag() {
     }
     if (hit) {
       dragCabinet = hit;
+      dragStartX = hit.position.x;
       dragOffsetY = hit.position.y;
       isDragging = true;
       controls.enabled = false;
@@ -1582,7 +1596,7 @@ function setupCabinetDrag() {
   }
 
   function onDragEnd(clientX, clientY) {
-    if (clientX !== undefined && clientY !== undefined) {
+    if (editMode && clientX !== undefined && clientY !== undefined) {
       const dx = clientX - touchStartX;
       const dy = clientY - touchStartY;
       if (dx * dx + dy * dy < 25) {
@@ -1592,7 +1606,7 @@ function setupCabinetDrag() {
       }
     }
     updateSnapGuide(false);
-    if (dragCabinet) {
+    if (dragCabinet && Math.abs(dragCabinet.position.x - dragStartX) > 0.001) {
       dragCabinet.userData.lastSnapped = false;
       notifyFlutter({
         event: 'cabinet_moved',
@@ -1679,6 +1693,7 @@ function notifyFlutter(data) {
 // ── Public API called from Flutter via runJavaScript() ─────────────────────
 window.setNativeMode = function(isNative) {
   document.body.classList.toggle('is-native-app', !!isNative);
+  editMode = !isNative; // the app enables editing explicitly
   onResize();
 };
 

@@ -52,6 +52,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Timer? _saveTimer;
 
+  /// Layouts mode (default) or Edit mode (add, move and remove cabinets).
+  /// Outside Edit, touching the 3D only looks around.
+  bool _editing = false;
+  String? _selectedId;
+  String? _selectedLabel;
+
+  /// Full view hides every control so the client sees the whole design.
+  bool _controlsHidden = false;
+
   final List<Map<String, dynamic>> _placedCabinets = [];
   late final List<dynamic> _obstacles;
   late final Map<String, dynamic> _wallData;
@@ -256,11 +265,52 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _clearLayout() {
+    final previous = List<Map<String, dynamic>>.from(_placedCabinets);
+    final previousVariant = _activeVariantKey;
     setState(() {
       _activeVariantKey = null;
       _placedCabinets.clear();
+      _selectedId = null;
+      _selectedLabel = null;
     });
     _pushCabinetsToScene();
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('All cabinets cleared.'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              setState(() {
+                _placedCabinets
+                  ..clear()
+                  ..addAll(previous);
+                _activeVariantKey = previousVariant;
+              });
+              _pushCabinetsToScene();
+              _scheduleSave();
+            },
+          ),
+        ),
+      );
+  }
+
+  void _setEditing(bool editing) {
+    setState(() {
+      _editing = editing;
+      if (!editing) {
+        _selectedId = null;
+        _selectedLabel = null;
+      }
+    });
+    _webViewController.runJavaScript('setEditMode($editing)');
+    HapticFeedback.selectionClick();
+  }
+
+  void _removeSelected() {
+    _webViewController.runJavaScript('removeSelectedCabinet()');
     HapticFeedback.lightImpact();
   }
 
@@ -280,32 +330,52 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _onJsMessage(JavaScriptMessage message) {
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
-      final type = data['event'] as String?;
-
-      if (type == 'cabinet_placed') {
-        setState(() {
-          _placedCabinets.add(data);
-        });
-        _scheduleSave();
-      } else if (type == 'cabinet_removed') {
-        setState(() {
-          _placedCabinets.removeWhere((c) => c['id'] == data['id']);
-        });
-        _scheduleSave();
-      } else if (type == 'cabinet_moved') {
-        // Keep the saved position in sync with drags in the 3D view.
-        final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
-        if (i >= 0) {
-          _placedCabinets[i] = {..._placedCabinets[i], 'x_mm': data['x_mm']};
+      switch (data['event'] as String?) {
+        case 'cabinet_placed':
+          setState(() {
+            _placedCabinets.add(data);
+            _activeVariantKey = null; // now the salesperson's own layout
+          });
           _scheduleSave();
-        }
-      } else if (type == 'cabinet_snapped') {
-        // Haptic feedback when magnetic snapping engages
-        HapticFeedback.selectionClick();
-      } else if (type == 'style_applied') {
-        setState(() {
-          _currentStyle = data['archetype'] as String? ?? _currentStyle;
-        });
+        case 'cabinet_removed':
+          setState(() {
+            _placedCabinets.removeWhere((c) => c['id'] == data['id']);
+            _activeVariantKey = null;
+            if (_selectedId == data['id']) {
+              _selectedId = null;
+              _selectedLabel = null;
+            }
+          });
+          _scheduleSave();
+        case 'cabinet_moved':
+          // Keep the saved position in sync with drags in the 3D view.
+          final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
+          if (i >= 0) {
+            setState(() {
+              _placedCabinets[i] = {
+                ..._placedCabinets[i],
+                'x_mm': data['x_mm'],
+              };
+              _activeVariantKey = null;
+            });
+            _scheduleSave();
+          }
+        case 'cabinet_selected':
+          setState(() {
+            _selectedId = data['id'] as String?;
+            _selectedLabel = data['label'] as String?;
+          });
+        case 'cabinet_deselected':
+          setState(() {
+            _selectedId = null;
+            _selectedLabel = null;
+          });
+        case 'cabinet_snapped':
+          HapticFeedback.selectionClick();
+        case 'style_applied':
+          setState(() {
+            _currentStyle = data['archetype'] as String? ?? _currentStyle;
+          });
       }
     } catch (_) {}
   }
@@ -567,6 +637,114 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
+  Widget _buildEstimateBar(CPQSummary summary) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withOpacity(0.97),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.border, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2C2724).withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _priceVisible
+                ? GestureDetector(
+                    onTap: _showBOQSheet,
+                    behavior: HitTestBehavior.opaque,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween:
+                              Tween<double>(begin: 0, end: summary.totalPrice),
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, val, _) => Text(
+                            formatMoney(val),
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          summary.totalPrice > 0
+                              ? 'Estimate · ${cabinetCountLabel(_cabinetCount)} · Details'
+                              : 'Add cabinets to see an estimate',
+                          style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Row(
+                    children: [
+                      // Flexible so a large system font size can't overflow.
+                      Flexible(
+                        child: TextButton.icon(
+                          onPressed: () => setState(() => _priceVisible = true),
+                          icon: const Icon(
+                            Icons.visibility_outlined,
+                            size: 20,
+                          ),
+                          label: const Text(
+                            'Show price',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.accent,
+                            minimumSize: const Size(48, 48),
+                            textStyle: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+          if (_priceVisible)
+            IconButton(
+              tooltip: 'Hide price',
+              onPressed: () => setState(() => _priceVisible = false),
+              icon: const Icon(
+                Icons.visibility_off_outlined,
+                color: AppTheme.textSecondary,
+                size: 20,
+              ),
+            ),
+          const SizedBox(width: 4),
+          ElevatedButton.icon(
+            onPressed: _sceneLoaded ? _openClosingModal : null,
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('Quote'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(48, 48),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final summary = _cpqSummary;
@@ -577,249 +755,110 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
           IconButton(
-            tooltip: 'Price breakdown',
-            onPressed: _showBOQSheet,
-            icon: const Icon(Icons.receipt_long_rounded),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: ElevatedButton.icon(
-              onPressed: _sceneLoaded ? _openClosingModal : null,
-              icon: const Icon(Icons.send_rounded, size: 18),
-              label: const Text('Quote'),
+            tooltip: _controlsHidden ? 'Show controls' : 'Full view',
+            onPressed: () => setState(() => _controlsHidden = !_controlsHidden),
+            icon: Icon(
+              _controlsHidden
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
             ),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Stack(
         children: [
-          // ── 3D Viewport ─────────────────────────────────────────────────
+          // ── 3D view ─────────────────────────────────────────────────────
           WebViewWidget(controller: _webViewController),
 
-          // ── Top 1-Tap Style Archetype Selector ──────────────────────────
-          Positioned(
-            top: 12,
-            left: 14,
-            right: 14,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+          if (_controlsHidden)
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: FloatingActionButton.extended(
+                onPressed: () => setState(() => _controlsHidden = false),
+                backgroundColor: AppTheme.surface,
+                foregroundColor: AppTheme.textPrimary,
+                icon: const Icon(Icons.tune_rounded),
+                label: const Text('Show controls'),
+              ),
+            )
+          else ...[
+            // ── Style ────────────────────────────────────────────────────────
+            Positioned(
+              top: 12,
+              left: 14,
+              right: 14,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _StylePill(
+                      label: 'Japandi',
+                      styleKey: 'japandi',
+                      activeKey: _currentStyle,
+                      color: const Color(0xFFC4A47C),
+                      onTap: () => _switchStyle('japandi'),
+                    ),
+                    const SizedBox(width: 8),
+                    _StylePill(
+                      label: 'Minimalist',
+                      styleKey: 'minimalist',
+                      activeKey: _currentStyle,
+                      color: const Color(0xFF2E3340),
+                      onTap: () => _switchStyle('minimalist'),
+                    ),
+                    const SizedBox(width: 8),
+                    _StylePill(
+                      label: 'Nordic',
+                      styleKey: 'nordic',
+                      activeKey: _currentStyle,
+                      color: const Color(0xFF90A48E),
+                      onTap: () => _switchStyle('nordic'),
+                    ),
+                    const SizedBox(width: 8),
+                    _StylePill(
+                      label: 'Industrial',
+                      styleKey: 'industrial',
+                      activeKey: _currentStyle,
+                      color: const Color(0xFF483C34),
+                      onTap: () => _switchStyle('industrial'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Layouts / Edit panel + estimate ───────────────────────────
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 14,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _StylePill(
-                    label: 'Japandi',
-                    styleKey: 'japandi',
-                    activeKey: _currentStyle,
-                    color: const Color(0xFFC4A47C),
-                    onTap: () => _switchStyle('japandi'),
-                  ),
-                  const SizedBox(width: 8),
-                  _StylePill(
-                    label: 'Minimalist',
-                    styleKey: 'minimalist',
-                    activeKey: _currentStyle,
-                    color: const Color(0xFF2E3340),
-                    onTap: () => _switchStyle('minimalist'),
-                  ),
-                  const SizedBox(width: 8),
-                  _StylePill(
-                    label: 'Nordic',
-                    styleKey: 'nordic',
-                    activeKey: _currentStyle,
-                    color: const Color(0xFF90A48E),
-                    onTap: () => _switchStyle('nordic'),
-                  ),
-                  const SizedBox(width: 8),
-                  _StylePill(
-                    label: 'Industrial',
-                    styleKey: 'industrial',
-                    activeKey: _currentStyle,
-                    color: const Color(0xFF483C34),
-                    onTap: () => _switchStyle('industrial'),
-                  ),
+                  if (_editing)
+                    _EditPanel(
+                      selectedLabel: _selectedLabel,
+                      hasCabinets: _placedCabinets.isNotEmpty,
+                      onAdd: _spawnCabinet,
+                      onRemoveSelected: _removeSelected,
+                      onClearAll: _clearLayout,
+                      onDone: () => _setEditing(false),
+                    )
+                  else
+                    _LayoutVariantBar(
+                      variants: _variants,
+                      activeKey: _activeVariantKey,
+                      onSelect: _selectVariant,
+                      onEdit: () => _setEditing(true),
+                    ),
+                  const SizedBox(height: 8),
+                  _buildEstimateBar(summary),
                 ],
               ),
             ),
-          ),
-
-          // ── Live Dynamic Budget Odometer & Module Tray (Sticky Bottom HUD) ─
-          Positioned(
-            left: 14,
-            right: 14,
-            bottom: 14,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ── Auto-layout variants (A / B / C) ─────────────────────
-                if (_variants.isNotEmpty) ...[
-                  _LayoutVariantBar(
-                    variants: _variants,
-                    activeKey: _activeVariantKey,
-                    onSelect: _selectVariant,
-                    onClear: _placedCabinets.isEmpty ? null : _clearLayout,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-
-                // ── Native Joinery Module Drawer ─────────────────────────
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _JoineryModuleButton(
-                        type: 'base_800',
-                        label: 'Base 800',
-                        dims: '800mm',
-                        icon: Icons.view_agenda_outlined,
-                        onAdd: () => _spawnCabinet('base_800'),
-                      ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
-                        type: 'base_600',
-                        label: 'Base 600',
-                        dims: '600mm',
-                        icon: Icons.crop_square_rounded,
-                        onAdd: () => _spawnCabinet('base_600'),
-                      ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
-                        type: 'wall_600',
-                        label: 'Wall 600',
-                        dims: '600mm',
-                        icon: Icons.table_rows_outlined,
-                        onAdd: () => _spawnCabinet('wall_600'),
-                      ),
-                      const SizedBox(width: 8),
-                      _JoineryModuleButton(
-                        type: 'tall_600',
-                        label: 'Tall 600',
-                        dims: '2100mm',
-                        icon: Icons.view_sidebar_outlined,
-                        onAdd: () => _spawnCabinet('tall_600'),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                // ── Estimate bar: price hidden until revealed ─────────────
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surface.withOpacity(0.97),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppTheme.border, width: 1.2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF2C2724).withOpacity(0.08),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _priceVisible
-                            ? GestureDetector(
-                                onTap: _showBOQSheet,
-                                behavior: HitTestBehavior.opaque,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    TweenAnimationBuilder<double>(
-                                      tween: Tween<double>(
-                                          begin: 0, end: summary.totalPrice),
-                                      duration:
-                                          const Duration(milliseconds: 400),
-                                      curve: Curves.easeOutCubic,
-                                      builder: (context, val, _) => Text(
-                                        formatMoney(val),
-                                        style: const TextStyle(
-                                          color: AppTheme.textPrimary,
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: -0.5,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      summary.totalPrice > 0
-                                          ? 'Estimate · ${cabinetCountLabel(_cabinetCount)}'
-                                          : 'Add cabinets to see an estimate',
-                                      style: const TextStyle(
-                                        color: AppTheme.textSecondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : Row(
-                                children: [
-                                  TextButton.icon(
-                                    onPressed: () =>
-                                        setState(() => _priceVisible = true),
-                                    icon: const Icon(
-                                      Icons.visibility_outlined,
-                                      size: 20,
-                                    ),
-                                    label: const Text('Show price'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.accent,
-                                      minimumSize: const Size(48, 48),
-                                      textStyle: Theme.of(context)
-                                          .textTheme
-                                          .labelLarge
-                                          ?.copyWith(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      cabinetCountLabel(_cabinetCount),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: AppTheme.textSecondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                      ),
-                      if (_priceVisible)
-                        IconButton(
-                          tooltip: 'Hide price',
-                          onPressed: () =>
-                              setState(() => _priceVisible = false),
-                          icon: const Icon(
-                            Icons.visibility_off_outlined,
-                            color: AppTheme.textSecondary,
-                            size: 20,
-                          ),
-                        ),
-                      const SizedBox(width: 4),
-                      ElevatedButton.icon(
-                        onPressed: _sceneLoaded ? _openClosingModal : null,
-                        icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text('Quote'),
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
 
           // ── Loading overlay ─────────────────────────────────────────────
           if (!_sceneLoaded)
@@ -912,84 +951,243 @@ class _StylePill extends StatelessWidget {
   }
 }
 
-/// The A / B / C switcher the salesperson flips through with the client.
+/// Shared look for the floating panels over the 3D view.
+class _Panel extends StatelessWidget {
+  final Widget child;
+  const _Panel({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 4, 8, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withOpacity(0.97),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Layouts mode: the A / B / C switcher the salesperson flips through with
+/// the client, and the way into Edit mode.
 class _LayoutVariantBar extends StatelessWidget {
   final List<LayoutVariant> variants;
   final String? activeKey;
   final ValueChanged<LayoutVariant> onSelect;
-  final VoidCallback? onClear;
+  final VoidCallback onEdit;
 
   const _LayoutVariantBar({
     required this.variants,
     required this.activeKey,
     required this.onSelect,
-    required this.onClear,
+    required this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
-    final sample = variants.any((v) => v.usesPlaceholderCatalog);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-      decoration: BoxDecoration(
-        color: AppTheme.surface.withOpacity(0.97),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border, width: 1.0),
-      ),
+    final String note;
+    if (variants.isNotEmpty && activeKey == null) {
+      note = 'your changes';
+    } else if (variants.any((v) => v.usesPlaceholderCatalog)) {
+      note = 'sample catalog';
+    } else {
+      note = '';
+    }
+    return _Panel(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
-            child: Row(
-              children: [
-                const Icon(Icons.auto_awesome_rounded,
-                    size: 14, color: AppTheme.accent),
-                const SizedBox(width: 6),
-                const Text(
-                  'Auto layouts',
-                  style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded,
+                  size: 16, color: AppTheme.accent),
+              const SizedBox(width: 6),
+              const Text(
+                'Layouts',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
                 ),
-                if (sample)
-                  Text(
-                    '  ·  sample catalog',
-                    style: TextStyle(
-                        color: AppTheme.textSecondary.withOpacity(0.85),
-                        fontSize: 10.5),
-                  ),
-                const Spacer(),
-                if (onClear != null)
-                  GestureDetector(
-                    onTap: onClear,
-                    child: const Text(
-                      'Clear',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600),
+              ),
+              if (note.isNotEmpty)
+                Flexible(
+                  child: Text(
+                    ' · $note',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
                     ),
                   ),
+                ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Edit'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.accent,
+                  minimumSize: const Size(48, 44),
+                ),
+              ),
+            ],
+          ),
+          if (variants.isNotEmpty)
+            Row(
+              children: [
+                for (var i = 0; i < variants.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  Expanded(
+                    child: _VariantChip(
+                      variant: variants[i],
+                      selected: variants[i].key == activeKey,
+                      onTap: () => onSelect(variants[i]),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Edit mode: add cabinets, remove the selected one, or clear everything.
+class _EditPanel extends StatelessWidget {
+  final String? selectedLabel;
+  final bool hasCabinets;
+  final void Function(String type) onAdd;
+  final VoidCallback onRemoveSelected;
+  final VoidCallback onClearAll;
+  final VoidCallback onDone;
+
+  const _EditPanel({
+    required this.selectedLabel,
+    required this.hasCabinets,
+    required this.onAdd,
+    required this.onRemoveSelected,
+    required this.onClearAll,
+    required this.onDone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selectedLabel;
+    return _Panel(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.edit_outlined, size: 16, color: AppTheme.accent),
+              const SizedBox(width: 6),
+              const Text(
+                'Edit cabinets',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: onDone,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.accent,
+                  minimumSize: const Size(48, 44),
+                ),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+          Text(
+            selected == null
+                ? 'Tap a cabinet to select it, then drag to move it.'
+                : '$selected selected. Drag to move it.',
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _JoineryModuleButton(
+                  type: 'base_800',
+                  label: 'Base 800',
+                  dims: '800 mm',
+                  icon: Icons.view_agenda_outlined,
+                  onAdd: () => onAdd('base_800'),
+                ),
+                const SizedBox(width: 8),
+                _JoineryModuleButton(
+                  type: 'base_600',
+                  label: 'Base 600',
+                  dims: '600 mm',
+                  icon: Icons.crop_square_rounded,
+                  onAdd: () => onAdd('base_600'),
+                ),
+                const SizedBox(width: 8),
+                _JoineryModuleButton(
+                  type: 'wall_600',
+                  label: 'Wall 600',
+                  dims: '600 mm',
+                  icon: Icons.table_rows_outlined,
+                  onAdd: () => onAdd('wall_600'),
+                ),
+                const SizedBox(width: 8),
+                _JoineryModuleButton(
+                  type: 'tall_600',
+                  label: 'Tall 600',
+                  dims: '2100 mm',
+                  icon: Icons.view_sidebar_outlined,
+                  onAdd: () => onAdd('tall_600'),
+                ),
               ],
             ),
           ),
-          Row(
-            children: [
-              for (var i = 0; i < variants.length; i++) ...[
-                if (i > 0) const SizedBox(width: 6),
-                Expanded(
-                  child: _VariantChip(
-                    variant: variants[i],
-                    selected: variants[i].key == activeKey,
-                    onTap: () => onSelect(variants[i]),
+          if (selected != null || hasCabinets) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (selected != null)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onRemoveSelected,
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: Text(
+                        'Remove $selected',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.danger,
+                        side: const BorderSide(color: AppTheme.danger),
+                        minimumSize: const Size(48, 44),
+                      ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                if (hasCabinets) ...[
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: onClearAll,
+                    icon: const Icon(Icons.layers_clear_outlined, size: 18),
+                    label: const Text('Clear all'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.textSecondary,
+                      minimumSize: const Size(48, 44),
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );

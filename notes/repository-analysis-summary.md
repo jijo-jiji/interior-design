@@ -181,3 +181,12 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - Repo was run through `dart format` once (separate commit) because the VGV plugin's hook formats every edited Dart file.
 - The VGV plugin blocks `flutter test` in favour of its MCP test tool, which can't start in cloud sessions ("Executable not found: stdio"). User authorised running `flutter test` directly for this session: 58/58 pass. Screens rendered via a temporary test harness (not committed; fonts bundled temporarily).
 - Not done (from the review): fix 3 (declutter viewer: duplicate Quote button, module tray behind "Edit"), fix 4 (type/colour tokens, contrast, 48dp targets — incl. the A/B/C bar's tiny "Clear"), fix 5 (home simplification beyond copy), galley/studio in template, trace-screen debug text, i18n (BM/Chinese).
+
+**Fix 3 — decluttered 3D view (same session)**
+- One "Quote" button (bottom bar); app bar now has only the client's name and a "Full view" toggle that hides every control (floating "Show controls" brings them back).
+- Bottom panel has two modes: **Layouts** (A/B/C + "Edit") and **Edit** (add-cabinet tray, "Remove <cabinet>" for the selected one, "Clear all" with Undo, "Done"). Replaces the always-visible module tray and the tiny "Clear" link.
+- Cabinets are locked outside Edit: in the app, touches on the 3D only orbit (`setEditMode` in index.html), so showing the client around can't move anything. In Edit, tap selects and drag moves.
+- New: removing a single cabinet in the app (the page's own remove bar is hidden in app mode, so before this only "clear everything" existed). Page now sends `cabinet_selected` / `cabinet_deselected`, and `cabinet_moved` only when it actually moved (every tap used to send one).
+- A manual change unselects A/B/C and the panel says "your changes".
+- Price row: "Show price" shrinks instead of overflowing at large text sizes; price breakdown opens from the price ("Details"), not from a separate app-bar icon.
+- Tests: `test/viewer_screen_test.dart` + `test/helpers/fake_webview.dart` (fake WebView that records JS calls and can send page events). 63/63 pass via the VGV plugin's own test tool, which connected after `dart` and Very Good CLI were put on PATH.
