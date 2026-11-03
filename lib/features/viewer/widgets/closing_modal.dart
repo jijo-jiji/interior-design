@@ -167,7 +167,8 @@ class _ClosingModalState extends State<ClosingModal> {
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: AppTheme.textSecondary),
+                  icon: const Icon(Icons.close_rounded,
+                      color: AppTheme.textSecondary),
                 ),
               ],
             ),
@@ -217,7 +218,8 @@ class _ClosingModalState extends State<ClosingModal> {
                               ],
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
                                 color: AppTheme.surfaceElevated,
                                 borderRadius: BorderRadius.circular(6),
@@ -296,14 +298,18 @@ class _ClosingModalState extends State<ClosingModal> {
 
                   TextField(
                     controller: _nameController,
-                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                    style: const TextStyle(
+                        color: AppTheme.textPrimary, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Client Full Name *',
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                      prefixIcon: const Icon(Icons.person_outline, color: AppTheme.accent, size: 18),
+                      labelStyle: const TextStyle(
+                          color: AppTheme.textSecondary, fontSize: 12),
+                      prefixIcon: const Icon(Icons.person_outline,
+                          color: AppTheme.accent, size: 18),
                       filled: true,
                       fillColor: AppTheme.surfaceRaised,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(color: AppTheme.border),
@@ -327,25 +333,32 @@ class _ClosingModalState extends State<ClosingModal> {
                         child: TextField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
                           decoration: InputDecoration(
                             labelText: 'Phone / WhatsApp',
-                            labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                            prefixIcon: const Icon(Icons.phone_outlined, color: AppTheme.accent, size: 18),
+                            labelStyle: const TextStyle(
+                                color: AppTheme.textSecondary, fontSize: 12),
+                            prefixIcon: const Icon(Icons.phone_outlined,
+                                color: AppTheme.accent, size: 18),
                             filled: true,
                             fillColor: AppTheme.surfaceRaised,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.border),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.border),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.accent),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.accent),
                             ),
                           ),
                         ),
@@ -355,25 +368,32 @@ class _ClosingModalState extends State<ClosingModal> {
                         child: TextField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
                           decoration: InputDecoration(
                             labelText: 'Email Address',
-                            labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                            prefixIcon: const Icon(Icons.email_outlined, color: AppTheme.accent, size: 18),
+                            labelStyle: const TextStyle(
+                                color: AppTheme.textSecondary, fontSize: 12),
+                            prefixIcon: const Icon(Icons.email_outlined,
+                                color: AppTheme.accent, size: 18),
                             filled: true,
                             fillColor: AppTheme.surfaceRaised,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.border),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.border),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.accent),
+                              borderSide:
+                                  const BorderSide(color: AppTheme.accent),
                             ),
                           ),
                         ),
@@ -385,7 +405,8 @@ class _ClosingModalState extends State<ClosingModal> {
 
                   // ── Reservation Slot Commitment ───────────────────────────
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: _depositLocked
                           ? AppTheme.accentTerracotta.withOpacity(0.2)
@@ -402,7 +423,8 @@ class _ClosingModalState extends State<ClosingModal> {
                         Switch.adaptive(
                           value: _depositLocked,
                           activeColor: AppTheme.accent,
-                          onChanged: (val) => setState(() => _depositLocked = val),
+                          onChanged: (val) =>
+                              setState(() => _depositLocked = val),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -420,7 +442,8 @@ class _ClosingModalState extends State<ClosingModal> {
                               Text(
                                 'Guarantees material price & manufacturing priority for 30 days',
                                 style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.8),
+                                  color:
+                                      AppTheme.textSecondary.withOpacity(0.8),
                                   fontSize: 11,
                                 ),
                               ),

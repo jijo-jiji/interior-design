@@ -59,7 +59,8 @@ class CPQEngine {
 
       if (type.startsWith('base')) {
         baseCabinetTotal += adjustedPrice;
-        final wMm = (cab['width_mm'] as num?)?.toDouble() ?? (type == 'base_800' ? 800.0 : 600.0);
+        final wMm = (cab['width_mm'] as num?)?.toDouble() ??
+            (type == 'base_800' ? 800.0 : 600.0);
         benchtopLinearMetres += wMm * 0.001;
       } else if (type.startsWith('wall')) {
         wallCabinetTotal += adjustedPrice;
@@ -78,7 +79,8 @@ class CPQEngine {
 
     // Benchtop stone calculation (optional material)
     double benchtopTotal = 0.0;
-    if (benchtopMaterial != null && benchtopRates.containsKey(benchtopMaterial)) {
+    if (benchtopMaterial != null &&
+        benchtopRates.containsKey(benchtopMaterial)) {
       final rate = benchtopRates[benchtopMaterial]!;
       benchtopTotal = benchtopLinearMetres * rate;
     }
@@ -86,12 +88,18 @@ class CPQEngine {
     double obstacleAllowance = 0.0;
     for (final obs in obstacles) {
       final obsType = obs['type'] as String? ?? '';
-      if (obsType == 'window') obstacleAllowance += windowAllowance;
+      if (obsType == 'window')
+        obstacleAllowance += windowAllowance;
       else if (obsType == 'door') obstacleAllowance += doorAllowance;
     }
 
-    final rawMaterialsTotal = baseCabinetTotal + wallCabinetTotal + tallCabinetTotal + cornerCabinetTotal + benchtopTotal;
-    final subtotal = (rawMaterialsTotal + labourTotal + obstacleAllowance).clamp(0.0, double.infinity);
+    final rawMaterialsTotal = baseCabinetTotal +
+        wallCabinetTotal +
+        tallCabinetTotal +
+        cornerCabinetTotal +
+        benchtopTotal;
+    final subtotal = (rawMaterialsTotal + labourTotal + obstacleAllowance)
+        .clamp(0.0, double.infinity);
     final gst = subtotal * gstRate;
     final totalPrice = subtotal + gst;
 
@@ -105,7 +113,8 @@ class CPQEngine {
       cornerCabinetTotal: cornerCabinetTotal,
       benchtopTotal: benchtopTotal,
       benchtopLinearMetres: benchtopLinearMetres,
-      benchtopMaterial: benchtopMaterial != null ? benchtopNames[benchtopMaterial] : null,
+      benchtopMaterial:
+          benchtopMaterial != null ? benchtopNames[benchtopMaterial] : null,
       labourTotal: labourTotal,
       obstacleAllowance: obstacleAllowance,
       subtotal: subtotal,

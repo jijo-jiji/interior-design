@@ -44,7 +44,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 3);
-      final req = await client.getUrl(Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
+      final req = await client
+          .getUrl(Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
       final resp = await req.close();
       if (resp.statusCode == 200) {
         final body = await resp.transform(utf8.decoder).join();
@@ -59,7 +60,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
     // Merge offline drafts at top, followed by cloud projects
     final merged = <Map<String, dynamic>>[
       ...drafts,
-      ...remoteProjects.where((p) => !drafts.any((d) => d['quote_id'] == p['quote_id'])),
+      ...remoteProjects
+          .where((p) => !drafts.any((d) => d['quote_id'] == p['quote_id'])),
     ];
 
     if (mounted) {
@@ -76,7 +78,9 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(count > 0 ? 'Successfully synced $count offline quote(s) with studio cloud!' : 'No pending offline quotes or studio unreachable.'),
+        content: Text(count > 0
+            ? 'Successfully synced $count offline quote(s) with studio cloud!'
+            : 'No pending offline quotes or studio unreachable.'),
         backgroundColor: count > 0 ? const Color(0xFF16A34A) : AppTheme.accent,
       ),
     );
@@ -114,11 +118,12 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
   void _openProjectInViewer(Map<String, dynamic> project) {
     // Construct payload ensuring wall and placed cabinets are passed
     final payload = {
-      'wall': project['wall'] ?? {
-        'width_mm': 4000.0,
-        'height_mm': 2700.0,
-        'depth_mm': 150.0,
-      },
+      'wall': project['wall'] ??
+          {
+            'width_mm': 4000.0,
+            'height_mm': 2700.0,
+            'depth_mm': 150.0,
+          },
       'obstacles': project['obstacles'] ?? [],
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
@@ -139,7 +144,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
       final name = (p['client_name'] as String? ?? '').toLowerCase();
       final qid = (p['quote_id'] as String? ?? '').toLowerCase();
       final style = (p['style_archetype'] as String? ?? '').toLowerCase();
-      final matchesQuery = name.contains(q) || qid.contains(q) || style.contains(q);
+      final matchesQuery =
+          name.contains(q) || qid.contains(q) || style.contains(q);
       if (!matchesQuery) return false;
 
       final isOffline = p['is_offline_draft'] == true;
@@ -151,8 +157,13 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
       return true;
     }).toList();
 
-    final lockedCount = _projects.where((p) => (p['deposit_paid'] as num? ?? 0.0) > 0).length;
-    final estimateCount = _projects.where((p) => (p['deposit_paid'] as num? ?? 0.0) == 0 && p['is_offline_draft'] != true).length;
+    final lockedCount =
+        _projects.where((p) => (p['deposit_paid'] as num? ?? 0.0) > 0).length;
+    final estimateCount = _projects
+        .where((p) =>
+            (p['deposit_paid'] as num? ?? 0.0) == 0 &&
+            p['is_offline_draft'] != true)
+        .length;
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
@@ -210,27 +221,40 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                     onTap: _syncOfflineDrafts,
                     borderRadius: BorderRadius.circular(20),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: _offlineDraftCount > 0 ? AppTheme.accentTerracotta.withOpacity(0.25) : AppTheme.successDim,
+                        color: _offlineDraftCount > 0
+                            ? AppTheme.accentTerracotta.withOpacity(0.25)
+                            : AppTheme.successDim,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: _offlineDraftCount > 0 ? AppTheme.accentTaupe : AppTheme.success.withOpacity(0.4),
+                          color: _offlineDraftCount > 0
+                              ? AppTheme.accentTaupe
+                              : AppTheme.success.withOpacity(0.4),
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            _offlineDraftCount > 0 ? Icons.cloud_upload_rounded : Icons.wifi_off_rounded,
+                            _offlineDraftCount > 0
+                                ? Icons.cloud_upload_rounded
+                                : Icons.wifi_off_rounded,
                             size: 13,
-                            color: _offlineDraftCount > 0 ? AppTheme.textPrimary : AppTheme.success,
+                            color: _offlineDraftCount > 0
+                                ? AppTheme.textPrimary
+                                : AppTheme.success,
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            _offlineDraftCount > 0 ? '$_offlineDraftCount Offline' : 'Offline Ready',
+                            _offlineDraftCount > 0
+                                ? '$_offlineDraftCount Offline'
+                                : 'Offline Ready',
                             style: TextStyle(
-                              color: _offlineDraftCount > 0 ? AppTheme.textPrimary : AppTheme.success,
+                              color: _offlineDraftCount > 0
+                                  ? AppTheme.textPrimary
+                                  : AppTheme.success,
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
@@ -263,14 +287,18 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         decoration: BoxDecoration(
-                          color: _selectedTabIndex == 0 ? AppTheme.accent : Colors.transparent,
+                          color: _selectedTabIndex == 0
+                              ? AppTheme.accent
+                              : Colors.transparent,
                           borderRadius: BorderRadius.circular(9),
                         ),
                         child: Center(
                           child: Text(
                             'Start Consultation',
                             style: TextStyle(
-                              color: _selectedTabIndex == 0 ? Colors.white : AppTheme.textSecondary,
+                              color: _selectedTabIndex == 0
+                                  ? Colors.white
+                                  : AppTheme.textSecondary,
                               fontSize: 12.5,
                               fontWeight: FontWeight.bold,
                             ),
@@ -289,7 +317,9 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         decoration: BoxDecoration(
-                          color: _selectedTabIndex == 1 ? AppTheme.accent : Colors.transparent,
+                          color: _selectedTabIndex == 1
+                              ? AppTheme.accent
+                              : Colors.transparent,
                           borderRadius: BorderRadius.circular(9),
                         ),
                         child: Row(
@@ -298,7 +328,9 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                             Text(
                               'Pipeline & History',
                               style: TextStyle(
-                                color: _selectedTabIndex == 1 ? Colors.white : AppTheme.textSecondary,
+                                color: _selectedTabIndex == 1
+                                    ? Colors.white
+                                    : AppTheme.textSecondary,
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -306,15 +338,20 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                             if (_projects.isNotEmpty) ...[
                               const SizedBox(width: 6),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: _selectedTabIndex == 1 ? Colors.white.withOpacity(0.25) : AppTheme.surfaceElevated,
+                                  color: _selectedTabIndex == 1
+                                      ? Colors.white.withOpacity(0.25)
+                                      : AppTheme.surfaceElevated,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
                                   '${_projects.length}',
                                   style: TextStyle(
-                                    color: _selectedTabIndex == 1 ? Colors.white : AppTheme.textSecondary,
+                                    color: _selectedTabIndex == 1
+                                        ? Colors.white
+                                        : AppTheme.textSecondary,
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -392,7 +429,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: AppTheme.surface.withOpacity(0.8),
                                   borderRadius: BorderRadius.circular(999),
@@ -400,7 +438,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                                 child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.auto_awesome, color: AppTheme.accent, size: 13),
+                                    Icon(Icons.auto_awesome,
+                                        color: AppTheme.accent, size: 13),
                                     SizedBox(width: 4),
                                     Text(
                                       'ATELIER ACCELERATOR',
@@ -417,7 +456,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                               Text(
                                 'Avg Close: 4m 12s',
                                 style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.9),
+                                  color:
+                                      AppTheme.textSecondary.withOpacity(0.9),
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -449,7 +489,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
 
                     _ConsultationCard(
                       title: 'Camera Wall Trace',
-                      subtitle: 'Point camera at client wall, freeze perspective & drag door/window cutouts on-site.',
+                      subtitle:
+                          'Point camera at client wall, freeze perspective & drag door/window cutouts on-site.',
                       badge: 'MOST ACCURATE ON-SITE',
                       badgeColor: AppTheme.accentTaupe,
                       icon: Icons.camera_alt_rounded,
@@ -459,7 +500,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                     const SizedBox(height: 14),
                     _ConsultationCard(
                       title: '2D Floor Plan Blueprint',
-                      subtitle: 'Import developer PDF or photo from WhatsApp/Gallery. Calibrate scale with 2 points.',
+                      subtitle:
+                          'Import developer PDF or photo from WhatsApp/Gallery. Calibrate scale with 2 points.',
                       badge: 'DEVELOPER PLANS & BROCHURES',
                       badgeColor: AppTheme.success,
                       icon: Icons.architecture_rounded,
@@ -470,7 +512,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                     const SizedBox(height: 14),
                     _ConsultationCard(
                       title: '10-Second Quick Template',
-                      subtitle: 'Instant Single Wall, L-Shape, or Galley room with dimension sliders for fast showroom pitches.',
+                      subtitle:
+                          'Instant Single Wall, L-Shape, or Galley room with dimension sliders for fast showroom pitches.',
                       badge: 'FASTEST (NO PLANS NEEDED)',
                       badgeColor: AppTheme.accentTaupe,
                       icon: Icons.bolt_rounded,
@@ -499,11 +542,14 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                         ),
                         child: TextField(
                           onChanged: (v) => setState(() => _searchQuery = v),
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
                           decoration: const InputDecoration(
                             hintText: 'Search client, quote ID, or style...',
-                            hintStyle: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
-                            prefixIcon: Icon(Icons.search_rounded, size: 18, color: AppTheme.textSecondary),
+                            hintStyle: TextStyle(
+                                color: AppTheme.textTertiary, fontSize: 12),
+                            prefixIcon: Icon(Icons.search_rounded,
+                                size: 18, color: AppTheme.textSecondary),
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.symmetric(vertical: 9),
                           ),
@@ -513,7 +559,8 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                     const SizedBox(width: 8),
                     IconButton(
                       tooltip: 'Refresh Pipeline',
-                      icon: const Icon(Icons.refresh_rounded, color: AppTheme.accent),
+                      icon: const Icon(Icons.refresh_rounded,
+                          color: AppTheme.accent),
                       onPressed: _fetchPipeline,
                     ),
                   ],
@@ -544,14 +591,16 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                         label: 'Estimates ($estimateCount)',
                         isSelected: _pipelineFilter == 'estimates',
                         accentColor: AppTheme.accent,
-                        onTap: () => setState(() => _pipelineFilter = 'estimates'),
+                        onTap: () =>
+                            setState(() => _pipelineFilter = 'estimates'),
                       ),
                       const SizedBox(width: 8),
                       _FilterChip(
                         label: 'Offline Drafts ($_offlineDraftCount)',
                         isSelected: _pipelineFilter == 'offline',
                         accentColor: AppTheme.accentTaupe,
-                        onTap: () => setState(() => _pipelineFilter = 'offline'),
+                        onTap: () =>
+                            setState(() => _pipelineFilter = 'offline'),
                       ),
                     ],
                   ),
@@ -559,31 +608,44 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
               ),
               Expanded(
                 child: _isLoadingProjects
-                    ? const Center(child: CircularProgressIndicator(color: AppTheme.accent))
+                    ? const Center(
+                        child:
+                            CircularProgressIndicator(color: AppTheme.accent))
                     : filteredProjects.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.folder_open_rounded, size: 48, color: AppTheme.textTertiary.withOpacity(0.5)),
+                                Icon(Icons.folder_open_rounded,
+                                    size: 48,
+                                    color:
+                                        AppTheme.textTertiary.withOpacity(0.5)),
                                 const SizedBox(height: 10),
                                 const Text(
                                   'No matching consultations found.',
-                                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                                  style: TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 13),
                                 ),
                               ],
                             ),
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
                             itemCount: filteredProjects.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (context, idx) {
                               final p = filteredProjects[idx];
                               final isOffline = p['is_offline_draft'] == true;
-                              final deposit = (p['deposit_paid'] as num? ?? 0) > 0;
-                              final style = (p['style_archetype'] as String? ?? 'japandi').toUpperCase();
-                              final totalPrice = (p['total_price'] as num? ?? 0).toDouble();
+                              final deposit =
+                                  (p['deposit_paid'] as num? ?? 0) > 0;
+                              final style =
+                                  (p['style_archetype'] as String? ?? 'japandi')
+                                      .toUpperCase();
+                              final totalPrice =
+                                  (p['total_price'] as num? ?? 0).toDouble();
 
                               return InkWell(
                                 onTap: () => _openProjectInViewer(p),
@@ -594,26 +656,32 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                                     color: AppTheme.surface,
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
-                                      color: isOffline ? AppTheme.accentTaupe : AppTheme.border,
+                                      color: isOffline
+                                          ? AppTheme.accentTaupe
+                                          : AppTheme.border,
                                       width: 1.1,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF2C2724).withOpacity(0.04),
+                                        color: const Color(0xFF2C2724)
+                                            .withOpacity(0.04),
                                         blurRadius: 8,
                                         offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              p['client_name'] as String? ?? 'Client Consultation',
+                                              p['client_name'] as String? ??
+                                                  'Client Consultation',
                                               style: const TextStyle(
                                                 color: AppTheme.textPrimary,
                                                 fontSize: 14.5,
@@ -637,38 +705,58 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                                         children: [
                                           Text(
                                             p['quote_id'] as String? ?? '',
-                                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                                            style: const TextStyle(
+                                                color: AppTheme.textSecondary,
+                                                fontSize: 11),
                                           ),
                                           const Spacer(),
                                           // Style tag
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: AppTheme.surfaceRaised,
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(color: AppTheme.border),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                              border: Border.all(
+                                                  color: AppTheme.border),
                                             ),
                                             child: Text(
                                               style,
-                                              style: const TextStyle(color: AppTheme.accentTaupe, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                              style: const TextStyle(
+                                                  color: AppTheme.accentTaupe,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
                                           // Status tag
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: isOffline
-                                                  ? AppTheme.accentTerracotta.withOpacity(0.3)
-                                                  : (deposit ? AppTheme.successDim : AppTheme.surfaceRaised),
-                                              borderRadius: BorderRadius.circular(4),
+                                                  ? AppTheme.accentTerracotta
+                                                      .withOpacity(0.3)
+                                                  : (deposit
+                                                      ? AppTheme.successDim
+                                                      : AppTheme.surfaceRaised),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                             child: Text(
-                                              isOffline ? 'OFFLINE DRAFT' : (deposit ? 'PRIORITY LOCKED' : 'ESTIMATE'),
+                                              isOffline
+                                                  ? 'OFFLINE DRAFT'
+                                                  : (deposit
+                                                      ? 'PRIORITY LOCKED'
+                                                      : 'ESTIMATE'),
                                               style: TextStyle(
                                                 color: isOffline
                                                     ? AppTheme.textPrimary
-                                                    : (deposit ? AppTheme.success : AppTheme.textSecondary),
+                                                    : (deposit
+                                                        ? AppTheme.success
+                                                        : AppTheme
+                                                            .textSecondary),
                                                 fontSize: 9.5,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -678,20 +766,29 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
                                         children: [
                                           Text(
                                             '${(p['placed_cabinets'] as List?)?.length ?? 0} modules placed',
-                                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                                            style: const TextStyle(
+                                                color: AppTheme.textSecondary,
+                                                fontSize: 11),
                                           ),
                                           const Row(
                                             children: [
                                               Text(
                                                 'Open in 3D',
-                                                style: TextStyle(color: AppTheme.accent, fontSize: 11.5, fontWeight: FontWeight.bold),
+                                                style: TextStyle(
+                                                    color: AppTheme.accent,
+                                                    fontSize: 11.5,
+                                                    fontWeight:
+                                                        FontWeight.bold),
                                               ),
                                               SizedBox(width: 4),
-                                              Icon(Icons.arrow_forward_rounded, color: AppTheme.accent, size: 13),
+                                              Icon(Icons.arrow_forward_rounded,
+                                                  color: AppTheme.accent,
+                                                  size: 13),
                                             ],
                                           ),
                                         ],
@@ -728,13 +825,16 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         'Three.js Local Engine Loaded',
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                        style: TextStyle(
+                            color: AppTheme.textSecondary, fontSize: 11),
                       ),
                     ],
                   ),
                   Text(
                     'v2.0.0 • Sales Closer Hub',
-                    style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.7), fontSize: 11),
+                    style: TextStyle(
+                        color: AppTheme.textSecondary.withOpacity(0.7),
+                        fontSize: 11),
                   ),
                 ],
               ),
@@ -793,11 +893,13 @@ class _ConsultationCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: badgeColor.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: badgeColor.withOpacity(0.35), width: 0.8),
+                    border: Border.all(
+                        color: badgeColor.withOpacity(0.35), width: 0.8),
                   ),
                   child: Text(
                     badge,
@@ -819,7 +921,8 @@ class _ConsultationCard extends StatelessWidget {
                       ? SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(color: accentColor, strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                              color: accentColor, strokeWidth: 2),
                         )
                       : Icon(icon, color: accentColor, size: 22),
                 ),

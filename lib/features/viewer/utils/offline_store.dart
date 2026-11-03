@@ -20,7 +20,8 @@ class OfflineStore {
 
   /// Saves or updates a quote in local storage
   static Future<void> saveDraft(Map<String, dynamic> draft) async {
-    final quoteId = draft['quote_id'] ?? 'QT-OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
+    final quoteId = draft['quote_id'] ??
+        'QT-OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
     final toSave = Map<String, dynamic>.from(draft);
     toSave['quote_id'] = quoteId;
     toSave['is_offline_draft'] = true;

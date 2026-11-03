@@ -20,7 +20,10 @@ void main() {
 
       expect(drafts, isNotEmpty);
       expect(drafts.any((d) => d['quote_id'] == 'QT-TEST-001'), isTrue);
-      expect(drafts.firstWhere((d) => d['quote_id'] == 'QT-TEST-001')['client_name'], 'Sarah Connor');
+      expect(
+          drafts
+              .firstWhere((d) => d['quote_id'] == 'QT-TEST-001')['client_name'],
+          'Sarah Connor');
 
       // Test removal upon sync
       await OfflineStore.removeDraft('QT-TEST-001');

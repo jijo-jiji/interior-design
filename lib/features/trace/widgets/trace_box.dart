@@ -39,14 +39,14 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
 
   // ── Touch handle sizes — large enough for reliable mobile touch ───────────
   static const double _edgeHandleThick = 28; // right / bottom edge handles
-  static const double _cornerHandle    = 44; // corner delete badge hit area
+  static const double _cornerHandle = 44; // corner delete badge hit area
 
   @override
   void initState() {
     super.initState();
-    _left   = widget.obstacle.leftPx;
-    _top    = widget.obstacle.topPx;
-    _width  = widget.obstacle.widthPx;
+    _left = widget.obstacle.leftPx;
+    _top = widget.obstacle.topPx;
+    _width = widget.obstacle.widthPx;
     _height = widget.obstacle.heightPx;
   }
 
@@ -54,9 +54,9 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
   void didUpdateWidget(TraceBox oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.obstacle != widget.obstacle) {
-      _left   = widget.obstacle.leftPx;
-      _top    = widget.obstacle.topPx;
-      _width  = widget.obstacle.widthPx;
+      _left = widget.obstacle.leftPx;
+      _top = widget.obstacle.topPx;
+      _width = widget.obstacle.widthPx;
       _height = widget.obstacle.heightPx;
     }
   }
@@ -64,9 +64,9 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
   void _pushToProvider() {
     ref.read(obstaclesProvider.notifier).update(
           widget.obstacle.copyWith(
-            leftPx:   _left,
-            topPx:    _top,
-            widthPx:  _width,
+            leftPx: _left,
+            topPx: _top,
+            widthPx: _width,
             heightPx: _height,
           ),
         );
@@ -83,7 +83,7 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
   String get _mmLabel {
     final ratio = ref.read(wallSetupProvider).scaleRatio;
     if (ratio <= 0) return '';
-    final wMm = ScaleMath.pxToMm(_width,  ratio).round();
+    final wMm = ScaleMath.pxToMm(_width, ratio).round();
     final hMm = ScaleMath.pxToMm(_height, ratio).round();
     return '${wMm}mm × ${hMm}mm';
   }
@@ -102,19 +102,27 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
 
     // Offsets relative to calibrated wall boundary box
     final currentLeftPx = _left - wallSetup.leftLinePx;
-    final currentLeftMm = ScaleMath.pxToMm(currentLeftPx, ratioX).roundToDouble();
-    final currentRightMm = (wallWMm - currentLeftMm - currentWMm).roundToDouble();
+    final currentLeftMm =
+        ScaleMath.pxToMm(currentLeftPx, ratioX).roundToDouble();
+    final currentRightMm =
+        (wallWMm - currentLeftMm - currentWMm).roundToDouble();
 
     final currentFloorPx = wallSetup.bottomLinePx - (_top + _height);
-    final currentFloorMm = ScaleMath.pxToMm(currentFloorPx, ratioY).roundToDouble();
-    final currentCeilingMm = (wallHMm - currentFloorMm - currentHMm).roundToDouble();
+    final currentFloorMm =
+        ScaleMath.pxToMm(currentFloorPx, ratioY).roundToDouble();
+    final currentCeilingMm =
+        (wallHMm - currentFloorMm - currentHMm).roundToDouble();
 
     final wCtrl = TextEditingController(text: currentWMm.toStringAsFixed(0));
     final hCtrl = TextEditingController(text: currentHMm.toStringAsFixed(0));
-    final leftCtrl = TextEditingController(text: currentLeftMm.toStringAsFixed(0));
-    final rightCtrl = TextEditingController(text: currentRightMm.toStringAsFixed(0));
-    final floorCtrl = TextEditingController(text: currentFloorMm.toStringAsFixed(0));
-    final ceilingCtrl = TextEditingController(text: currentCeilingMm.toStringAsFixed(0));
+    final leftCtrl =
+        TextEditingController(text: currentLeftMm.toStringAsFixed(0));
+    final rightCtrl =
+        TextEditingController(text: currentRightMm.toStringAsFixed(0));
+    final floorCtrl =
+        TextEditingController(text: currentFloorMm.toStringAsFixed(0));
+    final ceilingCtrl =
+        TextEditingController(text: currentCeilingMm.toStringAsFixed(0));
 
     bool isUpdating = false;
 
@@ -191,7 +199,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               color: _borderColor,
             ),
             const SizedBox(width: 8),
-            const Text('Exact Dimensions & Offsets (mm)', style: TextStyle(fontSize: 15)),
+            const Text('Exact Dimensions & Offsets (mm)',
+                style: TextStyle(fontSize: 15)),
           ],
         ),
         content: SingleChildScrollView(
@@ -205,7 +214,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: wCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onWidthChanged,
-                      decoration: const InputDecoration(labelText: 'Width (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Width (mm)'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -214,7 +224,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: hCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onHeightChanged,
-                      decoration: const InputDecoration(labelText: 'Height (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Height (mm)'),
                     ),
                   ),
                 ],
@@ -227,7 +238,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: leftCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onLeftChanged,
-                      decoration: const InputDecoration(labelText: 'Dist Left (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Dist Left (mm)'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -236,7 +248,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: rightCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onRightChanged,
-                      decoration: const InputDecoration(labelText: 'Dist Right (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Dist Right (mm)'),
                     ),
                   ),
                 ],
@@ -249,7 +262,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: floorCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onFloorChanged,
-                      decoration: const InputDecoration(labelText: 'Dist Floor (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Dist Floor (mm)'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -258,7 +272,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                       controller: ceilingCtrl,
                       keyboardType: TextInputType.number,
                       onChanged: onCeilingChanged,
-                      decoration: const InputDecoration(labelText: 'Dist Ceiling (mm)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Dist Ceiling (mm)'),
                     ),
                   ),
                 ],
@@ -286,13 +301,18 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
       final newFloorMm = double.tryParse(floorCtrl.text) ?? currentFloorMm;
 
       setState(() {
-        _width = ScaleMath.mmToPx(newWMm, ratioX).clamp(_minSize, widget.canvasWidth);
-        _height = ScaleMath.mmToPx(newHMm, ratioY).clamp(_minSize, widget.canvasHeight);
+        _width = ScaleMath.mmToPx(newWMm, ratioX)
+            .clamp(_minSize, widget.canvasWidth);
+        _height = ScaleMath.mmToPx(newHMm, ratioY)
+            .clamp(_minSize, widget.canvasHeight);
 
-        final leftPx = wallSetup.leftLinePx + ScaleMath.mmToPx(newLeftMm, ratioX);
+        final leftPx =
+            wallSetup.leftLinePx + ScaleMath.mmToPx(newLeftMm, ratioX);
         _left = leftPx.clamp(0, widget.canvasWidth - _width);
 
-        final floorTopPx = wallSetup.bottomLinePx - ScaleMath.mmToPx(newFloorMm, ratioY) - _height;
+        final floorTopPx = wallSetup.bottomLinePx -
+            ScaleMath.mmToPx(newFloorMm, ratioY) -
+            _height;
         _top = floorTopPx.clamp(0, widget.canvasHeight - _height);
       });
       _pushToProvider();
@@ -302,14 +322,13 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left:   _left,
-      top:    _top,
-      width:  _width,
+      left: _left,
+      top: _top,
+      width: _width,
       height: _height,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-
           // ── Main body — drag to move, tap to edit numeric dimensions ───────
           Positioned.fill(
             child: GestureDetector(
@@ -321,16 +340,16 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               onPanUpdate: (d) {
                 setState(() {
                   _left = ScaleMath.clampLeft(
-                      _left + d.delta.dx, _width,  widget.canvasWidth);
-                  _top  = ScaleMath.clampTop(
-                      _top  + d.delta.dy, _height, widget.canvasHeight);
+                      _left + d.delta.dx, _width, widget.canvasWidth);
+                  _top = ScaleMath.clampTop(
+                      _top + d.delta.dy, _height, widget.canvasHeight);
                 });
               },
               onPanEnd: (_) => _pushToProvider(),
               child: Container(
                 decoration: BoxDecoration(
-                  color:        _fillColor,
-                  border:       Border.all(color: _borderColor, width: 2),
+                  color: _fillColor,
+                  border: Border.all(color: _borderColor, width: 2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Column(
@@ -347,15 +366,15 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                     Text(
                       widget.obstacle.label,
                       style: TextStyle(
-                        color:      _borderColor,
-                        fontSize:   11,
+                        color: _borderColor,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     Text(
                       _mmLabel,
                       style: TextStyle(
-                        color:    _borderColor.withValues(alpha: 0.85),
+                        color: _borderColor.withValues(alpha: 0.85),
                         fontSize: 10,
                       ),
                     ),
@@ -376,10 +395,10 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
 
           // ── Right edge — drag to change WIDTH ─────────────────────────────
           Positioned(
-            top:    0,
+            top: 0,
             bottom: 0,
-            right:  -_edgeHandleThick / 2,
-            width:  _edgeHandleThick,
+            right: -_edgeHandleThick / 2,
+            width: _edgeHandleThick,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onPanUpdate: (d) {
@@ -394,10 +413,10 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               onPanEnd: (_) => _pushToProvider(),
               child: Center(
                 child: Container(
-                  width:  6,
+                  width: 6,
                   height: 40,
                   decoration: BoxDecoration(
-                    color:        _borderColor,
+                    color: _borderColor,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 ),
@@ -407,8 +426,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
 
           // ── Bottom edge — drag to change HEIGHT ───────────────────────────
           Positioned(
-            left:   0,
-            right:  0,
+            left: 0,
+            right: 0,
             bottom: -_edgeHandleThick / 2,
             height: _edgeHandleThick,
             child: GestureDetector(
@@ -425,10 +444,10 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               onPanEnd: (_) => _pushToProvider(),
               child: Center(
                 child: Container(
-                  width:  40,
+                  width: 40,
                   height: 6,
                   decoration: BoxDecoration(
-                    color:        _borderColor,
+                    color: _borderColor,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 ),
@@ -439,23 +458,25 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
           // ── Corner resize (bottom-right) — width AND height together ──────
           Positioned(
             bottom: -_edgeHandleThick / 2,
-            right:  -_edgeHandleThick / 2,
-            width:  _cornerHandle,
+            right: -_edgeHandleThick / 2,
+            width: _cornerHandle,
             height: _cornerHandle,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onPanUpdate: (d) {
                 HapticFeedback.selectionClick();
                 setState(() {
-                  _width  = (_width  + d.delta.dx).clamp(_minSize, widget.canvasWidth  - _left);
-                  _height = (_height + d.delta.dy).clamp(_minSize, widget.canvasHeight - _top);
+                  _width = (_width + d.delta.dx)
+                      .clamp(_minSize, widget.canvasWidth - _left);
+                  _height = (_height + d.delta.dy)
+                      .clamp(_minSize, widget.canvasHeight - _top);
                 });
               },
               onPanEnd: (_) => _pushToProvider(),
               child: Container(
-                margin:     const EdgeInsets.all(4),
+                margin: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color:        _borderColor,
+                  color: _borderColor,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
@@ -469,9 +490,9 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
 
           // ── Delete badge (top-right) ───────────────────────────────────────
           Positioned(
-            top:   -_cornerHandle / 2,
+            top: -_cornerHandle / 2,
             right: -_cornerHandle / 2,
-            width:  _cornerHandle,
+            width: _cornerHandle,
             height: _cornerHandle,
             child: GestureDetector(
               onTap: () {
@@ -480,7 +501,7 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               },
               child: Center(
                 child: Container(
-                  width:  28,
+                  width: 28,
                   height: 28,
                   decoration: const BoxDecoration(
                     color: AppTheme.danger,
@@ -491,7 +512,6 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               ),
             ),
           ),
-
         ],
       ),
     );

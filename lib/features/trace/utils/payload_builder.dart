@@ -19,16 +19,20 @@ class PayloadBuilder {
     required List<Obstacle> obstacles,
     required double canvasHeightPx, // used to anchor distance_from_floor
   }) {
-    final sRatioX = (scaleRatioX != null && scaleRatioX > 0) ? scaleRatioX : scaleRatio;
-    final sRatioY = (scaleRatioY != null && scaleRatioY > 0) ? scaleRatioY : scaleRatio;
+    final sRatioX =
+        (scaleRatioX != null && scaleRatioX > 0) ? scaleRatioX : scaleRatio;
+    final sRatioY =
+        (scaleRatioY != null && scaleRatioY > 0) ? scaleRatioY : scaleRatio;
     final floorPx = bottomLinePx ?? canvasHeightPx;
 
     final List<Map<String, dynamic>> obstacleList = obstacles.map((obs) {
       final distFromLeftPx = obs.leftPx - leftLinePx;
-      double distFromLeftMm = ScaleMath.pxToMm(distFromLeftPx, sRatioX).roundToDouble();
+      double distFromLeftMm =
+          ScaleMath.pxToMm(distFromLeftPx, sRatioX).roundToDouble();
 
       final distFromFloorPx = floorPx - (obs.topPx + obs.heightPx);
-      double distFromFloorMm = ScaleMath.pxToMm(distFromFloorPx, sRatioY).roundToDouble();
+      double distFromFloorMm =
+          ScaleMath.pxToMm(distFromFloorPx, sRatioY).roundToDouble();
 
       double widthMm = ScaleMath.pxToMm(obs.widthPx, sRatioX).roundToDouble();
       double heightMm = ScaleMath.pxToMm(obs.heightPx, sRatioY).roundToDouble();

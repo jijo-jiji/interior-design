@@ -61,7 +61,8 @@ class KitchenRoom {
     if (shapeName == 'lShape' && returnMm > 0) {
       shape = KitchenShape.lShape;
     } else if (shapeName != 'singleWall' && shapeName != 'lShape') {
-      notes.add('$shapeName layouts are not generated yet; laid out the main wall only.');
+      notes.add(
+          '$shapeName layouts are not generated yet; laid out the main wall only.');
     }
 
     final openings = <WallOpening>[];
@@ -119,7 +120,8 @@ class PlacedModule {
 
   double get endMm => startMm + widthMm;
   double get centerMm => startMm + widthMm / 2;
-  bool get isWallMounted => kind == ModuleKind.wall || (kind == ModuleKind.filler && mountMm > 0);
+  bool get isWallMounted =>
+      kind == ModuleKind.wall || (kind == ModuleKind.filler && mountMm > 0);
 
   String get cabinetType {
     final w = widthMm.round();
@@ -208,13 +210,19 @@ class LayoutVariant {
   final double mainWallMm;
   final bool usesPlaceholderCatalog;
 
-  Iterable<PlacedModule> ofKind(ModuleKind kind) => modules.where((m) => m.kind == kind);
+  Iterable<PlacedModule> ofKind(ModuleKind kind) =>
+      modules.where((m) => m.kind == kind);
 
   /// e.g. "6 base · 5 wall · 1 tall"
   String get summary {
     final base = modules
-        .where((m) => const {ModuleKind.base, ModuleKind.drawer, ModuleKind.sink, ModuleKind.hob, ModuleKind.corner}
-            .contains(m.kind))
+        .where((m) => const {
+              ModuleKind.base,
+              ModuleKind.drawer,
+              ModuleKind.sink,
+              ModuleKind.hob,
+              ModuleKind.corner
+            }.contains(m.kind))
         .length;
     final wall = ofKind(ModuleKind.wall).length;
     final tall = ofKind(ModuleKind.tall).length;

@@ -11,7 +11,8 @@ class FloorplanCalibrateScreen extends StatefulWidget {
   const FloorplanCalibrateScreen({super.key, required this.imagePath});
 
   @override
-  State<FloorplanCalibrateScreen> createState() => _FloorplanCalibrateScreenState();
+  State<FloorplanCalibrateScreen> createState() =>
+      _FloorplanCalibrateScreenState();
 }
 
 class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
@@ -38,7 +39,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
 
   void _generate3D() {
     final ratio = _scaleRatio;
-    final wallWidthMm = ratio > 0 ? (_roomBox.width / ratio).clamp(1500.0, 12000.0) : 4000.0;
+    final wallWidthMm =
+        ratio > 0 ? (_roomBox.width / ratio).clamp(1500.0, 12000.0) : 4000.0;
 
     final payload = {
       'wall': {
@@ -76,7 +78,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
             icon: const Icon(Icons.view_in_ar_rounded, color: AppTheme.accent),
             label: const Text(
               'Generate 3D',
-              style: TextStyle(color: AppTheme.accent, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                  color: AppTheme.accent, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -91,7 +94,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
               color: AppTheme.surfaceRaised,
               child: Row(
                 children: [
-                  const Icon(Icons.straighten_rounded, color: AppTheme.accent, size: 18),
+                  const Icon(Icons.straighten_rounded,
+                      color: AppTheme.accent, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -140,7 +144,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                     top: _pinA.dy - 18,
                     child: GestureDetector(
                       onPanUpdate: (d) => setState(() => _pinA += d.delta),
-                      child: _PinWidget(label: 'A', color: const Color(0xFF68D391)),
+                      child: _PinWidget(
+                          label: 'A', color: const Color(0xFF68D391)),
                     ),
                   ),
 
@@ -150,7 +155,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                     top: _pinB.dy - 18,
                     child: GestureDetector(
                       onPanUpdate: (d) => setState(() => _pinB += d.delta),
-                      child: _PinWidget(label: 'B', color: const Color(0xFF00E5FF)),
+                      child: _PinWidget(
+                          label: 'B', color: const Color(0xFF00E5FF)),
                     ),
                   ),
 
@@ -164,8 +170,10 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                           _roomBox = Rect.fromLTRB(
                             _roomBox.left,
                             _roomBox.top,
-                            max(_roomBox.left + 80, _roomBox.right + d.delta.dx),
-                            max(_roomBox.top + 60, _roomBox.bottom + d.delta.dy),
+                            max(_roomBox.left + 80,
+                                _roomBox.right + d.delta.dx),
+                            max(_roomBox.top + 60,
+                                _roomBox.bottom + d.delta.dy),
                           );
                         });
                       },
@@ -177,7 +185,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 2),
                         ),
-                        child: const Icon(Icons.open_with_rounded, size: 14, color: Colors.white),
+                        child: const Icon(Icons.open_with_rounded,
+                            size: 14, color: Colors.white),
                       ),
                     ),
                   ),
@@ -204,15 +213,20 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                           controller: _dimensionController,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => setState(() {}),
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
                           decoration: InputDecoration(
                             labelText: 'Real A↔B Dist (mm)',
-                            labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                            prefixIcon: const Icon(Icons.straighten, color: AppTheme.accent, size: 16),
+                            labelStyle: const TextStyle(
+                                color: AppTheme.textSecondary, fontSize: 11),
+                            prefixIcon: const Icon(Icons.straighten,
+                                color: AppTheme.accent, size: 16),
                             filled: true,
                             fillColor: AppTheme.surface,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 10),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
                           ),
                         ),
                       ),
@@ -233,7 +247,9 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                             children: [
                               const Text(
                                 'Extruded Wall Width',
-                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 10),
+                                style: TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 10),
                               ),
                               const SizedBox(height: 2),
                               Text(

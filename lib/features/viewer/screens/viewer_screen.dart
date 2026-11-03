@@ -66,8 +66,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
     // Balanced variant; a restored draft keeps its own cabinets.
     if (parsed != null) {
       try {
-        _variants = const KitchenLayoutGenerator().generateAll(KitchenRoom.fromPayload(parsed));
-        final initial = _variants.where((v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
+        _variants = const KitchenLayoutGenerator()
+            .generateAll(KitchenRoom.fromPayload(parsed));
+        final initial = _variants.where(
+            (v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
         if (_placedCabinets.isEmpty && initial.isNotEmpty) {
           _activeVariantKey = initial.first.key;
           _placedCabinets.addAll(initial.first.toPlacedCabinets());
@@ -94,8 +96,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Future<void> _loadHtml() async {
     final threeJs = await rootBundle.loadString('assets/3d/three.min.js');
-    var orbitJs   = await rootBundle.loadString('assets/3d/OrbitControls.js');
-    var html      = await rootBundle.loadString('assets/3d/index.html');
+    var orbitJs = await rootBundle.loadString('assets/3d/OrbitControls.js');
+    var html = await rootBundle.loadString('assets/3d/index.html');
 
     if (!mounted) return;
 
@@ -131,15 +133,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   Future<void> _injectScene() async {
-    final escaped = widget.jsonPayload
-        .replaceAll('\\', '\\\\')
-        .replaceAll("'", "\\'");
+    final escaped =
+        widget.jsonPayload.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
     await _webViewController.runJavaScript("setNativeMode(true)");
     await _webViewController.runJavaScript("loadScene('$escaped')");
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
-      _showVariantWarnings(_variants.firstWhere((v) => v.key == _activeVariantKey));
+      _showVariantWarnings(
+          _variants.firstWhere((v) => v.key == _activeVariantKey));
     }
     if (mounted) setState(() => _sceneLoaded = true);
   }
@@ -152,7 +154,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Replaces every cabinet in the 3D scene with [_placedCabinets].
   Future<void> _pushCabinetsToScene() {
     // Double-encoded: the inner JSON becomes a safe JS string literal.
-    return _webViewController.runJavaScript('replaceCabinets(${jsonEncode(jsonEncode(_placedCabinets))})');
+    return _webViewController.runJavaScript(
+        'replaceCabinets(${jsonEncode(jsonEncode(_placedCabinets))})');
   }
 
   void _selectVariant(LayoutVariant variant) {
@@ -182,7 +185,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     if (variant.warnings.isEmpty) return;
     messenger.showSnackBar(
       SnackBar(
-        content: Text('${variant.key} · ${variant.name}: ${variant.warnings.join(' ')}'),
+        content: Text(
+            '${variant.key} · ${variant.name}: ${variant.warnings.join(' ')}'),
         duration: const Duration(seconds: 4),
       ),
     );
@@ -204,7 +208,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       } else if (type == 'cabinet_moved') {
         // Keep the saved position in sync with drags in the 3D view.
         final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
-        if (i >= 0) _placedCabinets[i] = {..._placedCabinets[i], 'x_mm': data['x_mm']};
+        if (i >= 0)
+          _placedCabinets[i] = {..._placedCabinets[i], 'x_mm': data['x_mm']};
       } else if (type == 'cabinet_snapped') {
         // Haptic feedback when magnetic snapping engages
         HapticFeedback.selectionClick();
@@ -253,7 +258,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     required String? signatureBase64,
   }) async {
     final summary = _cpqSummary;
-    final quoteId = 'QT-${DateTime.now().millisecondsSinceEpoch.toRadixString(16).toUpperCase()}';
+    final quoteId =
+        'QT-${DateTime.now().millisecondsSinceEpoch.toRadixString(16).toUpperCase()}';
     final payload = {
       'quote_id': quoteId,
       'wall': _wallData,
@@ -286,7 +292,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
       if (mounted) {
         Navigator.pop(context); // Close modal
-        _showSuccessDialog(result, clientName, clientPhone, depositLocked, false);
+        _showSuccessDialog(
+            result, clientName, clientPhone, depositLocked, false);
       }
     } catch (e) {
       if (mounted) {
@@ -309,7 +316,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     bool isOfflineQueued,
   ) {
     final quoteId = result['quote_id'] ?? 'QT-SUCCESS';
-    final total = result['total_price'] ?? _cpqSummary.totalPrice.toStringAsFixed(2);
+    final total =
+        result['total_price'] ?? _cpqSummary.totalPrice.toStringAsFixed(2);
     final pdfUrl = result['pdf_url'] ?? '';
 
     showDialog(
@@ -323,11 +331,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: isOfflineQueued ? AppTheme.accentTerracotta.withOpacity(0.2) : AppTheme.successDim,
+                color: isOfflineQueued
+                    ? AppTheme.accentTerracotta.withOpacity(0.2)
+                    : AppTheme.successDim,
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                isOfflineQueued ? Icons.offline_pin_rounded : Icons.check_circle_rounded,
+                isOfflineQueued
+                    ? Icons.offline_pin_rounded
+                    : Icons.check_circle_rounded,
                 color: isOfflineQueued ? AppTheme.accent : AppTheme.success,
                 size: 28,
               ),
@@ -335,8 +347,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                isOfflineQueued ? 'Locked to Offline Outbox!' : 'Deal Locked & Signed!',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                isOfflineQueued
+                    ? 'Locked to Offline Outbox!'
+                    : 'Deal Locked & Signed!',
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary),
               ),
             ),
           ],
@@ -349,16 +366,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
               isOfflineQueued
                   ? 'Agreement & signature secured locally. Will auto-sync with studio when online.'
                   : 'Agreement successfully recorded and synced with back-office Studio.',
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style:
+                  const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 14),
             _SummaryTile(label: 'Quote Number', value: quoteId),
             _SummaryTile(label: 'Total Value', value: '\$$total AUD'),
             _SummaryTile(
               label: 'Slot Status',
-              value: depositLocked ? 'Priority Locked (\$250)' : 'Estimate Sent',
+              value:
+                  depositLocked ? 'Priority Locked (\$250)' : 'Estimate Sent',
             ),
-            _SummaryTile(label: 'Style Archetype', value: _cpqSummary.styleName),
+            _SummaryTile(
+                label: 'Style Archetype', value: _cpqSummary.styleName),
             if (pdfUrl.isNotEmpty) ...[
               const SizedBox(height: 8),
               _SummaryTile(label: 'PDF Document', value: pdfUrl),
@@ -374,10 +394,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 'Slot status: ${depositLocked ? "Priority Locked (\$250)" : "Estimate"}.',
               );
               final cleanPhone = clientPhone.replaceAll(RegExp(r'[^\d]'), '');
-              Clipboard.setData(ClipboardData(text: 'https://wa.me/$cleanPhone?text=$text'));
+              Clipboard.setData(
+                  ClipboardData(text: 'https://wa.me/$cleanPhone?text=$text'));
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('WhatsApp proposal link generated and copied to clipboard!'),
+                  content: Text(
+                      'WhatsApp proposal link generated and copied to clipboard!'),
                   backgroundColor: AppTheme.accent,
                 ),
               );
@@ -424,7 +446,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: AppTheme.textSecondary),
+                  icon: const Icon(Icons.close_rounded,
+                      color: AppTheme.textSecondary),
                 ),
               ],
             ),
@@ -454,7 +477,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
             if (summary.obstacleAllowance != 0)
               _SummaryTile(
                 label: 'Cutout Allowance (Doors/Windows)',
-                value: '-\$${summary.obstacleAllowance.abs().toStringAsFixed(2)}',
+                value:
+                    '-\$${summary.obstacleAllowance.abs().toStringAsFixed(2)}',
               ),
             _SummaryTile(
               label: 'GST (10%)',
@@ -612,7 +636,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 GestureDetector(
                   onTap: _showBOQSheet,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
                       color: AppTheme.surface.withOpacity(0.97),
                       borderRadius: BorderRadius.circular(18),
@@ -636,7 +661,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                               Row(
                                 children: [
                                   TweenAnimationBuilder<double>(
-                                    tween: Tween<double>(begin: 0, end: summary.totalPrice),
+                                    tween: Tween<double>(
+                                        begin: 0, end: summary.totalPrice),
                                     duration: const Duration(milliseconds: 400),
                                     curve: Curves.easeOutCubic,
                                     builder: (context, val, _) {
@@ -653,11 +679,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2.5),
                                     decoration: BoxDecoration(
                                       color: AppTheme.surfaceRaised,
                                       borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: AppTheme.border),
+                                      border:
+                                          Border.all(color: AppTheme.border),
                                     ),
                                     child: Text(
                                       '${summary.totalModules} modules',
@@ -676,7 +704,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                     ? '\$${summary.monthlyPayment.toStringAsFixed(0)}/mo (36mo) • \$250 Slot Deposit'
                                     : 'Tap modules above to place along wall rails',
                                 style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.85),
+                                  color:
+                                      AppTheme.textSecondary.withOpacity(0.85),
                                   fontSize: 11,
                                 ),
                               ),
@@ -688,7 +717,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                         IconButton(
                           tooltip: 'Itemized BOQ',
                           onPressed: _showBOQSheet,
-                          icon: const Icon(Icons.receipt_long_rounded, color: AppTheme.textSecondary, size: 20),
+                          icon: const Icon(Icons.receipt_long_rounded,
+                              color: AppTheme.textSecondary, size: 20),
                         ),
 
                         const SizedBox(width: 4),
@@ -698,7 +728,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           onTap: _openClosingModal,
                           borderRadius: BorderRadius.circular(12),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
                             decoration: BoxDecoration(
                               color: AppTheme.accent,
                               borderRadius: BorderRadius.circular(12),
@@ -713,7 +744,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.verified_rounded, size: 16, color: Colors.white),
+                                Icon(Icons.verified_rounded,
+                                    size: 16, color: Colors.white),
                                 SizedBox(width: 6),
                                 Text(
                                   'Sign & Lock',
@@ -784,16 +816,18 @@ class _StylePill extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.accent
-              : AppTheme.surface.withOpacity(0.95),
+          color:
+              isSelected ? AppTheme.accent : AppTheme.surface.withOpacity(0.95),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected ? AppTheme.accent : AppTheme.border,
             width: isSelected ? 1.5 : 1.0,
           ),
           boxShadow: isSelected
-              ? [BoxShadow(color: AppTheme.accent.withOpacity(0.2), blurRadius: 8)]
+              ? [
+                  BoxShadow(
+                      color: AppTheme.accent.withOpacity(0.2), blurRadius: 8)
+                ]
               : null,
         ),
         child: Row(
@@ -856,16 +890,22 @@ class _LayoutVariantBar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
             child: Row(
               children: [
-                const Icon(Icons.auto_awesome_rounded, size: 14, color: AppTheme.accent),
+                const Icon(Icons.auto_awesome_rounded,
+                    size: 14, color: AppTheme.accent),
                 const SizedBox(width: 6),
                 const Text(
                   'Auto layouts',
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 11.5, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold),
                 ),
                 if (sample)
                   Text(
                     '  ·  sample catalog',
-                    style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.85), fontSize: 10.5),
+                    style: TextStyle(
+                        color: AppTheme.textSecondary.withOpacity(0.85),
+                        fontSize: 10.5),
                   ),
                 const Spacer(),
                 if (onClear != null)
@@ -873,7 +913,10 @@ class _LayoutVariantBar extends StatelessWidget {
                     onTap: onClear,
                     child: const Text(
                       'Clear',
-                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
               ],
@@ -904,7 +947,8 @@ class _VariantChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _VariantChip({required this.variant, required this.selected, required this.onTap});
+  const _VariantChip(
+      {required this.variant, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -916,7 +960,8 @@ class _VariantChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppTheme.accent : AppTheme.surfaceRaised,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? AppTheme.accent : AppTheme.border),
+          border:
+              Border.all(color: selected ? AppTheme.accent : AppTheme.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -936,7 +981,9 @@ class _VariantChip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: selected ? Colors.white.withOpacity(0.85) : AppTheme.textSecondary,
+                color: selected
+                    ? Colors.white.withOpacity(0.85)
+                    : AppTheme.textSecondary,
                 fontSize: 9.5,
               ),
             ),
@@ -1054,7 +1101,8 @@ class _JoineryModuleButton extends StatelessWidget {
                 color: AppTheme.accent.withOpacity(0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.add_rounded, size: 12, color: AppTheme.accent),
+              child: const Icon(Icons.add_rounded,
+                  size: 12, color: AppTheme.accent),
             ),
           ],
         ),

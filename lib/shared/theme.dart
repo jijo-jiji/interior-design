@@ -84,8 +84,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
-        labelStyle: GoogleFonts.plusJakartaSans(color: textSecondary, fontSize: 13),
-        hintStyle: GoogleFonts.plusJakartaSans(color: textTertiary, fontSize: 13),
+        labelStyle:
+            GoogleFonts.plusJakartaSans(color: textSecondary, fontSize: 13),
+        hintStyle:
+            GoogleFonts.plusJakartaSans(color: textTertiary, fontSize: 13),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: border),

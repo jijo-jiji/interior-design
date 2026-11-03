@@ -62,7 +62,7 @@ void main() {
         ],
         obstacles: [
           {'type': 'window'}, // -50
-          {'type': 'door'},   // -80
+          {'type': 'door'}, // -80
         ],
         styleArchetype: 'japandi',
       );
@@ -77,7 +77,8 @@ void main() {
       expect(summary.totalPrice, 451.00);
     });
 
-    test('Benchtop calculation adds engineered quartz surface per linear metre', () {
+    test('Benchtop calculation adds engineered quartz surface per linear metre',
+        () {
       final summary = CPQEngine.calculate(
         placedCabinets: [
           {'cabinet_type': 'base_800', 'width_mm': 800.0},

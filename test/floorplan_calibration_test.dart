@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Floor Plan 2-Point Calibration Math Tests', () {
-    test('Calculates Euclidean pixel distance between two calibration pins correctly', () {
+    test(
+        'Calculates Euclidean pixel distance between two calibration pins correctly',
+        () {
       const pinA = Offset(100, 100);
       const pinB = Offset(400, 500);
 

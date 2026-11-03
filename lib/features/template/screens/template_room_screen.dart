@@ -65,28 +65,32 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                       label: 'Single Wall',
                       icon: Icons.horizontal_rule_rounded,
                       isSelected: _selectedShape == RoomShape.singleWall,
-                      onTap: () => setState(() => _selectedShape = RoomShape.singleWall),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.singleWall),
                     ),
                     const SizedBox(width: 8),
                     _ShapeTab(
                       label: 'L-Shape Kitchen',
                       icon: Icons.turn_right_rounded,
                       isSelected: _selectedShape == RoomShape.lShape,
-                      onTap: () => setState(() => _selectedShape = RoomShape.lShape),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.lShape),
                     ),
                     const SizedBox(width: 8),
                     _ShapeTab(
                       label: 'Galley (2 Walls)',
                       icon: Icons.view_column_rounded,
                       isSelected: _selectedShape == RoomShape.galley,
-                      onTap: () => setState(() => _selectedShape = RoomShape.galley),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.galley),
                     ),
                     const SizedBox(width: 8),
                     _ShapeTab(
                       label: 'Studio Box',
                       icon: Icons.crop_square_rounded,
                       isSelected: _selectedShape == RoomShape.studio,
-                      onTap: () => setState(() => _selectedShape = RoomShape.studio),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.studio),
                     ),
                   ],
                 ),
@@ -123,7 +127,8 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
             Expanded(
               flex: 4,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 decoration: const BoxDecoration(
                   color: AppTheme.surfaceRaised,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -201,7 +206,8 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                           icon: const Icon(Icons.view_in_ar_rounded),
                           label: const Text(
                             'Launch 3D Co-Design & Quote',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -246,7 +252,9 @@ class _ShapeTab extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, size: 16, color: isSelected ? Colors.white : AppTheme.textSecondary),
+            Icon(icon,
+                size: 16,
+                color: isSelected ? Colors.white : AppTheme.textSecondary),
             const SizedBox(width: 6),
             Text(
               label,
@@ -292,7 +300,8 @@ class _DimensionSlider extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style:
+                  const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -362,9 +371,11 @@ class _RoomWireframePainter extends CustomPainter {
       canvas.drawLine(Offset(20, y), Offset(size.width - 20, y), wallPaint);
 
       // Dimension guide
-      canvas.drawLine(Offset(20, y + 25), Offset(size.width - 20, y + 25), dimPaint);
+      canvas.drawLine(
+          Offset(20, y + 25), Offset(size.width - 20, y + 25), dimPaint);
       canvas.drawLine(Offset(20, y + 18), Offset(20, y + 32), dimPaint);
-      canvas.drawLine(Offset(size.width - 20, y + 18), Offset(size.width - 20, y + 32), dimPaint);
+      canvas.drawLine(Offset(size.width - 20, y + 18),
+          Offset(size.width - 20, y + 32), dimPaint);
     } else if (shape == RoomShape.lShape) {
       final path = Path();
       path.moveTo(30, 30);
@@ -372,8 +383,10 @@ class _RoomWireframePainter extends CustomPainter {
       path.lineTo(size.width - 30, size.height - 30);
       canvas.drawPath(path, wallPaint);
     } else if (shape == RoomShape.galley) {
-      canvas.drawLine(const Offset(30, 40), Offset(size.width - 30, 40), wallPaint);
-      canvas.drawLine(Offset(30, size.height - 40), Offset(size.width - 30, size.height - 40), wallPaint);
+      canvas.drawLine(
+          const Offset(30, 40), Offset(size.width - 30, 40), wallPaint);
+      canvas.drawLine(Offset(30, size.height - 40),
+          Offset(size.width - 30, size.height - 40), wallPaint);
     } else {
       // Studio
       final rect = Rect.fromLTRB(30, 30, size.width - 30, size.height - 30);

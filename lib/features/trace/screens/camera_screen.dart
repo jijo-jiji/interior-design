@@ -1,4 +1,3 @@
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -203,7 +202,8 @@ class _CameraScreenState extends State<CameraScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 3),
-                          color: _isCapturing ? AppTheme.accent : Colors.white24,
+                          color:
+                              _isCapturing ? AppTheme.accent : Colors.white24,
                         ),
                         child: _isCapturing
                             ? const CircularProgressIndicator(
@@ -255,32 +255,43 @@ class _GridOverlayPainter extends CustomPainter {
     // Central wall framing box guide (dotted corner brackets)
     final marginX = size.width * 0.08;
     final marginY = size.height * 0.12;
-    final rect = Rect.fromLTRB(marginX, marginY, size.width - marginX, size.height - marginY);
+    final rect = Rect.fromLTRB(
+        marginX, marginY, size.width - marginX, size.height - marginY);
     const bracketLen = 30.0;
 
     // Top-Left corner bracket
-    canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(bracketLen, 0), wallFramePaint);
-    canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(0, bracketLen), wallFramePaint);
+    canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(bracketLen, 0),
+        wallFramePaint);
+    canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(0, bracketLen),
+        wallFramePaint);
 
     // Top-Right corner bracket
-    canvas.drawLine(rect.topRight, rect.topRight - const Offset(bracketLen, 0), wallFramePaint);
-    canvas.drawLine(rect.topRight, rect.topRight + const Offset(0, bracketLen), wallFramePaint);
+    canvas.drawLine(rect.topRight, rect.topRight - const Offset(bracketLen, 0),
+        wallFramePaint);
+    canvas.drawLine(rect.topRight, rect.topRight + const Offset(0, bracketLen),
+        wallFramePaint);
 
     // Bottom-Left corner bracket
-    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + const Offset(bracketLen, 0), wallFramePaint);
-    canvas.drawLine(rect.bottomLeft, rect.bottomLeft - const Offset(0, bracketLen), wallFramePaint);
+    canvas.drawLine(rect.bottomLeft,
+        rect.bottomLeft + const Offset(bracketLen, 0), wallFramePaint);
+    canvas.drawLine(rect.bottomLeft,
+        rect.bottomLeft - const Offset(0, bracketLen), wallFramePaint);
 
     // Bottom-Right corner bracket
-    canvas.drawLine(rect.bottomRight, rect.bottomRight - const Offset(bracketLen, 0), wallFramePaint);
-    canvas.drawLine(rect.bottomRight, rect.bottomRight - const Offset(0, bracketLen), wallFramePaint);
+    canvas.drawLine(rect.bottomRight,
+        rect.bottomRight - const Offset(bracketLen, 0), wallFramePaint);
+    canvas.drawLine(rect.bottomRight,
+        rect.bottomRight - const Offset(0, bracketLen), wallFramePaint);
 
     // Level crosshair target in center
     final center = Offset(size.width / 2, size.height / 2);
     final levelPaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.4)
       ..strokeWidth = 1.2;
-    canvas.drawLine(center - const Offset(15, 0), center + const Offset(15, 0), levelPaint);
-    canvas.drawLine(center - const Offset(0, 15), center + const Offset(0, 15), levelPaint);
+    canvas.drawLine(
+        center - const Offset(15, 0), center + const Offset(15, 0), levelPaint);
+    canvas.drawLine(
+        center - const Offset(0, 15), center + const Offset(0, 15), levelPaint);
     canvas.drawCircle(center, 4, levelPaint);
   }
 

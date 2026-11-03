@@ -42,11 +42,13 @@ class KitchenLayoutGenerator {
       _VariantBuilder(catalog, rules, room, _specFor(tier)).build();
 
   _VariantSpec _specFor(LayoutTier tier) {
-    List<double> closestTo(List<double> widths, double target) =>
-        [...widths]..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+    List<double> closestTo(List<double> widths, double target) => [...widths]
+      ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
     List<double> asc(List<double> widths) => [...widths]..sort();
-    List<double> desc(List<double> widths) => [...widths]..sort((a, b) => b.compareTo(a));
-    List<_Piece> pieces(ModuleKind kind, Iterable<double> widths) => [for (final w in widths) _Piece(kind, w)];
+    List<double> desc(List<double> widths) =>
+        [...widths]..sort((a, b) => b.compareTo(a));
+    List<_Piece> pieces(ModuleKind kind, Iterable<double> widths) =>
+        [for (final w in widths) _Piece(kind, w)];
     final landingMin = rules.minSinkToHobMm;
 
     switch (tier) {
@@ -58,7 +60,8 @@ class KitchenLayoutGenerator {
           tallCount: 0,
           sinkWidthsMm: asc(catalog.sinkWidthsMm),
           hobWidthsMm: asc(catalog.hobWidthsMm),
-          landing: pieces(ModuleKind.base, asc(catalog.baseDoorWidthsMm).where((w) => w >= landingMin)),
+          landing: pieces(ModuleKind.base,
+              asc(catalog.baseDoorWidthsMm).where((w) => w >= landingMin)),
           fill: pieces(ModuleKind.base, catalog.baseDoorWidthsMm),
           cost: (p) => 1.0 + (p.widthMm < 400 ? 0.3 : 0.0),
         );
@@ -70,7 +73,8 @@ class KitchenLayoutGenerator {
           tallCount: 1,
           sinkWidthsMm: closestTo(catalog.sinkWidthsMm, 800),
           hobWidthsMm: closestTo(catalog.hobWidthsMm, 600),
-          landing: pieces(ModuleKind.drawer, asc(catalog.drawerWidthsMm).where((w) => w >= landingMin)),
+          landing: pieces(ModuleKind.drawer,
+              asc(catalog.drawerWidthsMm).where((w) => w >= landingMin)),
           fill: pieces(ModuleKind.base, catalog.baseDoorWidthsMm),
           cost: (p) => 1.0 + 0.5 * (p.widthMm - 600).abs() / 600,
         );
@@ -85,13 +89,17 @@ class KitchenLayoutGenerator {
           tallCount: 2,
           sinkWidthsMm: desc(catalog.sinkWidthsMm),
           hobWidthsMm: desc(catalog.hobWidthsMm),
-          landing: pieces(ModuleKind.drawer, desc(drawers).where((w) => w >= landingMin)),
+          landing: pieces(
+              ModuleKind.drawer, desc(drawers).where((w) => w >= landingMin)),
           // Drawer banks everywhere; narrow door units only where no drawer fits.
           fill: [
             ...pieces(ModuleKind.drawer, drawers),
-            ...pieces(ModuleKind.base, catalog.baseDoorWidthsMm.where((w) => w < narrowestDrawer)),
+            ...pieces(ModuleKind.base,
+                catalog.baseDoorWidthsMm.where((w) => w < narrowestDrawer)),
           ],
-          cost: (p) => p.kind == ModuleKind.drawer ? 1.0 + 0.3 * (widest - p.widthMm) / widest : 1.6,
+          cost: (p) => p.kind == ModuleKind.drawer
+              ? 1.0 + 0.3 * (widest - p.widthMm) / widest
+              : 1.6,
         );
     }
   }
@@ -187,11 +195,13 @@ class _Plan {
   final bool sinkUnderWindow;
 
   _Plan plus(double extra, {bool? sinkUnderWindow}) =>
-      _Plan(byRun, cost + extra, sinkUnderWindow: sinkUnderWindow ?? this.sinkUnderWindow);
+      _Plan(byRun, cost + extra,
+          sinkUnderWindow: sinkUnderWindow ?? this.sinkUnderWindow);
 }
 
 class _SinkCandidate {
-  const _SinkCandidate(this.runIndex, this.anchor, this.penalty, {required this.underWindow});
+  const _SinkCandidate(this.runIndex, this.anchor, this.penalty,
+      {required this.underWindow});
   final int runIndex;
   final _Anchor anchor;
   final double penalty;
@@ -238,16 +248,21 @@ class _VariantBuilder {
   /// Windows above the worktop that a sink can sit under, widest first.
   final List<WallOpening> _sinkWindows = [];
 
-  late final List<_Piece> _wallPalette = [for (final w in catalog.wallWidthsMm) _Piece(ModuleKind.wall, w)];
-  late final double _smallestBaseMm = spec.fill.map((p) => p.widthMm).reduce((a, b) => a < b ? a : b);
+  late final List<_Piece> _wallPalette = [
+    for (final w in catalog.wallWidthsMm) _Piece(ModuleKind.wall, w)
+  ];
+  late final double _smallestBaseMm =
+      spec.fill.map((p) => p.widthMm).reduce((a, b) => a < b ? a : b);
 
   LayoutVariant build() {
     _warnings.addAll(room.notes);
     _buildRuns();
 
-    final requestedTalls = room.wallHeightMm >= catalog.tallHeightMm ? spec.tallCount : 0;
+    final requestedTalls =
+        room.wallHeightMm >= catalog.tallHeightMm ? spec.tallCount : 0;
     if (spec.tallCount > 0 && requestedTalls == 0) {
-      _warnings.add('Ceiling is lower than a tall unit (${catalog.tallHeightMm.round()} mm), so none were added.');
+      _warnings.add(
+          'Ceiling is lower than a tall unit (${catalog.tallHeightMm.round()} mm), so none were added.');
     }
 
     _Plan? plan;
@@ -260,19 +275,24 @@ class _VariantBuilder {
       placedTalls = talls;
     }
     if (plan != null && placedTalls < requestedTalls) {
-      _warnings.add('Only $placedTalls of $requestedTalls tall units fit on these walls.');
+      _warnings.add(
+          'Only $placedTalls of $requestedTalls tall units fit on these walls.');
     }
     if (plan == null) {
       plan = _bestPlan(const [], withSink: true, withHob: false);
       if (plan != null) {
-        _warnings.add('Not enough worktop for both a sink and a hob with the current rules — sink only.');
+        _warnings.add(
+            'Not enough worktop for both a sink and a hob with the current rules — sink only.');
       }
     }
     if (plan == null) {
-      plan = _bestPlan(const [], withSink: false, withHob: false) ?? const _Plan({}, 0);
-      _warnings.add('Not enough wall for a sink with the current rules — storage only.');
+      plan = _bestPlan(const [], withSink: false, withHob: false) ??
+          const _Plan({}, 0);
+      _warnings.add(
+          'Not enough wall for a sink with the current rules — storage only.');
     }
-    final hasSink = plan.byRun.values.any((l) => l.any((p) => p.piece.kind == ModuleKind.sink));
+    final hasSink = plan.byRun.values
+        .any((l) => l.any((p) => p.piece.kind == ModuleKind.sink));
     if (_sinkWindows.isNotEmpty && hasSink && !plan.sinkUnderWindow) {
       _warnings.add('The sink could not be centred under the window.');
     }
@@ -287,7 +307,8 @@ class _VariantBuilder {
     final baseBlocked = <_Span>[];
     for (final o in room.openings) {
       if (o.type == OpeningType.door) {
-        baseBlocked.add(_Span(o.leftMm - rules.doorClearanceMm, o.rightMm + rules.doorClearanceMm));
+        baseBlocked.add(_Span(o.leftMm - rules.doorClearanceMm,
+            o.rightMm + rules.doorClearanceMm));
       } else {
         if (o.floorMm < catalog.counterHeightMm - _eps) {
           // Sill below the worktop: no base cabinets in front of it.
@@ -295,7 +316,8 @@ class _VariantBuilder {
         } else {
           _sinkWindows.add(o);
         }
-        _windowZones.add(_Span(o.leftMm - rules.windowClearanceMm, o.rightMm + rules.windowClearanceMm));
+        _windowZones.add(_Span(o.leftMm - rules.windowClearanceMm,
+            o.rightMm + rules.windowClearanceMm));
       }
     }
     _sinkWindows.sort((a, b) => b.widthMm.compareTo(a.widthMm));
@@ -303,16 +325,20 @@ class _VariantBuilder {
     var mainStart = 0.0;
     if (room.shape == KitchenShape.lShape) {
       final corner = catalog.cornerSizeMm;
-      _hasCorner = w >= corner && room.returnWallMm >= corner && !baseBlocked.any((s) => s.overlaps(0, corner));
+      _hasCorner = w >= corner &&
+          room.returnWallMm >= corner &&
+          !baseBlocked.any((s) => s.overlaps(0, corner));
       if (_hasCorner) {
         mainStart = corner;
       } else {
-        _warnings.add('A door or low window is in the corner, so no corner unit was added.');
+        _warnings.add(
+            'A door or low window is in the corner, so no corner unit was added.');
       }
     }
 
     for (final seg in _subtract(_Span(mainStart, w), baseBlocked)) {
-      if (seg.length >= rules.scribeToleranceMm) _runs.add(_Run(RunWall.main, seg.start, seg.end));
+      if (seg.length >= rules.scribeToleranceMm)
+        _runs.add(_Run(RunWall.main, seg.start, seg.end));
     }
     if (room.shape == KitchenShape.lShape) {
       final start = _hasCorner ? catalog.cornerSizeMm : catalog.baseDepthMm;
@@ -341,11 +367,15 @@ class _VariantBuilder {
 
   /// Positions along an "unfolded" line: the main wall as-is, the return wall
   /// folded out to the left of the corner (negative).
-  double _unfold(int runIndex, double mm) => _runs[runIndex].wall == RunWall.main ? mm : -mm;
+  double _unfold(int runIndex, double mm) =>
+      _runs[runIndex].wall == RunWall.main ? mm : -mm;
 
   double _sinkTargetUnfolded() {
     for (final win in _sinkWindows) {
-      if (_runs.any((r) => r.wall == RunWall.main && win.centerMm > r.start && win.centerMm < r.end)) {
+      if (_runs.any((r) =>
+          r.wall == RunWall.main &&
+          win.centerMm > r.start &&
+          win.centerMm < r.end)) {
         return win.centerMm;
       }
     }
@@ -383,11 +413,18 @@ class _VariantBuilder {
 
   /// Outer run ends where tall units may go, furthest from the sink first.
   List<_TallEnd> _tallEnds() {
-    final mains = [for (var i = 0; i < _runs.length; i++) if (_runs[i].wall == RunWall.main) i];
-    final returns = [for (var i = 0; i < _runs.length; i++) if (_runs[i].wall == RunWall.returnWall) i];
+    final mains = [
+      for (var i = 0; i < _runs.length; i++)
+        if (_runs[i].wall == RunWall.main) i
+    ];
+    final returns = [
+      for (var i = 0; i < _runs.length; i++)
+        if (_runs[i].wall == RunWall.returnWall) i
+    ];
     final candidates = <_TallEnd>[
       if (mains.isNotEmpty) _TallEnd(mains.last, true),
-      if (room.shape == KitchenShape.singleWall && mains.isNotEmpty) _TallEnd(mains.first, false),
+      if (room.shape == KitchenShape.singleWall && mains.isNotEmpty)
+        _TallEnd(mains.first, false),
       if (returns.isNotEmpty) _TallEnd(returns.last, true),
     ];
 
@@ -400,15 +437,20 @@ class _VariantBuilder {
     }).toList();
 
     final target = _sinkTargetUnfolded();
-    double pos(_TallEnd c) => _unfold(c.runIndex, c.atEnd ? _runs[c.runIndex].end : _runs[c.runIndex].start);
-    valid.sort((a, b) => (pos(b) - target).abs().compareTo((pos(a) - target).abs()));
+    double pos(_TallEnd c) => _unfold(
+        c.runIndex, c.atEnd ? _runs[c.runIndex].end : _runs[c.runIndex].start);
+    valid.sort(
+        (a, b) => (pos(b) - target).abs().compareTo((pos(a) - target).abs()));
     return valid;
   }
 
   // ── Planning ───────────────────────────────────────────────────────────────
 
-  _Plan? _bestPlan(List<_TallEnd> talls, {required bool withSink, required bool withHob}) {
-    final base = <int, List<_Anchor>>{for (var i = 0; i < _runs.length; i++) i: []};
+  _Plan? _bestPlan(List<_TallEnd> talls,
+      {required bool withSink, required bool withHob}) {
+    final base = <int, List<_Anchor>>{
+      for (var i = 0; i < _runs.length; i++) i: []
+    };
     final usable = <int, _Span>{};
     final sinkUsable = <int, _Span>{};
     for (var i = 0; i < _runs.length; i++) {
@@ -444,15 +486,19 @@ class _VariantBuilder {
         // Only fall back to a sink away from the window if none fits under it.
         if (best.sinkUnderWindow && !sink.underWindow) break;
       }
-      final sinkAnchors = _withAnchors(base, {sink.runIndex: [sink.anchor]});
+      final sinkAnchors = _withAnchors(base, {
+        sink.runIndex: [sink.anchor]
+      });
       _Plan? local;
       if (!withHob) {
-        local = _fillAll(sinkAnchors)?.plus(sink.penalty, sinkUnderWindow: sink.underWindow);
+        local = _fillAll(sinkAnchors)
+            ?.plus(sink.penalty, sinkUnderWindow: sink.underWindow);
       } else {
         for (final hob in _hobOptions(sink, usable)) {
           final plan = _fillAll(_withAnchors(sinkAnchors, hob.anchors));
           if (plan == null) continue;
-          final total = plan.plus(sink.penalty + hob.penalty, sinkUnderWindow: sink.underWindow);
+          final total = plan.plus(sink.penalty + hob.penalty,
+              sinkUnderWindow: sink.underWindow);
           if (local == null || total.cost < local.cost) local = total;
         }
       }
@@ -463,7 +509,9 @@ class _VariantBuilder {
     return best;
   }
 
-  Map<int, List<_Anchor>> _withAnchors(Map<int, List<_Anchor>> a, Map<int, List<_Anchor>> b) => {
+  Map<int, List<_Anchor>> _withAnchors(
+          Map<int, List<_Anchor>> a, Map<int, List<_Anchor>> b) =>
+      {
         for (final i in a.keys) i: [...a[i]!, ...?b[i]],
       };
 
@@ -476,7 +524,8 @@ class _VariantBuilder {
       for (final win in _sinkWindows) {
         for (var i = 0; i < _runs.length; i++) {
           final u = usable[i]!;
-          if (_runs[i].wall != RunWall.main || !u.contains(win.centerMm)) continue;
+          if (_runs[i].wall != RunWall.main || !u.contains(win.centerMm))
+            continue;
           for (var shift = -rules.maxSinkShiftFromWindowMm;
               shift <= rules.maxSinkShiftFromWindowMm + _eps;
               shift += _windowSearchStepMm) {
@@ -485,7 +534,8 @@ class _VariantBuilder {
             underWindow.add(_SinkCandidate(
               i,
               _Anchor(_Piece(ModuleKind.sink, w), s),
-              shift.abs() * _sinkShiftFromWindowPerMm + rank * _lessPreferredWidth,
+              shift.abs() * _sinkShiftFromWindowPerMm +
+                  rank * _lessPreferredWidth,
               underWindow: true,
             ));
           }
@@ -494,10 +544,11 @@ class _VariantBuilder {
     }
     underWindow.sort((a, b) => a.penalty.compareTo(b.penalty));
 
-    final order = [for (var i = 0; i < _runs.length; i++) i]
-      ..sort((a, b) {
+    final order = [for (var i = 0; i < _runs.length; i++) i]..sort((a, b) {
         final byLen = usable[b]!.length.compareTo(usable[a]!.length);
-        return byLen != 0 ? byLen : _runs[a].wall.index.compareTo(_runs[b].wall.index);
+        return byLen != 0
+            ? byLen
+            : _runs[a].wall.index.compareTo(_runs[b].wall.index);
       });
     final elsewhere = <_SinkCandidate>[];
     for (var rank = 0; rank < spec.sinkWidthsMm.length; rank++) {
@@ -514,7 +565,9 @@ class _VariantBuilder {
           elsewhere.add(_SinkCandidate(
             i,
             _Anchor(_Piece(ModuleKind.sink, w), s),
-            (s + w / 2 - target).abs() * _offTargetPerMm + rank * _lessPreferredWidth + runRank * 0.2,
+            (s + w / 2 - target).abs() * _offTargetPerMm +
+                rank * _lessPreferredWidth +
+                runRank * 0.2,
             underWindow: false,
           ));
         }
@@ -527,13 +580,16 @@ class _VariantBuilder {
   /// Landing (sink-to-hob) module combinations: preferred single modules,
   /// then pairs of fill modules.
   late final List<List<_Piece>> _landingCombos = () {
-    final combos = <List<_Piece>>[for (final p in spec.landing) [p]];
+    final combos = <List<_Piece>>[
+      for (final p in spec.landing) [p]
+    ];
     final pairs = <List<_Piece>>[];
     for (final a in spec.fill) {
       for (final b in spec.fill) {
         if (a.widthMm < b.widthMm) continue;
         final sum = a.widthMm + b.widthMm;
-        if (sum >= rules.minSinkToHobMm && sum <= rules.minSinkToHobMm + 1200) pairs.add([a, b]);
+        if (sum >= rules.minSinkToHobMm && sum <= rules.minSinkToHobMm + 1200)
+          pairs.add([a, b]);
       }
     }
     double width(List<_Piece> l) => l.fold(0.0, (t, p) => t + p.widthMm);
@@ -547,9 +603,11 @@ class _VariantBuilder {
   }();
 
   bool _clearOfWindows(int runIndex, double start, double width) =>
-      _runs[runIndex].wall != RunWall.main || !_windowZones.any((z) => z.overlaps(start, start + width));
+      _runs[runIndex].wall != RunWall.main ||
+      !_windowZones.any((z) => z.overlaps(start, start + width));
 
-  Iterable<_HobOption> _hobOptions(_SinkCandidate sink, Map<int, _Span> usable) sync* {
+  Iterable<_HobOption> _hobOptions(
+      _SinkCandidate sink, Map<int, _Span> usable) sync* {
     final i = sink.runIndex;
     final u = usable[i]!;
     final s = sink.anchor;
@@ -573,7 +631,8 @@ class _VariantBuilder {
             x += p.widthMm;
           }
           anchors.add(_Anchor(_Piece(ModuleKind.hob, hw), hobStart));
-          yield _HobOption({i: anchors}, landingCost + rank * _lessPreferredWidth);
+          yield _HobOption(
+              {i: anchors}, landingCost + rank * _lessPreferredWidth);
         }
       }
     }
@@ -587,14 +646,20 @@ class _VariantBuilder {
         if (uj.length < hw + 2 * side - _eps) continue;
         final mid = uj.start + uj.length / 2;
         final starts = [
-          for (var x = uj.start + side; x + hw <= uj.end - side + _eps; x += _searchStepMm) x,
+          for (var x = uj.start + side;
+              x + hw <= uj.end - side + _eps;
+              x += _searchStepMm)
+            x,
           uj.end - side - hw,
         ];
         for (final x in starts) {
           if (!_clearOfWindows(j, x, hw)) continue;
           yield _HobOption(
-            {j: [_Anchor(_Piece(ModuleKind.hob, hw), x)]},
-            (x + hw / 2 - mid).abs() * _offTargetPerMm + rank * _lessPreferredWidth,
+            {
+              j: [_Anchor(_Piece(ModuleKind.hob, hw), x)]
+            },
+            (x + hw / 2 - mid).abs() * _offTargetPerMm +
+                rank * _lessPreferredWidth,
           );
         }
       }
@@ -608,7 +673,8 @@ class _VariantBuilder {
     var cost = 0.0;
     for (var i = 0; i < _runs.length; i++) {
       final run = _runs[i];
-      final anchors = [...anchorsByRun[i]!]..sort((a, b) => a.startMm.compareTo(b.startMm));
+      final anchors = [...anchorsByRun[i]!]
+        ..sort((a, b) => a.startMm.compareTo(b.startMm));
       final placed = <_PlacedPiece>[];
 
       if (anchors.isEmpty) {
@@ -632,7 +698,8 @@ class _VariantBuilder {
         final rightIsTall = a.piece.kind == ModuleKind.tall;
         final fill = _fill(a.startMm - cursor);
         if (fill == null) return null;
-        placed.addAll(_layGap(cursor, a.startMm, fill, fillerAtStart: leftIsHard || !rightIsTall));
+        placed.addAll(_layGap(cursor, a.startMm, fill,
+            fillerAtStart: leftIsHard || !rightIsTall));
         placed.add(_PlacedPiece(a.piece, a.startMm));
         cost += fill.cost;
         cursor = a.endMm;
@@ -647,10 +714,13 @@ class _VariantBuilder {
     return _Plan(out, cost);
   }
 
-  List<_PlacedPiece> _layGap(double start, double end, _Fill fill, {required bool fillerAtStart, ModuleKind fillerKind = ModuleKind.filler}) {
+  List<_PlacedPiece> _layGap(double start, double end, _Fill fill,
+      {required bool fillerAtStart,
+      ModuleKind fillerKind = ModuleKind.filler}) {
     final out = <_PlacedPiece>[];
     var x = start;
-    final filler = fill.fillerMm > rules.scribeToleranceMm ? fill.fillerMm : 0.0;
+    final filler =
+        fill.fillerMm > rules.scribeToleranceMm ? fill.fillerMm : 0.0;
     if (filler > 0 && fillerAtStart) {
       out.add(_PlacedPiece(_Piece(fillerKind, filler), x));
       x += filler;
@@ -659,22 +729,26 @@ class _VariantBuilder {
       out.add(_PlacedPiece(p, x));
       x += p.widthMm;
     }
-    if (filler > 0 && !fillerAtStart) out.add(_PlacedPiece(_Piece(fillerKind, filler), end - filler));
+    if (filler > 0 && !fillerAtStart)
+      out.add(_PlacedPiece(_Piece(fillerKind, filler), end - filler));
     return out;
   }
 
   _Fill? _fill(double gap, {bool wall = false}) {
     final key = (gap * 10).roundToDouble() / 10;
     return wall
-        ? _wallFillCache.putIfAbsent(key, () => _computeFill(key, _wallPalette, _wallCost))
-        : _baseFillCache.putIfAbsent(key, () => _computeFill(key, spec.fill, spec.cost));
+        ? _wallFillCache.putIfAbsent(
+            key, () => _computeFill(key, _wallPalette, _wallCost))
+        : _baseFillCache.putIfAbsent(
+            key, () => _computeFill(key, spec.fill, spec.cost));
   }
 
   static double _wallCost(_Piece p) => 1.0 + (p.widthMm < 400 ? 0.3 : 0.0);
 
   /// Cheapest set of [palette] modules for [gap], leaving either nothing
   /// (within scribing tolerance) or one filler of an allowed size.
-  _Fill? _computeFill(double gap, List<_Piece> palette, double Function(_Piece) costOf) {
+  _Fill? _computeFill(
+      double gap, List<_Piece> palette, double Function(_Piece) costOf) {
     if (gap < -_eps) return null;
     if (gap <= rules.scribeToleranceMm) return const _Fill([], 0, 0);
 
@@ -709,7 +783,8 @@ class _VariantBuilder {
         continue;
       }
       final score = best[s] + fillerCost;
-      if (score < bestScore - 1e-9 || ((score - bestScore).abs() <= 1e-9 && s > bestS)) {
+      if (score < bestScore - 1e-9 ||
+          ((score - bestScore).abs() <= 1e-9 && s > bestS)) {
         bestScore = score;
         bestS = s;
       }
@@ -717,7 +792,9 @@ class _VariantBuilder {
     if (bestS < 0) return null;
 
     final pieces = <_Piece>[];
-    for (var s = bestS; s > 0; s -= palette[choice[s]].widthMm.round() ~/ unit) {
+    for (var s = bestS;
+        s > 0;
+        s -= palette[choice[s]].widthMm.round() ~/ unit) {
       pieces.add(palette[choice[s]]);
     }
     pieces.sort((a, b) => b.widthMm.compareTo(a.widthMm));
@@ -743,18 +820,24 @@ class _VariantBuilder {
         startMm: start,
         widthMm: p.widthMm,
         heightMm: isTall ? catalog.tallHeightMm : catalog.baseHeightMm,
-        depthMm: isCorner ? catalog.cornerSizeMm : (isTall ? catalog.tallDepthMm : catalog.baseDepthMm),
+        depthMm: isCorner
+            ? catalog.cornerSizeMm
+            : (isTall ? catalog.tallDepthMm : catalog.baseDepthMm),
         mountMm: 0,
       );
     }
 
     final floor = <PlacedModule>[];
-    if (_hasCorner) floor.add(floorModule(_Piece(ModuleKind.corner, catalog.cornerSizeMm), RunWall.main, 0));
+    if (_hasCorner)
+      floor.add(floorModule(
+          _Piece(ModuleKind.corner, catalog.cornerSizeMm), RunWall.main, 0));
     for (var i = 0; i < _runs.length; i++) {
       final pieces = plan.byRun[i] ?? const [];
       if (pieces.isEmpty && _runs[i].length >= _smallestBaseMm) {
-        final where = _runs[i].wall == RunWall.main ? 'main wall' : 'return wall';
-        _warnings.add('A ${_runs[i].length.round()} mm section of the $where is left open (no module fits).');
+        final where =
+            _runs[i].wall == RunWall.main ? 'main wall' : 'return wall';
+        _warnings.add(
+            'A ${_runs[i].length.round()} mm section of the $where is left open (no module fits).');
       }
       for (final p in pieces) {
         floor.add(floorModule(p.piece, _runs[i].wall, p.startMm));
@@ -778,25 +861,43 @@ class _VariantBuilder {
   /// the base module below wherever that width exists; the rest is filled
   /// with catalog widths. Nothing goes over the hob (hood), tall units,
   /// doors, or windows that reach into the band.
-  List<PlacedModule> _wallCabinets(List<PlacedModule> floor, String Function() nextId) {
+  List<PlacedModule> _wallCabinets(
+      List<PlacedModule> floor, String Function() nextId) {
     if (room.wallHeightMm < catalog.wallBandTopMm - _eps) {
-      _warnings.add('Ceiling is too low for wall cabinets at the standard mounting height.');
+      _warnings.add(
+          'Ceiling is too low for wall cabinets at the standard mounting height.');
       return const [];
     }
     final mainBlocked = <_Span>[
       for (final o in room.openings)
         if (o.type == OpeningType.door)
-          _Span(o.leftMm - rules.doorClearanceMm, o.rightMm + rules.doorClearanceMm)
-        else if (o.floorMm < catalog.wallBandTopMm && o.topMm > catalog.wallMountMm)
-          _Span(o.leftMm - rules.windowClearanceMm, o.rightMm + rules.windowClearanceMm),
+          _Span(o.leftMm - rules.doorClearanceMm,
+              o.rightMm + rules.doorClearanceMm)
+        else if (o.floorMm < catalog.wallBandTopMm &&
+            o.topMm > catalog.wallMountMm)
+          _Span(o.leftMm - rules.windowClearanceMm,
+              o.rightMm + rules.windowClearanceMm),
     ];
 
-    const counterKinds = {ModuleKind.base, ModuleKind.drawer, ModuleKind.sink, ModuleKind.corner, ModuleKind.filler};
-    const mirroredKinds = {ModuleKind.base, ModuleKind.drawer, ModuleKind.sink, ModuleKind.corner};
+    const counterKinds = {
+      ModuleKind.base,
+      ModuleKind.drawer,
+      ModuleKind.sink,
+      ModuleKind.corner,
+      ModuleKind.filler
+    };
+    const mirroredKinds = {
+      ModuleKind.base,
+      ModuleKind.drawer,
+      ModuleKind.sink,
+      ModuleKind.corner
+    };
 
     PlacedModule wallUnit(_PlacedPiece p, RunWall wall) => PlacedModule(
           id: nextId(),
-          kind: p.piece.kind == ModuleKind.filler ? ModuleKind.filler : ModuleKind.wall,
+          kind: p.piece.kind == ModuleKind.filler
+              ? ModuleKind.filler
+              : ModuleKind.wall,
           wall: wall,
           startMm: p.startMm,
           widthMm: p.piece.widthMm,
@@ -807,12 +908,14 @@ class _VariantBuilder {
 
     final out = <PlacedModule>[];
     for (final wall in RunWall.values) {
-      final onWall = floor.where((m) => m.wall == wall).toList()..sort((a, b) => a.startMm.compareTo(b.startMm));
+      final onWall = floor.where((m) => m.wall == wall).toList()
+        ..sort((a, b) => a.startMm.compareTo(b.startMm));
 
       // Stretches of worktop (contiguous counter-height modules).
       final counters = <_Span>[];
       for (final m in onWall.where((m) => counterKinds.contains(m.kind))) {
-        if (counters.isNotEmpty && m.startMm - counters.last.end <= rules.scribeToleranceMm) {
+        if (counters.isNotEmpty &&
+            m.startMm - counters.last.end <= rules.scribeToleranceMm) {
           counters[counters.length - 1] = _Span(counters.last.start, m.endMm);
         } else {
           counters.add(_Span(m.startMm, m.endMm));
@@ -820,7 +923,8 @@ class _VariantBuilder {
       }
       final blocked = [
         if (wall == RunWall.main) ...mainBlocked,
-        for (final h in onWall.where((m) => m.kind == ModuleKind.hob)) _Span(h.startMm, h.endMm),
+        for (final h in onWall.where((m) => m.kind == ModuleKind.hob))
+          _Span(h.startMm, h.endMm),
       ];
 
       for (final counter in counters) {
@@ -841,7 +945,8 @@ class _VariantBuilder {
             final touchesCabinet = k > 0 || k < mirrored.length;
             if (fill != null && (fill.pieces.isNotEmpty || touchesCabinet)) {
               // Fillers go against whatever bounds the span (wall, window, hood).
-              placed.addAll(_layGap(cursor, gapEnd, fill, fillerAtStart: k == 0, fillerKind: ModuleKind.filler));
+              placed.addAll(_layGap(cursor, gapEnd, fill,
+                  fillerAtStart: k == 0, fillerKind: ModuleKind.filler));
             }
             if (k < mirrored.length) {
               placed.add(mirrored[k]);

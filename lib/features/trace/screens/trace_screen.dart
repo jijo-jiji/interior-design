@@ -37,12 +37,14 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
         actions: [
           // ── Toggle Calibration Handles ────────────────────────────────
           IconButton(
-            onPressed: () => setState(() => _showCalibration = !_showCalibration),
+            onPressed: () =>
+                setState(() => _showCalibration = !_showCalibration),
             icon: Icon(
               _showCalibration ? Icons.crop_free_rounded : Icons.crop_rounded,
               color: _showCalibration ? AppTheme.accent : Colors.white70,
             ),
-            tooltip: _showCalibration ? 'Hide Wall Bounds' : 'Calibrate Wall Bounds',
+            tooltip:
+                _showCalibration ? 'Hide Wall Bounds' : 'Calibrate Wall Bounds',
           ),
           const SizedBox(width: 8),
 
@@ -52,9 +54,12 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
             child: ElevatedButton.icon(
               onPressed: () => _generate3D(context, ref, wallSetup, obstacles),
               icon: const Icon(Icons.view_in_ar_rounded, size: 18),
-              label: Text(obstacles.isEmpty ? 'Generate 3D (Clean Wall)' : 'Generate 3D'),
+              label: Text(obstacles.isEmpty
+                  ? 'Generate 3D (Clean Wall)'
+                  : 'Generate 3D'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 textStyle: const TextStyle(fontSize: 13),
               ),
             ),
@@ -113,9 +118,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         obstacle: obs,
                         canvasWidth: canvasW,
                         canvasHeight: canvasH,
-                        onDelete: () => ref
-                            .read(obstaclesProvider.notifier)
-                            .remove(obs.id),
+                        onDelete: () =>
+                            ref.read(obstaclesProvider.notifier).remove(obs.id),
                       ),
                     ),
 
@@ -136,7 +140,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         onDrag: (dy) {
                           final newRatio = (wallSetup.topLinePx + dy) / canvasH;
                           ref.read(wallSetupProvider.notifier).updateBoundaries(
-                                topRatio: newRatio.clamp(0.0, wallSetup.bottomLineRatio - 0.05),
+                                topRatio: newRatio.clamp(
+                                    0.0, wallSetup.bottomLineRatio - 0.05),
                               );
                         },
                       ),
@@ -148,9 +153,11 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         color: AppTheme.accent,
                         label: 'FLOOR LINE',
                         onDrag: (dy) {
-                          final newRatio = (wallSetup.bottomLinePx + dy) / canvasH;
+                          final newRatio =
+                              (wallSetup.bottomLinePx + dy) / canvasH;
                           ref.read(wallSetupProvider.notifier).updateBoundaries(
-                                bottomRatio: newRatio.clamp(wallSetup.topLineRatio + 0.05, 1.0),
+                                bottomRatio: newRatio.clamp(
+                                    wallSetup.topLineRatio + 0.05, 1.0),
                               );
                         },
                       ),
@@ -162,9 +169,11 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         color: Colors.purpleAccent,
                         label: 'LEFT WALL',
                         onDrag: (dx) {
-                          final newRatio = (wallSetup.leftLinePx + dx) / canvasW;
+                          final newRatio =
+                              (wallSetup.leftLinePx + dx) / canvasW;
                           ref.read(wallSetupProvider.notifier).updateBoundaries(
-                                leftRatio: newRatio.clamp(0.0, wallSetup.rightLineRatio - 0.05),
+                                leftRatio: newRatio.clamp(
+                                    0.0, wallSetup.rightLineRatio - 0.05),
                               );
                         },
                       ),
@@ -176,9 +185,11 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         color: Colors.purpleAccent,
                         label: 'RIGHT WALL',
                         onDrag: (dx) {
-                          final newRatio = (wallSetup.rightLinePx + dx) / canvasW;
+                          final newRatio =
+                              (wallSetup.rightLinePx + dx) / canvasW;
                           ref.read(wallSetupProvider.notifier).updateBoundaries(
-                                rightRatio: newRatio.clamp(wallSetup.leftLineRatio + 0.05, 1.0),
+                                rightRatio: newRatio.clamp(
+                                    wallSetup.leftLineRatio + 0.05, 1.0),
                               );
                         },
                       ),
@@ -190,7 +201,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         bottom: 12,
                         left: 12,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(8),

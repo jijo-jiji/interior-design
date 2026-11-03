@@ -37,8 +37,10 @@ class WallSetup {
   double get bottomLinePx => screenHeightPx * bottomLineRatio;
 
   /// Active calibrated wall pixel dimensions inside the cropped boundary box
-  double get activeWallWidthPx => (rightLinePx - leftLinePx).clamp(50, screenWidthPx);
-  double get activeWallHeightPx => (bottomLinePx - topLinePx).clamp(50, screenHeightPx);
+  double get activeWallWidthPx =>
+      (rightLinePx - leftLinePx).clamp(50, screenWidthPx);
+  double get activeWallHeightPx =>
+      (bottomLinePx - topLinePx).clamp(50, screenHeightPx);
 
   /// Calibrated scale ratios (pixels-per-mm)
   double get scaleRatioX => activeWallWidthPx / widthMm;
@@ -127,8 +129,7 @@ class ObstaclesNotifier extends StateNotifier<List<Obstacle>> {
     ];
   }
 
-  void remove(String id) =>
-      state = state.where((obs) => obs.id != id).toList();
+  void remove(String id) => state = state.where((obs) => obs.id != id).toList();
 
   void clear() => state = [];
 }
