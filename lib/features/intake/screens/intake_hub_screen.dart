@@ -202,25 +202,20 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   SalesConfig.brandName,
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: context.textTheme.titleMedium
+                      ?.copyWith(color: context.colors.onSurface),
                 ),
                 SizedBox(height: 2),
                 Text(
                   SalesConfig.brandTagline,
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                  ),
+                  style: context.textTheme.bodySmall
+                      ?.copyWith(color: context.colors.onSurfaceVariant),
                 ),
               ],
             ),
@@ -236,10 +231,7 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
               waiting ? Icons.cloud_upload_outlined : Icons.cloud_done_outlined,
               size: 18,
             ),
-            label: Text(
-              waiting ? '$_waitingToSend to send' : 'All sent',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
+            label: Text(waiting ? '$_waitingToSend to send' : 'All sent'),
           ),
         ],
       ),
@@ -257,7 +249,7 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
           },
           borderRadius: BorderRadius.circular(9),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 44),
+            constraints: const BoxConstraints(minHeight: 48),
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: selected ? AppTheme.accent : Colors.transparent,
@@ -265,11 +257,10 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
             ),
             child: Text(
               label,
-              style: TextStyle(
-                color: selected ? Colors.white : AppTheme.textSecondary,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
+              style: context.textTheme.labelLarge?.copyWith(
+                  color: selected
+                      ? context.colors.onPrimary
+                      : context.colors.onSurfaceVariant),
             ),
           ),
         ),
@@ -298,23 +289,21 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.fromLTRB(4, 0, 4, 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'How will you measure the room?',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.textTheme.titleMedium
+                    ?.copyWith(color: context.colors.onSurface),
               ),
               SizedBox(height: 4),
               Text(
                 "You'll add the client's name first.",
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                style: context.textTheme.bodyMedium
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
             ],
           ),
@@ -374,16 +363,12 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
               Expanded(
                 child: TextField(
                   onChanged: (v) => setState(() => _search = v),
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 15,
-                  ),
-                  decoration: const InputDecoration(
+                  style: context.textTheme.bodyLarge
+                      ?.copyWith(color: context.colors.onSurface),
+                  decoration: InputDecoration(
                     hintText: 'Search by client or quote number',
-                    hintStyle: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 14,
-                    ),
+                    hintStyle: context.textTheme.bodyMedium
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       size: 20,
@@ -498,18 +483,16 @@ class _NewClientSheetState extends State<_NewClientSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
+              Text(
                 'New client',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.textTheme.titleMedium
+                    ?.copyWith(color: context.colors.onSurface),
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'Their design is saved under this name as you work.',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                style: context.textTheme.bodyMedium
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -538,7 +521,6 @@ class _NewClientSheetState extends State<_NewClientSheet> {
               ),
               const SizedBox(height: 16),
               SizedBox(
-                height: 50,
                 child: ElevatedButton(
                   onPressed: hasName ? _continue : null,
                   child: const Text('Continue'),
@@ -620,29 +602,20 @@ class _MeasureCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: context.textTheme.titleSmall
+                          ?.copyWith(color: context.colors.onSurface),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       description,
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 14,
-                        height: 1.35,
-                      ),
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       tag,
-                      style: TextStyle(
-                        color: accentColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: context.textTheme.labelMedium
+                          ?.copyWith(color: accentColor),
                     ),
                   ],
                 ),
@@ -691,11 +664,7 @@ class _ClientCard extends StatelessWidget {
           ),
           child: Text(
             text,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+            style: context.textTheme.labelSmall?.copyWith(color: color),
           ),
         );
 
@@ -718,21 +687,15 @@ class _ClientCard extends StatelessWidget {
                   child: Text(
                     name.isEmpty ? 'Unnamed client' : name,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: context.textTheme.titleSmall
+                        ?.copyWith(color: context.colors.onSurface),
                   ),
                 ),
                 if (total > 0)
                   Text(
                     formatMoney(total),
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: context.textTheme.labelLarge
+                        ?.copyWith(color: context.colors.onSurface),
                   ),
               ],
             ),
@@ -741,8 +704,8 @@ class _ClientCard extends StatelessWidget {
               '${project['quote_id'] ?? ''}  ·  '
               '${CPQEngine.styleNames[styleKey] ?? styleKey}  ·  '
               '${cabinetCountLabel(cabinets)}',
-              style:
-                  const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style: context.textTheme.bodySmall
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
             const SizedBox(height: 10),
             Row(
@@ -754,13 +717,10 @@ class _ClientCard extends StatelessWidget {
                       AppTheme.accentTerracotta.withValues(alpha: 0.35)),
                 ],
                 const Spacer(),
-                const Text(
+                Text(
                   'Open',
-                  style: TextStyle(
-                    color: AppTheme.accent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: context.textTheme.labelLarge
+                      ?.copyWith(color: context.colors.primary),
                 ),
                 const Icon(Icons.chevron_right_rounded,
                     color: AppTheme.accent, size: 18),
@@ -793,8 +753,8 @@ class _EmptyClients extends StatelessWidget {
                   ? 'No clients match.'
                   : 'No clients yet. Start one from New client.',
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              style: context.textTheme.bodyMedium
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
           ],
         ),
@@ -834,11 +794,10 @@ class _FilterChip extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: TextStyle(
-              color: isSelected ? Colors.white : AppTheme.textPrimary,
-              fontSize: 13,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            ),
+            style: context.textTheme.labelMedium?.copyWith(
+                color: isSelected
+                    ? context.colors.onPrimary
+                    : context.colors.onSurface),
           ),
         ),
       ),

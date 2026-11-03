@@ -76,9 +76,7 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                     const SizedBox(height: 12),
                     Text(
                       'Enter real-world wall dimensions',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: context.textTheme.titleMedium,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
@@ -139,13 +137,12 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                         const Icon(Icons.calculate_rounded,
                             color: AppTheme.accent, size: 20),
                         const SizedBox(width: 10),
-                        Text(
-                          '1 mm ≈ ${ratio.toStringAsFixed(3)} px  '
-                          '(${screenW.toStringAsFixed(0)} px / ${w.toStringAsFixed(0)} mm)',
-                          style: const TextStyle(
-                            color: AppTheme.accent,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Text(
+                            '1 mm ≈ ${ratio.toStringAsFixed(3)} px  '
+                            '(${screenW.toStringAsFixed(0)} px / ${w.toStringAsFixed(0)} mm)',
+                            style: context.textTheme.bodySmall
+                                ?.copyWith(color: context.colors.primary),
                           ),
                         ),
                       ],

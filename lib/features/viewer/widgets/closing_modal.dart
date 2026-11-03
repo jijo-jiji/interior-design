@@ -133,37 +133,13 @@ class _ClosingModalState extends State<ClosingModal> {
     }
   }
 
-  InputDecoration _field(String label, IconData icon, {String? prefix}) {
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: AppTheme.border),
-    );
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-      prefixIcon: Icon(icon, color: AppTheme.accent, size: 18),
-      prefixText: prefix,
-      filled: true,
-      fillColor: AppTheme.surfaceRaised,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: border,
-      enabledBorder: border,
-      focusedBorder: border.copyWith(
-        borderSide: const BorderSide(color: AppTheme.accent),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final cabinets =
         widget.placedCabinets.where((c) => c['kind'] != 'filler').length;
-    const sectionStyle = TextStyle(
-      color: AppTheme.textPrimary,
-      fontSize: 14,
-      fontWeight: FontWeight.w600,
-    );
+    final sectionStyle =
+        context.textTheme.labelLarge?.copyWith(color: context.colors.onSurface);
 
     return Container(
       constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.92),
@@ -193,26 +169,21 @@ class _ClosingModalState extends State<ClosingModal> {
             padding: const EdgeInsets.fromLTRB(20, 6, 8, 6),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Quote',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: context.textTheme.titleMedium
+                            ?.copyWith(color: context.colors.onSurface),
                       ),
                       SizedBox(height: 2),
                       Text(
                         'Send the quote, or confirm the order if the client '
                         'paid a deposit.',
-                        style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 13,
-                        ),
+                        style: context.textTheme.bodySmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -253,48 +224,39 @@ class _ClosingModalState extends State<ClosingModal> {
                               child: Text(
                                 widget.styleName,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                style: context.textTheme.labelLarge
+                                    ?.copyWith(color: context.colors.onSurface),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
                               cabinetCountLabel(cabinets),
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 13,
-                              ),
+                              style: context.textTheme.bodySmall?.copyWith(
+                                  color: context.colors.onSurfaceVariant),
                             ),
                           ],
                         ),
                         const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            const Expanded(
-                              child: Text(
+                        // Wraps onto two lines at large text sizes.
+                        SizedBox(
+                          width: double.infinity,
+                          child: Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.end,
+                            spacing: 8,
+                            children: [
+                              Text(
                                 'Estimated total',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 14,
-                                ),
+                                style: context.textTheme.bodyMedium?.copyWith(
+                                    color: context.colors.onSurfaceVariant),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              formatMoney(widget.totalPrice),
-                              style: const TextStyle(
-                                color: AppTheme.accent,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
+                              Text(
+                                formatMoney(widget.totalPrice),
+                                style: context.textTheme.titleLarge
+                                    ?.copyWith(color: context.colors.primary),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -302,37 +264,39 @@ class _ClosingModalState extends State<ClosingModal> {
                   const SizedBox(height: 18),
 
                   // Client
-                  const Text('Client', style: sectionStyle),
+                  Text('Client', style: sectionStyle),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _nameController,
                     textCapitalization: TextCapitalization.words,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 15,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Name *',
+                      prefixIcon: Icon(Icons.person_outline),
                     ),
-                    decoration: _field('Name *', Icons.person_outline),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 15,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Phone / WhatsApp',
+                      prefixIcon: Icon(Icons.phone_outlined),
                     ),
-                    decoration:
-                        _field('Phone / WhatsApp', Icons.phone_outlined),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 15,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Icon(Icons.email_outlined),
                     ),
-                    decoration: _field('Email', Icons.email_outlined),
                   ),
                   const SizedBox(height: 18),
 
@@ -353,20 +317,15 @@ class _ClosingModalState extends State<ClosingModal> {
                       value: _depositPaid,
                       activeColor: AppTheme.accent,
                       contentPadding: const EdgeInsets.only(left: 8),
-                      title: const Text(
+                      title: Text(
                         'Client paid a deposit',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: context.textTheme.labelLarge
+                            ?.copyWith(color: context.colors.onSurface),
                       ),
-                      subtitle: const Text(
+                      subtitle: Text(
                         'Turns this quote into a confirmed order.',
-                        style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 13,
-                        ),
+                        style: context.textTheme.bodySmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
                       ),
                       onChanged: (v) => setState(() => _depositPaid = v),
                     ),
@@ -377,14 +336,12 @@ class _ClosingModalState extends State<ClosingModal> {
                       controller: _depositController,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 15,
-                      ),
-                      decoration: _field(
-                        'Deposit amount *',
-                        Icons.payments_outlined,
-                        prefix: '${SalesConfig.currency} ',
+                      style: context.textTheme.bodyLarge
+                          ?.copyWith(color: context.colors.onSurface),
+                      decoration: const InputDecoration(
+                        labelText: 'Deposit amount *',
+                        prefixIcon: Icon(Icons.payments_outlined),
+                        prefixText: '${SalesConfig.currency} ',
                       ),
                     ),
                   ],
@@ -403,7 +360,6 @@ class _ClosingModalState extends State<ClosingModal> {
 
                   SizedBox(
                     width: double.infinity,
-                    height: 52,
                     child: ElevatedButton.icon(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
@@ -428,17 +384,11 @@ class _ClosingModalState extends State<ClosingModal> {
                                   : Icons.send_rounded,
                               size: 20,
                             ),
-                      label: Text(
-                        _isSubmitting
-                            ? 'Saving…'
-                            : (_depositPaid
-                                ? 'Confirm order'
-                                : 'Save & send quote'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      label: Text(_isSubmitting
+                          ? 'Saving…'
+                          : (_depositPaid
+                              ? 'Confirm order'
+                              : 'Save & send quote')),
                     ),
                   ),
                 ],

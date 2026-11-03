@@ -190,3 +190,12 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - A manual change unselects A/B/C and the panel says "your changes".
 - Price row: "Show price" shrinks instead of overflowing at large text sizes; price breakdown opens from the price ("Details"), not from a separate app-bar icon.
 - Tests: `test/viewer_screen_test.dart` + `test/helpers/fake_webview.dart` (fake WebView that records JS calls and can send page events). 63/63 pass via the VGV plugin's own test tool, which connected after `dart` and Very Good CLI were put on PATH.
+
+**Fix 4 — type scale, contrast, touch targets (WCAG 2.2 AA, Android + Web)**
+- Font bundled in `assets/fonts/` (Plus Jakarta Sans, OFL) and `google_fonts` removed: the app used to download its font at runtime, so offline first launches fell back to the system font. Run `flutter pub get` locally (lock file deliberately not regenerated here — this container's newer Flutter would have bumped the SDK floor to Dart 3.11).
+- `lib/shared/theme.dart`: `AppTextStyle` scale (min 12), full `ColorScheme`, button/input/app-bar themes with 48dp minimums, `context.textTheme` / `context.colors`. All 76 inline `TextStyle`s migrated; no `fontSize`/`fontWeight` left in widget code.
+- Contrast: danger `#A94444`, secondary text `#6E5F52`, taupe text `#7D6248`, form-field outline `#9C8E80` (3.2:1); removed faded-opacity text; leftover dark-theme panels (floor plan dimensions, room-size tabs/badges) moved to the light palette.
+- Tap targets/semantics: home tabs, trace Window/Door (now real buttons), style pills, A/B/C chips, camera shutter (labelled), shape tabs, Back tooltip.
+- Text scaling: rows that overflowed at 2x now wrap/shrink. Trace screen first-frame crash (`clamp(50, 1)`) fixed.
+- `test/accessibility_test.dart`: per screen — 48dp + labelled targets, pixel contrast scan, no overflow at 2x, no button label overriding its colour; theme contrast/min-size checks. 95/95 via the VGV plugin's test tool.
+- Open AA findings (not fixed): 2.5.7 dragging alternatives — trace wall-edge lines and window/door boxes, floor plan pins, and moving cabinets in Edit mode are drag-only (signature is exempt). Web: the app imports `dart:io` (HttpClient/File) and cannot build for web at all yet. Spacing tokens / dark theme not done; non-text colours still read from `AppTheme` constants.

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/obstacle.dart';
 
@@ -37,10 +39,12 @@ class WallSetup {
   double get bottomLinePx => screenHeightPx * bottomLineRatio;
 
   /// Active calibrated wall pixel dimensions inside the cropped boundary box
-  double get activeWallWidthPx =>
-      (rightLinePx - leftLinePx).clamp(50, screenWidthPx);
-  double get activeWallHeightPx =>
-      (bottomLinePx - topLinePx).clamp(50, screenHeightPx);
+  double get activeWallWidthPx => (rightLinePx - leftLinePx)
+      // Before the first layout the screen size is a 1px placeholder;
+      // clamp(50, 1) would throw.
+      .clamp(math.min(50, screenWidthPx), screenWidthPx);
+  double get activeWallHeightPx => (bottomLinePx - topLinePx)
+      .clamp(math.min(50, screenHeightPx), screenHeightPx);
 
   /// Calibrated scale ratios (pixels-per-mm)
   double get scaleRatioX => activeWallWidthPx / widthMm;

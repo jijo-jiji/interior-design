@@ -47,6 +47,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
       appBar: AppBar(
         title: const Text('Room size'),
         leading: IconButton(
+          tooltip: 'Back',
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
         ),
@@ -97,7 +98,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
               ),
             ),
 
-            const Divider(color: Color(0xFF1E2433), height: 1),
+            const Divider(color: AppTheme.border, height: 1),
 
             // ── Visual Wireframe Preview Box ──────────────────────────────
             Expanded(
@@ -193,7 +194,6 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                       // Launch 3D Button
                       SizedBox(
                         width: double.infinity,
-                        height: 50,
                         child: ElevatedButton.icon(
                           onPressed: _launch3D,
                           style: ElevatedButton.styleFrom(
@@ -204,11 +204,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                             ),
                           ),
                           icon: const Icon(Icons.view_in_ar_rounded),
-                          label: const Text(
-                            'View in 3D',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold),
-                          ),
+                          label: const Text('View in 3D'),
                         ),
                       ),
                     ],
@@ -238,33 +234,37 @@ class _ShapeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accent : const Color(0xFF1C2230),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? AppTheme.accent : const Color(0xFF2C3344),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon,
-                size: 16,
-                color: isSelected ? Colors.white : AppTheme.textSecondary),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textPrimary,
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.accent : AppTheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AppTheme.accent : AppTheme.outline,
             ),
-          ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon,
+                  size: 16,
+                  color: isSelected ? AppTheme.bg : AppTheme.textSecondary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: context.textTheme.labelMedium?.copyWith(
+                    color: isSelected
+                        ? context.colors.onPrimary
+                        : context.colors.onSurface),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -298,24 +298,24 @@ class _DimensionSlider extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style:
-                  const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            Expanded(
+              child: Text(
+                label,
+                style: context.textTheme.bodySmall
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
             ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF242A38),
+                color: AppTheme.surfaceRaised,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 '${value.toStringAsFixed(0)} $unit',
-                style: const TextStyle(
-                  color: AppTheme.accent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.textTheme.labelSmall
+                    ?.copyWith(color: context.colors.primary),
               ),
             ),
           ],
@@ -323,7 +323,7 @@ class _DimensionSlider extends StatelessWidget {
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
             activeTrackColor: AppTheme.accent,
-            inactiveTrackColor: const Color(0xFF2C3344),
+            inactiveTrackColor: AppTheme.surfaceElevated,
             thumbColor: Colors.white,
             trackHeight: 3,
           ),

@@ -489,11 +489,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             Expanded(
               child: Text(
                 confirmed ? 'Order confirmed' : 'Quote saved',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                ),
+                style: context.textTheme.titleMedium
+                    ?.copyWith(color: context.colors.onSurface),
               ),
             ),
           ],
@@ -507,10 +504,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   ? 'Saved and sent to the office.'
                   : "Saved on this phone. It will be sent to the office when "
                       "you're back online.",
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 14,
-              ),
+              style: context.textTheme.bodyMedium
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
             _SummaryTile(label: 'Quote number', value: _quoteId),
@@ -577,13 +572,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Price breakdown',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: context.textTheme.titleSmall
+                      ?.copyWith(color: context.colors.onSurface),
                 ),
                 IconButton(
                   tooltip: 'Close',
@@ -656,9 +648,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         children: [
           Expanded(
             child: _priceVisible
-                ? GestureDetector(
+                ? InkWell(
                     onTap: _showBOQSheet,
-                    behavior: HitTestBehavior.opaque,
+                    borderRadius: BorderRadius.circular(12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
@@ -670,12 +662,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                           curve: Curves.easeOutCubic,
                           builder: (context, val, _) => Text(
                             formatMoney(val),
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
-                            ),
+                            style: context.textTheme.titleLarge
+                                ?.copyWith(color: context.colors.onSurface),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -683,10 +671,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                           summary.totalPrice > 0
                               ? 'Estimate · ${cabinetCountLabel(_cabinetCount)} · Details'
                               : 'Add cabinets to see an estimate',
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 13,
-                          ),
+                          style: context.textTheme.bodySmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -707,14 +693,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                           ),
                           style: TextButton.styleFrom(
                             foregroundColor: AppTheme.accent,
-                            minimumSize: const Size(48, 48),
-                            textStyle: Theme.of(context)
-                                .textTheme
-                                .labelLarge
-                                ?.copyWith(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
                           ),
                         ),
                       ),
@@ -862,7 +840,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
           // ── Loading overlay ─────────────────────────────────────────────
           if (!_sceneLoaded)
-            const ColoredBox(
+            ColoredBox(
               color: AppTheme.bg,
               child: Center(
                 child: Column(
@@ -872,7 +850,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     SizedBox(height: 16),
                     Text(
                       'Loading 3D view…',
-                      style: TextStyle(color: AppTheme.textSecondary),
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -903,48 +882,58 @@ class _StylePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSelected = styleKey == activeKey;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color:
-              isSelected ? AppTheme.accent : AppTheme.surface.withOpacity(0.95),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? AppTheme.accent : AppTheme.border,
-            width: isSelected ? 1.5 : 1.0,
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        // Visual stays compact; the tap area is 48dp tall.
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? AppTheme.accent
+                  : AppTheme.surface.withOpacity(0.95),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isSelected ? AppTheme.accent : AppTheme.border,
+                width: isSelected ? 1.5 : 1.0,
+              ),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                          color: AppTheme.accent.withOpacity(0.2),
+                          blurRadius: 8)
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white24, width: 1),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: context.textTheme.labelSmall?.copyWith(
+                      color: isSelected
+                          ? context.colors.onPrimary
+                          : context.colors.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                      color: AppTheme.accent.withOpacity(0.2), blurRadius: 8)
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white24, width: 1),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textSecondary,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -987,14 +976,10 @@ class _LayoutVariantBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String note;
-    if (variants.isNotEmpty && activeKey == null) {
-      note = 'your changes';
-    } else if (variants.any((v) => v.usesPlaceholderCatalog)) {
-      note = 'sample catalog';
-    } else {
-      note = '';
-    }
+    final sample = variants.any((v) => v.usesPlaceholderCatalog);
+    final title = sample ? 'Sample layouts' : 'Layouts';
+    final note =
+        variants.isNotEmpty && activeKey == null ? ' · your changes' : '';
     return _Panel(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1005,26 +990,23 @@ class _LayoutVariantBar extends StatelessWidget {
               const Icon(Icons.auto_awesome_rounded,
                   size: 16, color: AppTheme.accent),
               const SizedBox(width: 6),
-              const Text(
-                'Layouts',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    text: title,
+                    style: context.textTheme.labelLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    children: [
+                      TextSpan(
+                        text: note,
+                        style: context.textTheme.labelSmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (note.isNotEmpty)
-                Flexible(
-                  child: Text(
-                    ' · $note',
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              const Spacer(),
               TextButton.icon(
                 onPressed: onEdit,
                 icon: const Icon(Icons.edit_outlined, size: 18),
@@ -1087,13 +1069,10 @@ class _EditPanel extends StatelessWidget {
             children: [
               const Icon(Icons.edit_outlined, size: 16, color: AppTheme.accent),
               const SizedBox(width: 6),
-              const Text(
+              Text(
                 'Edit cabinets',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.textTheme.labelLarge
+                    ?.copyWith(color: context.colors.onSurface),
               ),
               const Spacer(),
               TextButton(
@@ -1110,7 +1089,8 @@ class _EditPanel extends StatelessWidget {
             selected == null
                 ? 'Tap a cabinet to select it, then drag to move it.'
                 : '$selected selected. Drag to move it.',
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            style: context.textTheme.bodySmall
+                ?.copyWith(color: context.colors.onSurfaceVariant),
           ),
           const SizedBox(height: 8),
           SingleChildScrollView(
@@ -1204,42 +1184,48 @@ class _VariantChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.accent : AppTheme.surfaceRaised,
-          borderRadius: BorderRadius.circular(12),
-          border:
-              Border.all(color: selected ? AppTheme.accent : AppTheme.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${variant.key} · ${variant.name}',
-              style: TextStyle(
-                color: selected ? Colors.white : AppTheme.textPrimary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
-              ),
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        // Visual stays compact; the tap area is 48dp tall.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.accent : AppTheme.surfaceRaised,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: selected ? AppTheme.accent : AppTheme.border),
             ),
-            const SizedBox(height: 2),
-            Text(
-              variant.summary,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected
-                    ? Colors.white.withOpacity(0.85)
-                    : AppTheme.textSecondary,
-                fontSize: 9.5,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${variant.key} · ${variant.name}',
+                  style: context.textTheme.labelSmall?.copyWith(
+                      color: selected
+                          ? context.colors.onPrimary
+                          : context.colors.onSurface),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  variant.summary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.textTheme.labelSmall?.copyWith(
+                      color: selected
+                          ? context.colors.onPrimary
+                          : context.colors.onSurfaceVariant),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1266,19 +1252,16 @@ class _SummaryTile extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
-              color: isBold ? AppTheme.textPrimary : AppTheme.textSecondary,
-              fontSize: 12,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            ),
+            style: context.textTheme.labelSmall?.copyWith(
+                color: isBold
+                    ? context.colors.onSurface
+                    : context.colors.onSurfaceVariant),
           ),
           Text(
             value,
-            style: TextStyle(
-              color: isBold ? AppTheme.accent : AppTheme.textPrimary,
-              fontSize: isBold ? 13 : 12,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-            ),
+            style: context.textTheme.labelLarge?.copyWith(
+                color:
+                    isBold ? context.colors.primary : context.colors.onSurface),
           ),
         ],
       ),
@@ -1331,18 +1314,13 @@ class _JoineryModuleButton extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: context.textTheme.labelSmall
+                      ?.copyWith(color: context.colors.onSurface),
                 ),
                 Text(
                   dims,
-                  style: TextStyle(
-                    color: AppTheme.textSecondary.withOpacity(0.8),
-                    fontSize: 9.5,
-                  ),
+                  style: context.textTheme.labelSmall
+                      ?.copyWith(color: context.colors.onSurfaceVariant),
                 ),
               ],
             ),

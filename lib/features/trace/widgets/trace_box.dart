@@ -199,8 +199,8 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
               color: _borderColor,
             ),
             const SizedBox(width: 8),
-            const Text('Exact Dimensions & Offsets (mm)',
-                style: TextStyle(fontSize: 15)),
+            Text('Exact Dimensions & Offsets (mm)',
+                style: context.textTheme.bodyLarge),
           ],
         ),
         content: SingleChildScrollView(
@@ -365,27 +365,20 @@ class _TraceBoxState extends ConsumerState<TraceBox> {
                     const SizedBox(height: 2),
                     Text(
                       widget.obstacle.label,
-                      style: TextStyle(
-                        color: _borderColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: context.textTheme.labelSmall
+                          ?.copyWith(color: _borderColor),
                     ),
                     Text(
                       _mmLabel,
-                      style: TextStyle(
-                        color: _borderColor.withValues(alpha: 0.85),
-                        fontSize: 10,
-                      ),
+                      style: context.textTheme.labelSmall?.copyWith(
+                          color: _borderColor.withValues(alpha: 0.85)),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       'Tap to edit',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 8,
-                        fontStyle: FontStyle.italic,
-                      ),
+                      style: context.textTheme.labelSmall?.copyWith(
+                          color:
+                              context.colors.onPrimary.withValues(alpha: 0.6)),
                     ),
                   ],
                 ),

@@ -155,9 +155,10 @@ class _CameraScreenState extends State<CameraScreen> {
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Point at the wall and tap capture',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                    style: context.textTheme.bodySmall
+                        ?.copyWith(color: context.colors.onPrimary),
                   ),
                 ),
               ),
@@ -191,30 +192,37 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
 
                   // Camera capture shutter button
-                  GestureDetector(
-                    onTap: _isCapturing ? null : _capture,
-                    child: AnimatedScale(
-                      scale: _isCapturing ? 0.88 : 1.0,
-                      duration: const Duration(milliseconds: 120),
-                      child: Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          color:
-                              _isCapturing ? AppTheme.accent : Colors.white24,
+                  // A labelled, focusable button (not a bare gesture).
+                  Semantics(
+                    button: true,
+                    enabled: !_isCapturing,
+                    label: 'Take photo',
+                    child: InkWell(
+                      onTap: _isCapturing ? null : _capture,
+                      customBorder: const CircleBorder(),
+                      child: AnimatedScale(
+                        scale: _isCapturing ? 0.88 : 1.0,
+                        duration: const Duration(milliseconds: 120),
+                        child: Container(
+                          width: 76,
+                          height: 76,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            color:
+                                _isCapturing ? AppTheme.accent : Colors.white24,
+                          ),
+                          child: _isCapturing
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2.5,
+                                )
+                              : const Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 32,
+                                ),
                         ),
-                        child: _isCapturing
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.5,
-                              )
-                            : const Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 32,
-                              ),
                       ),
                     ),
                   ),

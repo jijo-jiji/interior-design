@@ -76,11 +76,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
           TextButton.icon(
             onPressed: _generate3D,
             icon: const Icon(Icons.view_in_ar_rounded, color: AppTheme.accent),
-            label: const Text(
-              'View in 3D',
-              style: TextStyle(
-                  color: AppTheme.accent, fontWeight: FontWeight.bold),
-            ),
+            label: const Text('View in 3D'),
           ),
         ],
       ),
@@ -100,10 +96,8 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                   Expanded(
                     child: Text(
                       'Drag A and B to the ends of a length you know, like a door (usually 900 mm) or a labelled wall.',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary.withOpacity(0.9),
-                        fontSize: 12,
-                      ),
+                      style: context.textTheme.labelSmall
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
                     ),
                   ),
                 ],
@@ -213,12 +207,12 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                           controller: _dimensionController,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => setState(() {}),
-                          style: const TextStyle(
-                              color: AppTheme.textPrimary, fontSize: 13),
+                          style: context.textTheme.bodySmall
+                              ?.copyWith(color: context.colors.onSurface),
                           decoration: InputDecoration(
                             labelText: 'Length A–B (mm)',
-                            labelStyle: const TextStyle(
-                                color: AppTheme.textSecondary, fontSize: 11),
+                            labelStyle: context.textTheme.labelSmall?.copyWith(
+                                color: context.colors.onSurfaceVariant),
                             prefixIcon: const Icon(Icons.straighten,
                                 color: AppTheme.accent, size: 16),
                             filled: true,
@@ -238,27 +232,23 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1E2433),
+                            color: AppTheme.surfaceRaised,
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFF2C3344)),
+                            border: Border.all(color: AppTheme.border),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 'Wall width',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 10),
+                                style: context.textTheme.labelSmall?.copyWith(
+                                    color: context.colors.onSurfaceVariant),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 '$currentMm mm',
-                                style: const TextStyle(
-                                  color: AppTheme.accent,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                style: context.textTheme.labelLarge
+                                    ?.copyWith(color: context.colors.primary),
                               ),
                             ],
                           ),
@@ -272,7 +262,6 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                   // Button to extrude into 3D
                   SizedBox(
                     width: double.infinity,
-                    height: 46,
                     child: ElevatedButton.icon(
                       onPressed: _generate3D,
                       style: ElevatedButton.styleFrom(
@@ -283,10 +272,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                         ),
                       ),
                       icon: const Icon(Icons.view_in_ar_rounded, size: 18),
-                      label: const Text(
-                        'View in 3D',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      label: const Text('View in 3D'),
                     ),
                   ),
                 ],
@@ -325,11 +311,8 @@ class _PinWidget extends StatelessWidget {
       child: Center(
         child: Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
+          style:
+              context.textTheme.labelMedium?.copyWith(color: Color(0xFF0F172A)),
         ),
       ),
     );

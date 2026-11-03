@@ -33,6 +33,10 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        foregroundColor: context.colors.onPrimary,
+        // Dark app bar over the photo: light title.
+        titleTextStyle: context.textTheme.titleMedium
+            ?.copyWith(color: context.colors.onPrimary),
         title: const Text('Mark windows & doors'),
         actions: [
           // ── Toggle Calibration Handles ────────────────────────────────
@@ -58,10 +62,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
               style: ElevatedButton.styleFrom(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                textStyle: Theme.of(context)
-                    .textTheme
-                    .labelLarge
-                    ?.copyWith(fontSize: 13),
+                textStyle: context.textTheme.labelMedium,
               ),
             ),
           ),
@@ -212,10 +213,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                           child: Text(
                             'Scale: 1mm = ${wallSetup.scaleRatioX.toStringAsFixed(2)}px '
                             '| Calibrated Wall: ${wallSetup.widthMm.toStringAsFixed(0)}×${wallSetup.heightMm.toStringAsFixed(0)}mm',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 10,
-                            ),
+                            style: context.textTheme.labelSmall
+                                ?.copyWith(color: context.colors.onPrimary),
                           ),
                         ),
                       ),
@@ -348,12 +347,8 @@ class _BoundaryHandleLine extends StatelessWidget {
                 ),
                 child: Text(
                   label,
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 8.5,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
+                  style: context.textTheme.labelSmall
+                      ?.copyWith(color: Colors.black),
                 ),
               ),
             ),
@@ -428,7 +423,11 @@ class _BottomToolbar extends ConsumerWidget {
     return Container(
       color: AppTheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
+      // Wrap, so the buttons flow onto a second line at large text sizes.
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           _ToolButton(
             icon: Icons.window_rounded,
@@ -436,21 +435,17 @@ class _BottomToolbar extends ConsumerWidget {
             color: AppTheme.windowBorder,
             onTap: () => addObstacle(ObstacleType.window),
           ),
-          const SizedBox(width: 12),
           _ToolButton(
             icon: Icons.door_front_door_rounded,
             label: 'Door',
             color: AppTheme.doorBorder,
             onTap: () => addObstacle(ObstacleType.door),
           ),
-          const Spacer(),
           if (obstacles.isNotEmpty)
             Text(
               '${obstacles.length} obstacle${obstacles.length > 1 ? 's' : ''}',
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-              ),
+              style: context.textTheme.labelSmall
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
         ],
       ),
@@ -473,29 +468,17 @@ class _ToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+    // A real button (reachable by TalkBack / switch access, 48dp). The type
+    // colour stays on the icon and border; the label uses readable text.
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, color: color, size: 18),
+      label: Text('Add ${label.toLowerCase()}'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: context.colors.onSurface,
+        backgroundColor: color.withValues(alpha: 0.12),
+        side: BorderSide(color: color),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }

@@ -70,7 +70,7 @@ void main() {
 
     expect(find.text('Puan Aminah'), findsOneWidget);
     expect(find.text('Quote'), findsOneWidget);
-    expect(find.text('Layouts'), findsOneWidget);
+    expect(find.text('Sample layouts'), findsOneWidget);
     expect(find.text('B · Balanced'), findsOneWidget);
     expect(find.text('Edit cabinets'), findsNothing);
     expect(find.text('Show price'), findsOneWidget);
@@ -86,12 +86,12 @@ void main() {
     await tester.pump();
     expect(find.text('Edit cabinets'), findsOneWidget);
     expect(find.text('Base 800'), findsOneWidget);
-    expect(find.text('Layouts'), findsNothing);
+    expect(find.text('Sample layouts'), findsNothing);
     expect(page().javaScript, contains('setEditMode(true)'));
 
     await tester.tap(find.text('Done'));
     await tester.pump();
-    expect(find.text('Layouts'), findsOneWidget);
+    expect(find.text('Sample layouts'), findsOneWidget);
     expect(page().javaScript, contains('setEditMode(false)'));
     await finish(tester);
   });
@@ -130,13 +130,13 @@ void main() {
 
     await tester.tap(find.byTooltip('Full view'));
     await tester.pump();
-    expect(find.text('Layouts'), findsNothing);
+    expect(find.text('Sample layouts'), findsNothing);
     expect(find.text('Quote'), findsNothing);
     expect(find.text('Japandi'), findsNothing);
 
     await tester.tap(find.text('Show controls'));
     await tester.pump();
-    expect(find.text('Layouts'), findsOneWidget);
+    expect(find.text('Sample layouts'), findsOneWidget);
     expect(find.text('Quote'), findsOneWidget);
     await finish(tester);
   });

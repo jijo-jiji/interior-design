@@ -143,7 +143,7 @@ class _SignaturePadState extends State<SignaturePad> {
 
             // Hint label
             if (widget.controller.isEmpty)
-              const Center(
+              Center(
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
@@ -156,11 +156,8 @@ class _SignaturePadState extends State<SignaturePad> {
                         child: Text(
                           'Sign here with finger to confirm design',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: AppTheme.textTertiary,
-                            fontSize: 13,
-                            fontStyle: FontStyle.italic,
-                          ),
+                          style: context.textTheme.bodySmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
                         ),
                       ),
                     ],
@@ -198,7 +195,7 @@ class _SignaturePadState extends State<SignaturePad> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppTheme.border),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.clear_rounded,
@@ -206,11 +203,8 @@ class _SignaturePadState extends State<SignaturePad> {
                         SizedBox(width: 4),
                         Text(
                           'Clear',
-                          style: TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: context.textTheme.labelSmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
                         ),
                       ],
                     ),
