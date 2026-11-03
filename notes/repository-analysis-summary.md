@@ -159,3 +159,25 @@ User installed plugins: frontend-design, Very Good AI Flutter, parallax-threejs,
 - **Render on demand** (`invalidate()`): no redraws while idle — matters for phone battery/heat.
 - **Bug fix**: `window.spawnCabinet` / `window.removeSelectedCabinet` were redefined at the bottom as wrappers that called themselves → "Maximum call stack size exceeded"; the module tray's add/remove never worked (present since the first commit).
 - Verified in headless Chromium (all 4 styles, single + L, manual add/remove, style switch, 10× layout swap with no geometry leak, draft restore, zero idle frames). Not yet checked on a real phone — check frame rate on a low-end Android.
+
+## 12. Session 2026-11-03 — sales app review + fixes 1 & 2
+
+Design review of the Flutter sales flow (in chat): biggest issues were client-visible AUD/GST, price shown immediately, nothing saved unless signed, sales jargon on a shared screen, and invented commercial terms. User approved fixes 1 and 2:
+
+**Fix 1 — client-safe screens**
+- `lib/shared/sales_config.dart` (brand, currency "RM", tax label "SST") + `money.dart` (`formatMoney` → "RM 18,450"). Tax *rate* is still `CPQEngine.gstRate` (10%) — placeholder; confirm SST treatment with the owner/accountant.
+- Removed: "Sales Closer", "Start Sales Pitch", "Avg Close 4m 12s" hero card, developer footer, "Priority Locked", 30-day price guarantee, fixed $250 "slot" deposit, 36-month finance figures. One action name: "Quote".
+- Viewer: price hidden until "Show price" (or opening the price breakdown); "Hide price" to hide again.
+- Plain-language copy on home, floor plan ("Set the scale"), room size, trace ("Mark windows & doors"); all 3D CTAs say "View in 3D".
+
+**Fix 2 — never lose a design**
+- Home → "New client" asks name (+ optional phone) before measuring (`consultationProvider`, quote number assigned up front; "Skip for now" allowed).
+- Viewer auto-saves to the phone ~0.8 s after every change (variant, add/remove/move, style) and on leaving; one record per quote number.
+- Statuses (`lib/shared/project_status.dart`): Draft / Quote sent / Deposit paid. Drafts stay on the phone and are never auto-sent; quotes/orders sync. Clients tab filters: All, Drafts, Quotes sent, Deposit paid, Waiting to send.
+- Quote sheet: "Save & send quote" needs only the name (signature optional); "Confirm order" needs deposit amount (typed by salesperson) + signature.
+- Sending only removes the phone copy if the server returns 200/201 (before: any response, even an error, deleted it).
+
+**Process notes**
+- Repo was run through `dart format` once (separate commit) because the VGV plugin's hook formats every edited Dart file.
+- The VGV plugin blocks `flutter test` in favour of its MCP test tool, which can't start in cloud sessions ("Executable not found: stdio"). User authorised running `flutter test` directly for this session: 58/58 pass. Screens rendered via a temporary test harness (not committed; fonts bundled temporarily).
+- Not done (from the review): fix 3 (declutter viewer: duplicate Quote button, module tray behind "Edit"), fix 4 (type/colour tokens, contrast, 48dp targets — incl. the A/B/C bar's tiny "Clear"), fix 5 (home simplification beyond copy), galley/studio in template, trace-screen debug text, i18n (BM/Chinese).

@@ -1,35 +1,56 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/theme.dart';
 import '../../../shared/config.dart';
+import '../../../shared/labels.dart';
+import '../../../shared/money.dart';
+import '../../../shared/project_status.dart';
+import '../../../shared/sales_config.dart';
+import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
 import '../widgets/closing_modal.dart';
 import '../utils/offline_store.dart';
 
-/// Touch-First 3D Viewer & Sales Closing Canvas.
-/// Embeds Three.js via local WebView with:
-/// 1. Magnetic cabinet snapping along wall rails
-/// 2. 1-Tap Curated Style Archetypes
-/// 3. Live Dynamic Budget Odometer (instant CPQ)
-/// 4. On-screen client signature & deal commitment
-class ViewerScreen extends StatefulWidget {
+/// The 3D design screen the salesperson shares with the client.
+///
+/// Embeds Three.js in a local WebView (works offline) with auto-generated
+/// layouts, style switching and a live estimate. The design is saved on the
+/// phone after every change; the price stays hidden until the salesperson
+/// shows it; the quote sheet sends a quote or confirms an order.
+class ViewerScreen extends ConsumerStatefulWidget {
   final String jsonPayload;
   const ViewerScreen({super.key, required this.jsonPayload});
 
   @override
-  State<ViewerScreen> createState() => _ViewerScreenState();
+  ConsumerState<ViewerScreen> createState() => _ViewerScreenState();
 }
 
-class _ViewerScreenState extends State<ViewerScreen> {
+class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   late final WebViewController _webViewController;
   bool _sceneLoaded = false;
-  bool _isFinalising = false;
+
+  // Who this design is for. The quote number stays the same across every
+  // auto-save and when the quote is sent, so there is one record per client.
+  late final String _quoteId;
+  String _clientName = '';
+  String _clientPhone = '';
+  String _clientEmail = '';
+  ProjectStatus _status = ProjectStatus.draft;
+  double _depositPaid = 0;
+
+  /// The estimate stays hidden until the salesperson chooses to show it:
+  /// clients see the design first, price after.
+  bool _priceVisible = false;
+
+  Timer? _saveTimer;
 
   final List<Map<String, dynamic>> _placedCabinets = [];
   late final List<dynamic> _obstacles;
@@ -61,6 +82,23 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _wallData = {};
       _obstacles = [];
     }
+
+    // A reopened project carries its own quote number and client; a new one
+    // takes them from the client entered at the start.
+    final consultation = ref.read(consultationProvider);
+    final savedQuoteId = parsed?['quote_id'] as String? ?? '';
+    final reopened = savedQuoteId.isNotEmpty;
+    _quoteId =
+        reopened ? savedQuoteId : (consultation?.quoteId ?? newQuoteId());
+    _clientName = reopened
+        ? (parsed?['client_name'] as String? ?? '')
+        : (consultation?.clientName ?? '');
+    _clientPhone = reopened
+        ? (parsed?['client_phone'] as String? ?? '')
+        : (consultation?.clientPhone ?? '');
+    _clientEmail = parsed?['client_email'] as String? ?? '';
+    _depositPaid = (parsed?['deposit_paid'] as num?)?.toDouble() ?? 0;
+    if (reopened) _status = ProjectStatus.of(parsed!);
 
     // Generate layouts on-device (works offline). An empty room starts on the
     // Balanced variant; a restored draft keeps its own cabinets.
@@ -142,9 +180,55 @@ class _ViewerScreenState extends State<ViewerScreen> {
       await _pushCabinetsToScene();
       _showVariantWarnings(
           _variants.firstWhere((v) => v.key == _activeVariantKey));
+      _scheduleSave();
     }
     if (mounted) setState(() => _sceneLoaded = true);
   }
+
+  @override
+  void dispose() {
+    if (_saveTimer != null) _saveNow(); // don't lose the last change
+    super.dispose();
+  }
+
+  // ── Auto-save ───────────────────────────────────────────────────────────
+
+  /// Saves the design on the phone shortly after every change, so nothing is
+  /// lost if the meeting ends without a quote.
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 800), _saveNow);
+  }
+
+  Future<void> _saveNow() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    if (_placedCabinets.isEmpty) return;
+    await OfflineStore.saveDraft(_projectRecord());
+  }
+
+  Map<String, dynamic> _projectRecord({String? signatureBase64}) {
+    final summary = _cpqSummary;
+    return {
+      'quote_id': _quoteId,
+      'status': _status.name,
+      'wall': _wallData,
+      'obstacles': _obstacles,
+      'placed_cabinets': _placedCabinets,
+      'salesperson_id': 'demo_agent_01',
+      'style_archetype': summary.styleArchetype,
+      'client_name': _clientName,
+      'client_phone': _clientPhone,
+      'client_email': _clientEmail,
+      'deposit_paid': _depositPaid,
+      'total_price': summary.totalPrice,
+      if (signatureBase64 != null) 'signature_base64': signatureBase64,
+    };
+  }
+
+  /// Cabinets the client would count (fillers are trim, not cabinets).
+  int get _cabinetCount =>
+      _placedCabinets.where((c) => c['kind'] != 'filler').length;
 
   void _spawnCabinet(String type) {
     _webViewController.runJavaScript("spawnCabinet('$type')");
@@ -168,6 +252,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     _pushCabinetsToScene();
     HapticFeedback.lightImpact();
     _showVariantWarnings(variant);
+    _scheduleSave();
   }
 
   void _clearLayout() {
@@ -201,15 +286,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
         setState(() {
           _placedCabinets.add(data);
         });
+        _scheduleSave();
       } else if (type == 'cabinet_removed') {
         setState(() {
           _placedCabinets.removeWhere((c) => c['id'] == data['id']);
         });
+        _scheduleSave();
       } else if (type == 'cabinet_moved') {
         // Keep the saved position in sync with drags in the 3D view.
         final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
-        if (i >= 0)
+        if (i >= 0) {
           _placedCabinets[i] = {..._placedCabinets[i], 'x_mm': data['x_mm']};
+          _scheduleSave();
+        }
       } else if (type == 'cabinet_snapped') {
         // Haptic feedback when magnetic snapping engages
         HapticFeedback.selectionClick();
@@ -226,6 +315,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     setState(() => _currentStyle = styleKey);
     _webViewController.runJavaScript("applyStyleArchetype('$styleKey')");
     HapticFeedback.lightImpact();
+    _scheduleSave();
   }
 
   CPQSummary get _cpqSummary {
@@ -240,120 +330,100 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final summary = _cpqSummary;
     ClosingModal.show(
       context,
-      wallData: _wallData,
       placedCabinets: _placedCabinets,
-      styleArchetype: summary.styleArchetype,
       styleName: summary.styleName,
       totalPrice: summary.totalPrice,
-      depositAmount: 250.00,
-      onConfirm: _submitDeal,
+      clientName: _clientName,
+      clientPhone: _clientPhone,
+      clientEmail: _clientEmail,
+      onConfirm: _submitQuote,
     );
   }
 
-  Future<void> _submitDeal({
+  Future<void> _submitQuote({
     required String clientName,
     required String clientPhone,
     required String clientEmail,
-    required bool depositLocked,
+    required double depositAmount,
     required String? signatureBase64,
   }) async {
+    _clientName = clientName;
+    _clientPhone = clientPhone;
+    _clientEmail = clientEmail;
+    _depositPaid = depositAmount;
+    _status = depositAmount > 0 ? ProjectStatus.deposit : ProjectStatus.quote;
+    _saveTimer?.cancel();
+    _saveTimer = null;
     final summary = _cpqSummary;
-    final quoteId =
-        'QT-${DateTime.now().millisecondsSinceEpoch.toRadixString(16).toUpperCase()}';
-    final payload = {
-      'quote_id': quoteId,
-      'wall': _wallData,
-      'obstacles': _obstacles,
-      'placed_cabinets': _placedCabinets,
-      'salesperson_id': 'demo_agent_01',
-      'style_archetype': summary.styleArchetype,
-      'client_name': clientName,
-      'client_phone': clientPhone,
-      'client_email': clientEmail,
-      'deposit_paid': depositLocked ? 250.00 : 0.0,
-      'signature_base64': signatureBase64,
-    };
+    final record = _projectRecord(signatureBase64: signatureBase64);
 
-    // 1. Immediately secure draft in true local offline storage
-    await OfflineStore.saveDraft(payload);
+    // Saved on the phone first, so nothing is lost if the network fails.
+    await OfflineStore.saveDraft(record);
 
+    var sent = false;
+    var pdfUrl = '';
     try {
-      final client = HttpClient();
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5);
       final req = await client.postUrl(Uri.parse(AppConfig.quoteEndpoint));
       req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.write(jsonEncode(payload));
+      req.write(jsonEncode(record));
       final resp = await req.close();
       final body = await resp.transform(utf8.decoder).join();
-      final result = jsonDecode(body) as Map<String, dynamic>;
       client.close();
-
-      // Successfully synced with cloud: clear from offline outbox
-      await OfflineStore.removeDraft(quoteId);
-
-      if (mounted) {
-        Navigator.pop(context); // Close modal
-        _showSuccessDialog(
-            result, clientName, clientPhone, depositLocked, false);
+      // Only drop the phone copy once the office has actually accepted it.
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        final result = jsonDecode(body) as Map<String, dynamic>;
+        pdfUrl = result['pdf_url'] as String? ?? '';
+        sent = true;
+        await OfflineStore.removeDraft(_quoteId);
       }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close modal
-        // Show success with offline queue confirmation
-        _showSuccessDialog({
-          'quote_id': quoteId,
-          'total_price': summary.totalPrice.toStringAsFixed(2),
-          'pdf_url': '',
-        }, clientName, clientPhone, depositLocked, true);
-      }
+    } catch (_) {
+      // Offline or the office server is unreachable: stays queued.
     }
+
+    if (!mounted) return;
+    Navigator.pop(context); // close the quote sheet
+    _showSavedDialog(total: summary.totalPrice, pdfUrl: pdfUrl, sent: sent);
   }
 
-  void _showSuccessDialog(
-    Map<String, dynamic> result,
-    String clientName,
-    String clientPhone,
-    bool depositLocked,
-    bool isOfflineQueued,
-  ) {
-    final quoteId = result['quote_id'] ?? 'QT-SUCCESS';
-    final total =
-        result['total_price'] ?? _cpqSummary.totalPrice.toStringAsFixed(2);
-    final pdfUrl = result['pdf_url'] ?? '';
+  void _showSavedDialog({
+    required double total,
+    required String pdfUrl,
+    required bool sent,
+  }) {
+    final confirmed = _status == ProjectStatus.deposit;
+    final styleName = _cpqSummary.styleName;
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isOfflineQueued
-                    ? AppTheme.accentTerracotta.withOpacity(0.2)
-                    : AppTheme.successDim,
+              decoration: const BoxDecoration(
+                color: AppTheme.successDim,
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                isOfflineQueued
-                    ? Icons.offline_pin_rounded
-                    : Icons.check_circle_rounded,
-                color: isOfflineQueued ? AppTheme.accent : AppTheme.success,
+                sent ? Icons.check_circle_rounded : Icons.offline_pin_rounded,
+                color: AppTheme.success,
                 size: 28,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                isOfflineQueued
-                    ? 'Locked to Offline Outbox!'
-                    : 'Deal Locked & Signed!',
+                confirmed ? 'Order confirmed' : 'Quote saved',
                 style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                ),
               ),
             ),
           ],
@@ -363,56 +433,54 @@ class _ViewerScreenState extends State<ViewerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              isOfflineQueued
-                  ? 'Agreement & signature secured locally. Will auto-sync with studio when online.'
-                  : 'Agreement successfully recorded and synced with back-office Studio.',
-              style:
-                  const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              sent
+                  ? 'Saved and sent to the office.'
+                  : "Saved on this phone. It will be sent to the office when "
+                      "you're back online.",
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 14),
-            _SummaryTile(label: 'Quote Number', value: quoteId),
-            _SummaryTile(label: 'Total Value', value: '\$$total AUD'),
-            _SummaryTile(
-              label: 'Slot Status',
-              value:
-                  depositLocked ? 'Priority Locked (\$250)' : 'Estimate Sent',
-            ),
-            _SummaryTile(
-                label: 'Style Archetype', value: _cpqSummary.styleName),
-            if (pdfUrl.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _SummaryTile(label: 'PDF Document', value: pdfUrl),
-            ],
+            _SummaryTile(label: 'Quote number', value: _quoteId),
+            _SummaryTile(label: 'Estimated total', value: formatMoney(total)),
+            if (confirmed)
+              _SummaryTile(label: 'Deposit', value: formatMoney(_depositPaid)),
+            _SummaryTile(label: 'Style', value: styleName),
+            if (pdfUrl.isNotEmpty) _SummaryTile(label: 'PDF', value: pdfUrl),
           ],
         ),
         actions: [
           TextButton.icon(
             onPressed: () {
               final text = Uri.encodeComponent(
-                'Hi $clientName! Here is your custom interior design quotation ($quoteId) '
-                'for \$$total AUD in ${_cpqSummary.styleName} style. '
-                'Slot status: ${depositLocked ? "Priority Locked (\$250)" : "Estimate"}.',
+                'Hi $_clientName, here is your quotation $_quoteId from '
+                '${SalesConfig.brandName}: ${formatMoney(total)} '
+                '($styleName).',
               );
-              final cleanPhone = clientPhone.replaceAll(RegExp(r'[^\d]'), '');
+              final phone = _clientPhone.replaceAll(RegExp(r'[^\d]'), '');
               Clipboard.setData(
-                  ClipboardData(text: 'https://wa.me/$cleanPhone?text=$text'));
+                ClipboardData(text: 'https://wa.me/$phone?text=$text'),
+              );
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                      'WhatsApp proposal link generated and copied to clipboard!'),
-                  backgroundColor: AppTheme.accent,
-                ),
+                const SnackBar(content: Text('WhatsApp link copied.')),
               );
             },
             icon: const Icon(Icons.share_rounded, size: 16),
-            label: const Text('Share to WhatsApp'),
+            label: const Text('Copy WhatsApp link'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Back to design'),
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
+              ref.read(consultationProvider.notifier).state = null;
               context.go('/');
             },
-            child: const Text('New Session'),
+            child: const Text('New client'),
           ),
         ],
       ),
@@ -421,6 +489,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   void _showBOQSheet() {
     final summary = _cpqSummary;
+    // Opening the breakdown is a deliberate reveal.
+    if (!_priceVisible) setState(() => _priceVisible = true);
+    final taxPercent = (CPQEngine.gstRate * 100).round();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
@@ -437,7 +508,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Itemized Bill of Quantities (BOQ)',
+                  'Price breakdown',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 16,
@@ -445,6 +516,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   ),
                 ),
                 IconButton(
+                  tooltip: 'Close',
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close_rounded,
                       color: AppTheme.textSecondary),
@@ -454,40 +526,39 @@ class _ViewerScreenState extends State<ViewerScreen> {
             const Divider(color: AppTheme.border),
             const SizedBox(height: 8),
             _SummaryTile(
-              label: 'Base Cabinets',
-              value: '\$${summary.baseCabinetTotal.toStringAsFixed(2)}',
+              label: 'Base cabinets',
+              value: formatMoney(summary.baseCabinetTotal),
             ),
             _SummaryTile(
-              label: 'Wall Cabinets',
-              value: '\$${summary.wallCabinetTotal.toStringAsFixed(2)}',
+              label: 'Wall cabinets',
+              value: formatMoney(summary.wallCabinetTotal),
             ),
             if (summary.tallCabinetTotal > 0)
               _SummaryTile(
-                label: 'Tall Cabinets',
-                value: '\$${summary.tallCabinetTotal.toStringAsFixed(2)}',
+                label: 'Tall cabinets',
+                value: formatMoney(summary.tallCabinetTotal),
               ),
             _SummaryTile(
-              label: 'Finish Multiplier (${summary.styleName})',
-              value: '${summary.materialMultiplier}x',
+              label: 'Finish (${summary.styleName})',
+              value: '×${summary.materialMultiplier}',
             ),
             _SummaryTile(
-              label: 'Installation Labour (${summary.totalModules} units)',
-              value: '\$${summary.labourTotal.toStringAsFixed(2)}',
+              label: 'Installation (${summary.totalModules} units)',
+              value: formatMoney(summary.labourTotal),
             ),
             if (summary.obstacleAllowance != 0)
               _SummaryTile(
-                label: 'Cutout Allowance (Doors/Windows)',
-                value:
-                    '-\$${summary.obstacleAllowance.abs().toStringAsFixed(2)}',
+                label: 'Window and door adjustment',
+                value: formatMoney(summary.obstacleAllowance),
               ),
             _SummaryTile(
-              label: 'GST (10%)',
-              value: '\$${summary.gst.toStringAsFixed(2)}',
+              label: '${SalesConfig.taxLabel} ($taxPercent%)',
+              value: formatMoney(summary.gst),
             ),
             const Divider(color: AppTheme.border),
             _SummaryTile(
-              label: 'Total Project Price',
-              value: '\$${summary.totalPrice.toStringAsFixed(2)} AUD',
+              label: 'Estimated total',
+              value: formatMoney(summary.totalPrice),
               isBold: true,
             ),
           ],
@@ -503,10 +574,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('3D Live Co-Design'),
+        title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
           IconButton(
-            tooltip: 'View Itemized BOQ',
+            tooltip: 'Price breakdown',
             onPressed: _showBOQSheet,
             icon: const Icon(Icons.receipt_long_rounded),
           ),
@@ -514,8 +585,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: ElevatedButton.icon(
               onPressed: _sceneLoaded ? _openClosingModal : null,
-              icon: const Icon(Icons.verified_rounded, size: 18),
-              label: const Text('Lock In & Sign'),
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: const Text('Quote'),
             ),
           ),
         ],
@@ -632,135 +703,118 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
                 const SizedBox(height: 10),
 
-                // ── Live Dynamic Budget Odometer ─────────────────────────
-                GestureDetector(
-                  onTap: _showBOQSheet,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface.withOpacity(0.97),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppTheme.border, width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF2C2724).withOpacity(0.08),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        // Dynamic Counting Price Display
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  TweenAnimationBuilder<double>(
-                                    tween: Tween<double>(
-                                        begin: 0, end: summary.totalPrice),
-                                    duration: const Duration(milliseconds: 400),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (context, val, _) {
-                                      return Text(
-                                        '\$${val.toStringAsFixed(0)} AUD',
+                // ── Estimate bar: price hidden until revealed ─────────────
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface.withOpacity(0.97),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.border, width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2C2724).withOpacity(0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _priceVisible
+                            ? GestureDetector(
+                                onTap: _showBOQSheet,
+                                behavior: HitTestBehavior.opaque,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(
+                                          begin: 0, end: summary.totalPrice),
+                                      duration:
+                                          const Duration(milliseconds: 400),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, val, _) => Text(
+                                        formatMoney(val),
                                         style: const TextStyle(
                                           color: AppTheme.textPrimary,
                                           fontSize: 20,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: -0.5,
                                         ),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 7, vertical: 2.5),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.surfaceRaised,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border:
-                                          Border.all(color: AppTheme.border),
+                                      ),
                                     ),
-                                    child: Text(
-                                      '${summary.totalModules} modules',
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      summary.totalPrice > 0
+                                          ? 'Estimate · ${cabinetCountLabel(_cabinetCount)}'
+                                          : 'Add cabinets to see an estimate',
                                       style: const TextStyle(
                                         color: AppTheme.textSecondary,
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Row(
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        setState(() => _priceVisible = true),
+                                    icon: const Icon(
+                                      Icons.visibility_outlined,
+                                      size: 20,
+                                    ),
+                                    label: const Text('Show price'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppTheme.accent,
+                                      minimumSize: const Size(48, 48),
+                                      textStyle: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      cabinetCountLabel(_cabinetCount),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppTheme.textSecondary,
+                                        fontSize: 13,
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 3),
-                              Text(
-                                summary.totalPrice > 0
-                                    ? '\$${summary.monthlyPayment.toStringAsFixed(0)}/mo (36mo) • \$250 Slot Deposit'
-                                    : 'Tap modules above to place along wall rails',
-                                style: TextStyle(
-                                  color:
-                                      AppTheme.textSecondary.withOpacity(0.85),
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Itemized BOQ Button
+                      ),
+                      if (_priceVisible)
                         IconButton(
-                          tooltip: 'Itemized BOQ',
-                          onPressed: _showBOQSheet,
-                          icon: const Icon(Icons.receipt_long_rounded,
-                              color: AppTheme.textSecondary, size: 20),
-                        ),
-
-                        const SizedBox(width: 4),
-
-                        // Quick Closing Action Button
-                        InkWell(
-                          onTap: _openClosingModal,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: AppTheme.accent,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppTheme.accent.withOpacity(0.25),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.verified_rounded,
-                                    size: 16, color: Colors.white),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Sign & Lock',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          tooltip: 'Hide price',
+                          onPressed: () =>
+                              setState(() => _priceVisible = false),
+                          icon: const Icon(
+                            Icons.visibility_off_outlined,
+                            color: AppTheme.textSecondary,
+                            size: 20,
                           ),
                         ),
-                      ],
-                    ),
+                      const SizedBox(width: 4),
+                      ElevatedButton.icon(
+                        onPressed: _sceneLoaded ? _openClosingModal : null,
+                        icon: const Icon(Icons.send_rounded, size: 16),
+                        label: const Text('Quote'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -778,7 +832,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     CircularProgressIndicator(color: AppTheme.accent),
                     SizedBox(height: 16),
                     Text(
-                      'Initialising 3D sales canvas…',
+                      'Loading 3D view…',
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
                   ],

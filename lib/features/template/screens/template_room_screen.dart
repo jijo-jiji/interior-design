@@ -45,7 +45,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('10s Quick Room Template'),
+        title: const Text('Room size'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
@@ -205,7 +205,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                           ),
                           icon: const Icon(Icons.view_in_ar_rounded),
                           label: const Text(
-                            'Launch 3D Co-Design & Quote',
+                            'View in 3D',
                             style: TextStyle(
                                 fontSize: 15, fontWeight: FontWeight.bold),
                           ),

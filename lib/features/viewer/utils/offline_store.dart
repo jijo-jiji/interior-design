@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../shared/project_status.dart';
+
 /// True local offline storage for customer proposals & digital signatures.
 /// Ensures on-site field quotes are preserved across app closures or lost connectivity.
 class OfflineStore {
@@ -66,15 +68,24 @@ class OfflineStore {
     }
   }
 
-  /// Synchronizes all queued offline drafts with the FastAPI backend
-  static Future<int> syncQueue(String quoteEndpoint) async {
+  /// Saved records waiting to be sent: everything except work-in-progress
+  /// drafts, which stay on the phone until the salesperson sends the quote.
+  static Future<List<Map<String, dynamic>>> pendingSync() async {
     final drafts = await getDrafts();
-    if (drafts.isEmpty) return 0;
+    return drafts
+        .where((d) => ProjectStatus.of(d) != ProjectStatus.draft)
+        .toList();
+  }
+
+  /// Synchronizes all queued offline quotes with the FastAPI backend.
+  static Future<int> syncQueue(String quoteEndpoint) async {
+    final pending = await pendingSync();
+    if (pending.isEmpty) return 0;
 
     int synced = 0;
     final client = HttpClient();
 
-    for (final draft in List<Map<String, dynamic>>.from(drafts)) {
+    for (final draft in pending) {
       try {
         final req = await client.postUrl(Uri.parse(quoteEndpoint));
         req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');

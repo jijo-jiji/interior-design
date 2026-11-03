@@ -33,7 +33,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text('Trace Obstacles'),
+        title: const Text('Mark windows & doors'),
         actions: [
           // ── Toggle Calibration Handles ────────────────────────────────
           IconButton(
@@ -44,7 +44,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
               color: _showCalibration ? AppTheme.accent : Colors.white70,
             ),
             tooltip:
-                _showCalibration ? 'Hide Wall Bounds' : 'Calibrate Wall Bounds',
+                _showCalibration ? 'Hide wall edges' : 'Line up wall edges',
           ),
           const SizedBox(width: 8),
 
@@ -54,13 +54,14 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
             child: ElevatedButton.icon(
               onPressed: () => _generate3D(context, ref, wallSetup, obstacles),
               icon: const Icon(Icons.view_in_ar_rounded, size: 18),
-              label: Text(obstacles.isEmpty
-                  ? 'Generate 3D (Clean Wall)'
-                  : 'Generate 3D'),
+              label: const Text('View in 3D'),
               style: ElevatedButton.styleFrom(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                textStyle: const TextStyle(fontSize: 13),
+                textStyle: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontSize: 13),
               ),
             ),
           ),

@@ -71,13 +71,13 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('2-Point Blueprint Calibrate'),
+        title: const Text('Set the scale'),
         actions: [
           TextButton.icon(
             onPressed: _generate3D,
             icon: const Icon(Icons.view_in_ar_rounded, color: AppTheme.accent),
             label: const Text(
-              'Generate 3D',
+              'View in 3D',
               style: TextStyle(
                   color: AppTheme.accent, fontWeight: FontWeight.bold),
             ),
@@ -99,7 +99,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Drag Pin A & B across a known door (900mm) or wall dimension on blueprint.',
+                      'Drag A and B to the ends of a length you know, like a door (usually 900 mm) or a labelled wall.',
                       style: TextStyle(
                         color: AppTheme.textSecondary.withOpacity(0.9),
                         fontSize: 12,
@@ -216,7 +216,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                           style: const TextStyle(
                               color: AppTheme.textPrimary, fontSize: 13),
                           decoration: InputDecoration(
-                            labelText: 'Real A↔B Dist (mm)',
+                            labelText: 'Length A–B (mm)',
                             labelStyle: const TextStyle(
                                 color: AppTheme.textSecondary, fontSize: 11),
                             prefixIcon: const Icon(Icons.straighten,
@@ -246,7 +246,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                'Extruded Wall Width',
+                                'Wall width',
                                 style: TextStyle(
                                     color: AppTheme.textSecondary,
                                     fontSize: 10),
@@ -284,7 +284,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
                       ),
                       icon: const Icon(Icons.view_in_ar_rounded, size: 18),
                       label: const Text(
-                        'Extrude to 3D & Start Sales Pitch',
+                        'View in 3D',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),

@@ -144,21 +144,27 @@ class _SignaturePadState extends State<SignaturePad> {
             // Hint label
             if (widget.controller.isEmpty)
               const Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.draw_rounded,
-                        color: AppTheme.textTertiary, size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'Sign here with finger to confirm design',
-                      style: TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.draw_rounded,
+                          color: AppTheme.textTertiary, size: 18),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Sign here with finger to confirm design',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 13,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 
