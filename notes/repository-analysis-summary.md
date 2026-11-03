@@ -147,3 +147,15 @@ User chose: build **both** the checklist and the generator; **kitchen** first; c
 **Update:** one-page sheet item A5 now asks for client room photos from site visits — ideally of the same 5 kitchens before work started, whole walls straight on (no people/addresses). Purpose: run them through the app's photo-trace flow, generate layouts, and compare with the drawings of what was actually built.
 
 **Update:** one-page sheet restructured to one request per row (user asked): A. drawings/photos/documents (5 rows: floor plans, final layouts, room photos, standard sizes, quote), B. 3D assets for the demo in its own section (4 rows: cabinet models, appliance models, finish textures, renders), C. 8 quick questions (counter height and wall-cabinet height split). Portrait A4, one page; "Don't have" added to the Sent? dropdown.
+
+## 11. Session 2026-11-03 — 3D viewer look (assets/3d/index.html)
+
+User installed plugins: frontend-design, Very Good AI Flutter, parallax-threejs, 3D CAD Converter (the converter's tool needs Windows `cmd`, so it only runs on PC-JAWA, not in a cloud session). User chose to start UI/UX work with the 3D viewer's look.
+
+- **One cabinet builder** for manual, restored and generated cabinets: recessed plinth, carcass, 18 mm fronts with 3 mm shadow reveals, drawer stacks (drawer/hob units), stacked tall doors, stone worktop with front overhang, L-shaped corner unit (was a 900×900 box that filled the inside corner), sink with worktop cut-out + steel basin + tap, black-glass hob with burners + chimney hood, warm LED strip under wall cabinets.
+- **Style presets now mean materials** (`STYLE_FINISHES`, keyed by the same ids Flutter/CPQ use): Japandi light oak + brass bars + warm quartz; Minimalist matte charcoal handleless (finger groove); Nordic sage + birch tall + nickel knobs + terrazzo; Industrial walnut + graphite wall cabinets + black bars + dark slate. Shared materials; style change rebuilds handles.
+- Textures are procedural canvas (wood grain, stone, floor planks) with metre-based UVs — offline, no image files; swap in the designer's textures later.
+- Lighting: baked procedural environment map (reflections + soft fill), hemisphere + one shadowed key light, sRGB output.
+- **Render on demand** (`invalidate()`): no redraws while idle — matters for phone battery/heat.
+- **Bug fix**: `window.spawnCabinet` / `window.removeSelectedCabinet` were redefined at the bottom as wrappers that called themselves → "Maximum call stack size exceeded"; the module tray's add/remove never worked (present since the first commit).
+- Verified in headless Chromium (all 4 styles, single + L, manual add/remove, style switch, 10× layout swap with no geometry leak, draft restore, zero idle frames). Not yet checked on a real phone — check frame rate on a low-end Android.
