@@ -832,6 +832,16 @@ const CABINET_SPECS = {
   wall_600:   { w: 0.600, h: 0.700, d: 0.320, isWall: true,  mountH: 1.40, label: 'Wall 600mm' },
   tall_600:   { w: 0.600, h: 2.100, d: 0.600, isWall: false, mountH: 0,    label: 'Tall 600mm' },
   corner_900: { w: 0.900, h: 0.850, d: 0.900, isWall: false, mountH: 0,    label: 'Corner 900' },
+
+  // ── Appliance modules (PR #1). Colours come from the style's finishes like
+  // every other cabinet; `kind` (KIND_OF_TYPE) decides how each is drawn.
+  sink_600:          { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Sink 600' },
+  // A manually placed cooktop gets no hood: the Rangehood module is separate.
+  cooktop_600:       { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Cooktop 600', hood: false },
+  dishwasher_600:    { w: 0.600, h: 0.850, d: 0.600, isWall: false, mountH: 0,    label: 'Dishwasher' },
+  oven_tower_600:    { w: 0.600, h: 2.100, d: 0.600, isWall: false, mountH: 0,    label: 'Oven Tower' },
+  fridge_recess_700: { w: 0.700, h: 2.100, d: 0.650, isWall: false, mountH: 0,    label: 'Fridge Recess' },
+  rangehood_900:     { w: 0.900, h: 0.450, d: 0.500, isWall: true,  mountH: 1.55, label: 'Rangehood 900' },
 };
 
 // ── Magnetic Snap Guide Line ───────────────────────────────────────────────
@@ -1077,7 +1087,13 @@ const GAP = 0.003;      // reveal between fronts
 const TOP_T = 0.04;     // worktop thickness
 const TOP_OVER = 0.02;  // worktop front overhang
 const ARM_D = 0.6;      // L-corner arm depth (base cabinet depth)
-const KIND_OF_TYPE = { base_800: 'base', base_600: 'base', wall_600: 'wall', tall_600: 'tall', corner_900: 'corner' };
+const KIND_OF_TYPE = {
+  base_800: 'base', base_600: 'base', wall_600: 'wall', tall_600: 'tall', corner_900: 'corner',
+  sink_600: 'sink', cooktop_600: 'hob', dishwasher_600: 'dishwasher',
+  oven_tower_600: 'oven', fridge_recess_700: 'fridge', rangehood_900: 'hood',
+};
+// Full-height units: no worktop, tall-cabinet finish.
+const TALL_KINDS = new Set(['tall', 'oven', 'fridge']);
 
 function specFromEntry(c) {
   const known = CABINET_SPECS[c.cabinet_type];
@@ -1091,7 +1107,7 @@ function specFromEntry(c) {
 
 function frontMaterial(spec) {
   if (spec.isWall) return MAT.wall;
-  return spec.kind === 'tall' ? MAT.tall : MAT.base;
+  return TALL_KINDS.has(spec.kind) ? MAT.tall : MAT.base;
 }
 
 function buildCabinetParts(group, spec) {
@@ -1121,6 +1137,7 @@ function buildCabinetParts(group, spec) {
   }
 
   if (kind === 'corner') return buildCornerParts(group, spec, add);
+  if (kind === 'hood') return buildRangehood(spec, add);
 
   const y0 = isWall ? bottom : bottom + PLINTH_H; // carcass bottom
   const bodyH = h / 2 - y0;
@@ -1160,16 +1177,41 @@ function buildCabinetParts(group, spec) {
   } else if (kind === 'tall') {
     const split = y0 + bodyH * 0.6;
     fronts = [...doors(y0, split, 'top', true), ...doors(split, yTop, 'bottom', false)];
+  } else if (kind === 'dishwasher') {
+    // Integrated: one full-height panel in the cabinet finish, pull along the top.
+    fronts = [[x0, x1, y0, yTop, { drawer: true }]];
+  } else if (kind === 'oven') {
+    // Drawer, oven at eye level, compact oven/microwave above, door to the top.
+    const ovenB = bottom + 0.80, ovenT = ovenB + 0.60, microT = ovenT + 0.40;
+    fronts = [
+      [x0, x1, y0, ovenB, { drawer: true }],
+      [x0, x1, ovenB, ovenT, { appliance: 'oven' }],
+      [x0, x1, ovenT, microT, { appliance: 'oven' }],
+      ...doors(microT, yTop, 'bottom', false),
+    ];
+  } else if (kind === 'fridge') {
+    // Stainless fridge (freezer below) in a recess, cabinet above.
+    const fridgeT = bottom + 1.80;
+    const freezerT = y0 + (fridgeT - y0) * 0.36;
+    fronts = [
+      [x0, x1, y0, freezerT, { appliance: 'fridge', at: 'top' }],
+      [x0, x1, freezerT, fridgeT, { appliance: 'fridge', at: 'bottom' }],
+      ...doors(fridgeT, yTop, 'bottom', false),
+    ];
   } else {
     fronts = doors(y0, yTop, isWall ? 'bottom' : 'top', false);
   }
   for (const [a, b, ya, yb, handle] of fronts) {
+    if (handle.appliance) {
+      buildApplianceFront(add, handle, (a + b) / 2, (ya + yb) / 2, b - a - GAP, yb - ya - GAP, front);
+      continue;
+    }
     add(boxGeo(b - a - GAP, yb - ya - GAP, FRONT_T, WOOD_TILE), fm, (a + b) / 2, (ya + yb) / 2, front - FRONT_T / 2);
     addHandle(add, a + GAP / 2, b - GAP / 2, ya + GAP / 2, yb - GAP / 2, front, handle, isWall);
   }
 
   // Worktop + appliances
-  if (!isWall && kind !== 'tall') {
+  if (!isWall && !TALL_KINDS.has(kind)) {
     if (kind === 'sink') buildSinkTop(spec, add);
     else add(boxGeo(w, TOP_T, d + TOP_OVER, STONE_TILE), MAT.top, 0, topY, TOP_OVER / 2);
     if (kind === 'hob') buildHob(spec, add);
@@ -1177,6 +1219,43 @@ function buildCabinetParts(group, spec) {
 
   // Warm LED strip under wall cabinets
   if (isWall) add(boxGeo(w - 0.04, 0.006, 0.016), MAT.led, 0, bottom - 0.003, front - 0.05, false);
+}
+
+// Stainless appliance fronts: ovens get a black glass window under a control
+// strip and a bar handle; fridge doors get a vertical bar by the door split.
+function buildApplianceFront(add, opts, cx, cy, fw, fh, front) {
+  add(boxGeo(fw, fh, FRONT_T), MAT.steel, cx, cy, front - FRONT_T / 2);
+  const bar = (bw, bh, x, y) => {
+    add(boxGeo(bw, bh, 0.016), MAT.steel, x, y, front + 0.028);
+    // Two stand-offs so the bar reads as a handle, not a stripe.
+    const along = bw > bh;
+    for (const s of [-1, 1]) {
+      add(boxGeo(0.012, 0.012, 0.022), MAT.steel,
+        along ? x + s * (bw / 2 - 0.02) : x, along ? y : y + s * (bh / 2 - 0.02), front + 0.011);
+    }
+  };
+  if (opts.appliance === 'oven') {
+    const strip = Math.min(0.07, fh * 0.18);
+    add(boxGeo(fw - 0.06, fh - strip - 0.06, 0.004), MAT.glass, cx, cy - strip / 2 - 0.01, front + 0.002, false);
+    bar(fw * 0.72, 0.016, cx, cy + fh / 2 - strip - 0.004);
+  } else if (opts.appliance === 'fridge') {
+    const len = Math.min(0.5, fh * 0.55);
+    const y = opts.at === 'top' ? cy + fh / 2 - len / 2 - 0.05 : cy - fh / 2 + len / 2 + 0.05;
+    bar(0.016, len, cx + fw / 2 - 0.06, y);
+  }
+}
+
+// Wall-mounted canopy hood with a chimney up to the ceiling.
+function buildRangehood(spec, add) {
+  const { w, h, d, mountH } = spec;
+  const bottom = -h / 2;
+  add(boxGeo(w, 0.06, d), MAT.steel, 0, bottom + 0.03, 0);
+  add(boxGeo(w * 0.86, 0.10, d * 0.8), MAT.steel, 0, bottom + 0.11, -d * 0.1);
+  const chimneyBottom = bottom + 0.16;
+  const ceiling = currentWallH - mountH - h / 2;
+  const chimneyH = Math.max(0.1, ceiling - chimneyBottom);
+  add(boxGeo(0.28, chimneyH, 0.26), MAT.steel, 0, chimneyBottom + chimneyH / 2, -d / 2 + 0.13);
+  add(boxGeo(w * 0.5, 0.004, 0.06), MAT.led, 0, bottom - 0.002, 0.05, false);
 }
 
 function addHandle(add, x0, x1, y0, y1, z, h, isWall) {
@@ -1287,6 +1366,7 @@ function buildHob(spec, add) {
   const zs = pw >= 0.55 ? [-0.11, 0.11] : [0];
   for (const x of xs) for (const z of zs) add(ring(), MAT.burner, x, top + 0.0065, z, false);
 
+  if (spec.hood === false) return; // a separate Rangehood module is used
   const canopyW = Math.min(Math.max(w, 0.6), 0.9);
   const canopyBottom = 1.62;            // metres above the floor
   const chimneyH = Math.max(0.2, currentWallH - canopyBottom - 0.07);

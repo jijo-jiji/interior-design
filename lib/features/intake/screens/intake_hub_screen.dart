@@ -147,6 +147,7 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
       'obstacles': project['obstacles'] ?? [],
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
+      'benchtop_material': project['benchtop_material'],
       'client_name': project['client_name'] ?? '',
       'client_phone': project['client_phone'] ?? '',
       'client_email': project['client_email'] ?? '',

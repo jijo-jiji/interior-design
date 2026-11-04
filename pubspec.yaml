@@ -23,6 +23,8 @@ dependencies:
   # these lines pin nothing new.
   http: ^1.2.0
   web: ^1.0.0
+  url_launcher: ^6.3.2
+  printing: ^5.14.3
 
 dev_dependencies:
   flutter_test:

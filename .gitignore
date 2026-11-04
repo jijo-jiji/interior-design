@@ -68,3 +68,6 @@ temp_video_recordings/
 
 # The office server's HTTPS keys (backend/office_https.py). Private: never commit.
 /backend/certs/
+
+# Generated quotation PDFs
+backend/generated_pdfs/

@@ -29,16 +29,16 @@ void main() {
       // base_800 (420) + wall_600 (280) = 700 materials
       // labour = 2 * 120 = 240
       // subtotal = 940
-      // gst = 94.0
-      // total = 1034.0
+      // sst (8%) = 75.20
+      // total = 1015.20
       expect(summary.totalModules, 2);
       expect(summary.baseCabinetTotal, 420.00);
       expect(summary.wallCabinetTotal, 280.00);
       expect(summary.labourTotal, 240.00);
       expect(summary.subtotal, 940.00);
-      expect(summary.gst, 94.00);
-      expect(summary.totalPrice, 1034.00);
-      expect(summary.monthlyPayment, closeTo(1034.00 / 36 * 1.06, 0.01));
+      expect(summary.gst, 75.20);
+      expect(summary.totalPrice, 1015.20);
+      expect(summary.monthlyPayment, closeTo(1015.20 / 36 * 1.06, 0.01));
     });
 
     test('Industrial style applies 1.18x material multiplier', () {
@@ -73,8 +73,8 @@ void main() {
       // subtotal: 420 + 120 - 130 = 410
       expect(summary.obstacleAllowance, -130.00);
       expect(summary.subtotal, 410.00);
-      expect(summary.gst, 41.00);
-      expect(summary.totalPrice, 451.00);
+      expect(summary.gst, closeTo(32.80, 0.01));
+      expect(summary.totalPrice, closeTo(442.80, 0.01));
     });
 
     test('Benchtop calculation adds engineered quartz surface per linear metre',
@@ -90,17 +90,17 @@ void main() {
       );
 
       // 0.8m + 0.6m = 1.4 linear metres
-      // 1.4m * $380 = $532 benchtop total
+      // 1.4m * RM380 = RM532 benchtop total
       // cabinets: 420 + 340 = 760
       // labour: 2 * 120 = 240
       // subtotal: 760 + 532 + 240 = 1532
-      // gst: 153.20
-      // total: 1685.20
+      // sst (8%): 122.56
+      // total: 1654.56
       expect(summary.benchtopLinearMetres, closeTo(1.4, 0.01));
       expect(summary.benchtopTotal, closeTo(532.00, 0.01));
       expect(summary.benchtopMaterial, 'Calacatta Engineered Quartz');
       expect(summary.subtotal, closeTo(1532.00, 0.01));
-      expect(summary.totalPrice, closeTo(1685.20, 0.01));
+      expect(summary.totalPrice, closeTo(1654.56, 0.01));
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,7 +19,9 @@ import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
 import '../scene/scene_bridge.dart';
+import '../utils/proposal_delivery.dart';
 import '../widgets/closing_modal.dart';
+import 'proposal_preview_screen.dart';
 import '../utils/offline_store.dart';
 
 /// The 3D design screen the salesperson shares with the client.
@@ -62,6 +65,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _editing = false;
   String? _selectedId;
   String? _selectedLabel;
+
+  /// Benchtop chosen for the quote (a key of CPQEngine.benchtopRates), or
+  /// none. Priced per linear metre of base run.
+  String? _benchtopMaterial;
+
   // Return-wall (L-shape) cabinets can be selected but not moved yet.
   bool _selectedMovable = true;
 
@@ -88,6 +96,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
       _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
+      _benchtopMaterial = parsed['benchtop_material'] as String?;
       if (parsed['placed_cabinets'] != null) {
         final cabs = parsed['placed_cabinets'] as List<dynamic>;
         for (final c in cabs) {
@@ -240,6 +249,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'placed_cabinets': _placedCabinets,
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
+      'benchtop_material': _benchtopMaterial,
       'client_name': _clientName,
       'client_phone': _clientPhone,
       'client_email': _clientEmail,
@@ -428,7 +438,229 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       placedCabinets: _placedCabinets,
       obstacles: _obstacles,
       styleArchetype: _currentStyle,
+      benchtopMaterial: _benchtopMaterial,
     );
+  }
+
+  /// Appliance modules. They price like joinery (the cabinetry, cutouts and
+  /// services), so they're added like a cabinet.
+  static const List<({String type, String label, String blurb, IconData icon})>
+      _appliances = [
+    (
+      type: 'sink_600',
+      label: 'Sink 600',
+      blurb: 'Undermount bowl and tap cutout',
+      icon: Icons.water_drop_outlined
+    ),
+    (
+      type: 'cooktop_600',
+      label: 'Cooktop 600',
+      blurb: 'Induction cutout and isolator',
+      icon: Icons.local_fire_department_outlined
+    ),
+    (
+      type: 'dishwasher_600',
+      label: 'Dishwasher 600',
+      blurb: 'Integrated, under the worktop',
+      icon: Icons.local_laundry_service_outlined
+    ),
+    (
+      type: 'oven_tower_600',
+      label: 'Oven tower 600',
+      blurb: 'Wall oven and microwave stack',
+      icon: Icons.microwave_outlined
+    ),
+    (
+      type: 'fridge_recess_700',
+      label: 'Fridge recess 700',
+      blurb: 'Framed recess and panels',
+      icon: Icons.kitchen_outlined
+    ),
+    (
+      type: 'rangehood_900',
+      label: 'Rangehood 900',
+      blurb: 'Wall mounted, ducted',
+      icon: Icons.air_outlined
+    ),
+  ];
+
+  void _showApplianceSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Add an appliance', style: context.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                'Prices cover the cabinetry, cutouts and services. The '
+                'appliance itself is quoted separately.',
+                style: context.textTheme.bodySmall
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+              for (final item in _appliances)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(item.icon, color: AppTheme.accent),
+                  title: Text(item.label),
+                  subtitle: Text(item.blurb),
+                  trailing: Text(
+                    formatMoney(CPQEngine.cabinetPrices[item.type] ?? 0),
+                    style: context.textTheme.labelLarge,
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _spawnCabinet(item.type);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBenchtopSheet() {
+    final metres = _cpqSummary.benchtopLinearMetres;
+    void choose(String? material) {
+      setState(() => _benchtopMaterial = material);
+      HapticFeedback.selectionClick();
+      _scheduleSave();
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Benchtop', style: context.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                metres > 0
+                    ? '${metres.toStringAsFixed(2)} metres of worktop measured'
+                    : 'Add base cabinets first to measure the worktop.',
+                style: context.textTheme.bodySmall
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+              for (final entry in CPQEngine.benchtopRates.entries)
+                RadioListTile<String?>(
+                  contentPadding: EdgeInsets.zero,
+                  value: entry.key,
+                  groupValue: _benchtopMaterial,
+                  onChanged: (v) {
+                    choose(v);
+                    Navigator.pop(sheetContext);
+                  },
+                  title: Text(CPQEngine.benchtopNames[entry.key] ?? entry.key),
+                  subtitle: Text('${formatMoney(entry.value)} per metre'),
+                  secondary: Text(
+                    metres > 0 ? '+${formatMoney(metres * entry.value)}' : '—',
+                    style: context.textTheme.labelLarge,
+                  ),
+                ),
+              RadioListTile<String?>(
+                contentPadding: EdgeInsets.zero,
+                value: null,
+                groupValue: _benchtopMaterial,
+                onChanged: (v) {
+                  choose(null);
+                  Navigator.pop(sheetContext);
+                },
+                title: const Text('No benchtop in this quote'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The signed proposal: the browser's own PDF viewer on the web, an
+  /// in-app preview (print and share) on Android.
+  Future<void> _openProposal() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (kIsWeb) {
+      final opened = await ProposalDelivery.openProposalInBrowser(_quoteId);
+      if (!opened) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text(
+                "Couldn't open the proposal. Allow pop-ups and try again.")));
+      }
+      return;
+    }
+    final navigator = Navigator.of(context);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: AppTheme.accent),
+      ),
+    );
+    try {
+      final bytes = await ProposalDelivery.downloadProposalPdf(_quoteId);
+      navigator.pop(); // the spinner
+      if (!mounted) return;
+      navigator.push(MaterialPageRoute(
+        builder: (_) => ProposalPreviewScreen(
+          pdfBytes: bytes,
+          quoteId: _quoteId,
+          clientName: _clientName,
+        ),
+      ));
+    } on ProposalUnavailable catch (e) {
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: AppTheme.danger),
+      );
+    }
+  }
+
+  /// Opens WhatsApp on the client's chat with the proposal message ready.
+  Future<void> _sendToWhatsApp(
+      {required double total, required bool sent}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final message = ProposalDelivery.buildMessage(
+      clientName: _clientName,
+      quoteId: _quoteId,
+      total: formatMoney(total).replaceFirst('${SalesConfig.currency} ', ''),
+      styleName: _cpqSummary.styleName,
+      depositLocked: _status == ProjectStatus.deposit,
+      isOfflineQueued: !sent,
+    );
+    final result = await ProposalDelivery.sendViaWhatsApp(
+      phone: _clientPhone,
+      message: message,
+    );
+    if (!mounted) return;
+    final text = switch (result) {
+      WhatsAppResult.opened => 'Opening WhatsApp…',
+      WhatsAppResult.openedWithoutNumber =>
+        'No phone number saved. Pick the contact in WhatsApp.',
+      WhatsAppResult.openedInBrowser => 'Opening WhatsApp in the browser…',
+      WhatsAppResult.copiedToClipboard =>
+        "Couldn't open WhatsApp. The message is copied: paste it in a chat.",
+    };
+    messenger.showSnackBar(SnackBar(content: Text(text)));
   }
 
   void _openClosingModal() {
@@ -541,28 +773,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             if (confirmed)
               _SummaryTile(label: 'Deposit', value: formatMoney(_depositPaid)),
             _SummaryTile(label: 'Style', value: styleName),
-            if (pdfUrl.isNotEmpty) _SummaryTile(label: 'PDF', value: pdfUrl),
           ],
         ),
         actions: [
           TextButton.icon(
-            onPressed: () {
-              final text = Uri.encodeComponent(
-                'Hi $_clientName, here is your quotation $_quoteId from '
-                '${SalesConfig.brandName}: ${formatMoney(total)} '
-                '($styleName).',
-              );
-              final phone = _clientPhone.replaceAll(RegExp(r'[^\d]'), '');
-              Clipboard.setData(
-                ClipboardData(text: 'https://wa.me/$phone?text=$text'),
-              );
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('WhatsApp link copied.')),
-              );
-            },
-            icon: const Icon(Icons.share_rounded, size: 16),
-            label: const Text('Copy WhatsApp link'),
+            onPressed: () => _sendToWhatsApp(total: total, sent: sent),
+            icon: const Icon(Icons.chat_outlined, size: 18),
+            label: const Text('Send to WhatsApp'),
           ),
+          // Only once the office has made the signed PDF.
+          if (sent && pdfUrl.isNotEmpty)
+            TextButton.icon(
+              onPressed: _openProposal,
+              icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+              label: const Text('Open proposal'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Back to design'),
@@ -627,6 +852,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               _SummaryTile(
                 label: 'Tall cabinets',
                 value: formatMoney(summary.tallCabinetTotal),
+              ),
+            if (summary.benchtopTotal > 0)
+              _SummaryTile(
+                label: 'Benchtop: ${summary.benchtopMaterial} '
+                    '(${summary.benchtopLinearMetres.toStringAsFixed(2)} m)',
+                value: formatMoney(summary.benchtopTotal),
               ),
             _SummaryTile(
               label: 'Finish (${summary.styleName})',
@@ -864,6 +1095,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         onMove: _nudgeSelected,
                         onRemoveSelected: _removeSelected,
                         onClearAll: _clearLayout,
+                        onAppliances: _showApplianceSheet,
+                        onBenchtop: _showBenchtopSheet,
+                        benchtopName: _benchtopMaterial == null
+                            ? null
+                            : CPQEngine.benchtopNames[_benchtopMaterial],
                         onDone: () => _setEditing(false),
                       )
                     else
@@ -1092,6 +1328,11 @@ class _EditPanel extends StatelessWidget {
   final ValueChanged<int> onMove;
   final VoidCallback onRemoveSelected;
   final VoidCallback onClearAll;
+  final VoidCallback onAppliances;
+  final VoidCallback onBenchtop;
+
+  /// The chosen benchtop's name, or null for none.
+  final String? benchtopName;
   final VoidCallback onDone;
 
   const _EditPanel({
@@ -1103,6 +1344,9 @@ class _EditPanel extends StatelessWidget {
     required this.onMove,
     required this.onRemoveSelected,
     required this.onClearAll,
+    required this.onAppliances,
+    required this.onBenchtop,
+    required this.benchtopName,
     required this.onDone,
   });
 
@@ -1217,6 +1461,25 @@ class _EditPanel extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onAppliances,
+                icon: const Icon(Icons.kitchen_outlined, size: 18),
+                label: const Text('Appliances'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onBenchtop,
+                icon: const Icon(Icons.countertops_outlined, size: 18),
+                label: Text(benchtopName == null
+                    ? 'Benchtop'
+                    : 'Benchtop: $benchtopName'),
+              ),
+            ],
           ),
           if (selected != null || hasCabinets) ...[
             const SizedBox(height: 8),

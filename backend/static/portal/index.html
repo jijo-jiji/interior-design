@@ -157,18 +157,18 @@
           <div class="space-y-1.5 text-xs">
             <div class="flex justify-between text-[#7A6A5C]">
               <span>Precision CNC Cabinets & Hardware</span>
-              <span id="portal-subtotal" class="font-medium text-[#2C2724]">$4,620.00</span>
+              <span id="portal-subtotal" class="font-medium text-[#2C2724]">RM4,620.00</span>
             </div>
             <div class="flex justify-between text-[#7A6A5C]">
-              <span>GST (10%)</span>
-              <span id="portal-gst" class="font-medium text-[#2C2724]">$462.00</span>
+              <span>SST (8%)</span>
+              <span id="portal-gst" class="font-medium text-[#2C2724]">RM462.00</span>
             </div>
             <div class="pt-2.5 border-t border-[#DDD5CA] flex justify-between items-baseline">
               <div>
                 <div class="text-sm font-bold text-[#2C2724]">Total Complete Proposal</div>
                 <div class="text-[10px] text-[#7A6A5C]">Fully manufactured & delivered</div>
               </div>
-              <div id="portal-total" class="text-xl font-extrabold text-[#2C2724]">$5,082.00 AUD</div>
+              <div id="portal-total" class="text-xl font-extrabold text-[#2C2724]">RM5,082.00</div>
             </div>
           </div>
         </div>
@@ -181,14 +181,14 @@
             </div>
             <div>
               <h4 class="text-xs font-bold text-[#2C2724]">Factory Queue Reservation</h4>
-              <p class="text-[11px] text-[#7A6A5C]">Lock your pricing and guarantee a 3-4 week manufacturing slot with a fully refundable $250 commitment.</p>
+              <p class="text-[11px] text-[#7A6A5C]">Lock your pricing and guarantee a 3-4 week manufacturing slot with a fully refundable RM250 commitment.</p>
             </div>
           </div>
 
           <div id="deposit-status-area">
             <button onclick="handlePayDeposit()" id="btn-pay-deposit" class="w-full py-3 bg-[#2C2724] hover:bg-[#1E1A17] rounded-xl text-xs font-extrabold text-[#FAF7F2] flex items-center justify-center gap-2 shadow-md transition">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-              <span>Pay $250 Slot Deposit Now</span>
+              <span>Pay RM250 Slot Deposit Now</span>
             </button>
           </div>
         </div>
@@ -533,34 +533,21 @@
 
     function refreshFinancials() {
       if (!project) return;
-      const cabs = project.placed_cabinets || [];
-      const basePrices = { base_800: 420.0, base_600: 340.0, wall_600: 280.0, tall_600: 620.0 };
-      const labourPerCab = 120.0;
-      const mult = STYLE_PRESETS[currentStyle]?.mult || 1.0;
 
-      let cabTotal = 0;
-      let hasBase = false;
-      cabs.forEach(c => {
-        const p = basePrices[c.cabinet_type] || 340.0;
-        cabTotal += p * mult;
-        if ((c.cabinet_type || '').includes('base')) hasBase = true;
-      });
+      // The client signs the backend's quote, so show exactly that record —
+      // this page used to re-derive prices with its own table (and invented a
+      // benchtop from the wall width), quoting figures the PDF never carried.
+      const subtotal = Number(project.subtotal ?? 0);
+      const tax = Number(project.gst ?? 0);
+      const total = Number(project.total_price ?? subtotal + tax);
 
-      const labourTotal = cabs.length * labourPerCab;
-      let benchtopTotal = 0;
-      if (hasBase) {
-        const wallW = (project.wall?.width_mm || 4000) * 0.001;
-        const returnM = (project.wall?.shape === 'lShape' && project.wall?.return_mm) ? project.wall.return_mm * 0.001 : 0;
-        benchtopTotal = Math.round((wallW + returnM) * 450.0);
-      }
+      const rm = (v) => `RM${v.toLocaleString('en-MY', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      })}`;
 
-      const subtotal = Math.round((cabTotal + labourTotal + benchtopTotal) * 100) / 100;
-      const gst = Math.round(subtotal * 0.10 * 100) / 100;
-      const total = Math.round((subtotal + gst) * 100) / 100;
-
-      document.getElementById('portal-subtotal').textContent = `$${subtotal.toFixed(2)}`;
-      document.getElementById('portal-gst').textContent = `$${gst.toFixed(2)}`;
-      document.getElementById('portal-total').textContent = `$${total.toFixed(2)} AUD`;
+      document.getElementById('portal-subtotal').textContent = rm(subtotal);
+      document.getElementById('portal-gst').textContent = rm(tax);
+      document.getElementById('portal-total').textContent = rm(total);
     }
 
     function updateDepositUI() {
@@ -571,7 +558,7 @@
             <div class="flex items-center gap-2 text-emerald-400">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               <div>
-                <div class="text-xs font-bold text-white">Production Slot Reserved ($250 Paid)</div>
+                <div class="text-xs font-bold text-white">Production Slot Reserved (RM250 Paid)</div>
                 <div class="text-[10px] text-emerald-300">Priority CNC Queue #104 — Estimated Delivery: 3-4 Weeks</div>
               </div>
             </div>
@@ -582,7 +569,7 @@
         area.innerHTML = `
           <button onclick="handlePayDeposit()" id="btn-pay-deposit" class="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 rounded-xl text-xs font-extrabold text-white flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 transition">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-            <span>Pay $250 Slot Deposit Now</span>
+            <span>Pay RM250 Slot Deposit Now</span>
           </button>
         `;
       }
@@ -674,7 +661,7 @@
         <div>
           <h3 class="text-base font-bold text-[#2C2724] flex items-center gap-2">
             <span>Lock Production Queue Slot</span>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[#3D6B69]/15 text-[#3D6B69]">$250 AUD</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[#3D6B69]/15 text-[#3D6B69]">RM250</span>
           </h3>
           <p class="text-xs text-[#7A6A5C]">Guarantees 30-day material price freeze & priority factory queue</p>
         </div>

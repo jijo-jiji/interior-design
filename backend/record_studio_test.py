@@ -138,7 +138,7 @@ def record_studio_sequence():
             input_base = page.locator("#cat-base-800")
             input_base.click()
             input_base.fill("440")
-            deliberate_pause(1.2, "Updated Base 800mm rate to $440 AUD")
+            deliberate_pause(1.2, "Updated Base 800mm rate to RM440")
 
             btn_save_cat = page.locator("button:has-text('Save Pricing Matrix')")
             btn_save_cat.hover()

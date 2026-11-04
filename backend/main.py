@@ -88,7 +88,7 @@ async def sales_app_over_https(request: Request, call_next):
         return RedirectResponse(str(target), status_code=307)
     return await call_next(request)
 
-# ─── Pricing table (AUD, mock values) ────────────────────────────────────────
+# ─── Pricing table (MYR, mock values) ────────────────────────────────────────
 
 CABINET_PRICES: dict[str, float] = {
     "base_800":   420.00,
@@ -96,7 +96,39 @@ CABINET_PRICES: dict[str, float] = {
     "wall_600":   280.00,
     "tall_600":   620.00,
     "corner_900": 580.00,
+    # Appliance modules: the cabinetry, cutouts and services for each unit.
+    "sink_600":        480.00,
+    "cooktop_600":     520.00,
+    "dishwasher_600":  360.00,
+    "oven_tower_600": 1450.00,
+    "fridge_recess_700": 390.00,
+    "rangehood_900":   690.00,
 }
+
+# Which modules carry benchtop over them. Mirrored in CPQEngine (Dart) and
+# frontend/src/pricing.ts — the pricing contract test fails if they drift.
+BENCHTOP_TYPE_PREFIXES = ("base", "corner", "sink", "cooktop", "dishwasher")
+
+# Appliance modules are described as such on the quote, not as "Cabinet —".
+APPLIANCE_TYPE_PREFIXES = ("sink", "cooktop", "dishwasher", "oven", "fridge", "rangehood")
+
+# Benchtop is priced per linear metre of base/corner run, without the style
+# multiplier. Mirrors CPQEngine in lib/features/viewer/models/cpq_engine.dart —
+# the two must stay in step or the app and the signed PDF disagree.
+BENCHTOP_RATES: dict[str, float] = {
+    "quartz_calacatta": 380.00,
+    "granite_black":    480.00,
+    "laminate_matte":   160.00,
+}
+
+BENCHTOP_NAMES: dict[str, str] = {
+    "quartz_calacatta": "Calacatta Engineered Quartz",
+    "granite_black":    "Nero Absolute Granite",
+    "laminate_matte":   "Ultra-Matte Mineral Laminate",
+}
+
+# A corner unit carries benchtop along both wings (900mm each).
+CORNER_BENCHTOP_METRES = 1.8
 
 OBSTACLE_ALLOWANCES: dict[str, float] = {
     "window": -50.00,   # reduces labour slightly
@@ -104,7 +136,9 @@ OBSTACLE_ALLOWANCES: dict[str, float] = {
 }
 
 LABOUR_RATE_PER_CABINET = 120.00
-GST_RATE = 0.10  # 10%
+# Malaysian service tax. The JSON field is still called "gst" so the 19 stored
+# consultations and the studio PUT contract keep working; the label is SST.
+GST_RATE = 0.08  # SST 8%
 
 STYLE_MULTIPLIERS: dict[str, float] = {
     "japandi": 1.00,
@@ -156,6 +190,7 @@ class QuoteRequest(BaseModel):
     placed_cabinets: list[PlacedCabinet] = []
     salesperson_id: str = "demo_agent_01"
     style_archetype: str = "japandi"
+    benchtop_material: str | None = None
     client_name: str | None = None
     client_phone: str | None = None
     client_email: str | None = None
@@ -185,11 +220,23 @@ def health():
     return {"status": "ok", "service": "static-trace-api"}
 
 
-@app.post("/quote", response_model=QuoteResponse)
-def create_quote(request: QuoteRequest):
-    quote_id = request.quote_id if (request.quote_id and request.quote_id.startswith("QT-")) else f"QT-{uuid.uuid4().hex[:8].upper()}"
+def _benchtop_linear_metres(cabinets: list[PlacedCabinet]) -> float:
+    """Benchtop runs over base units (their own width) and corners (both wings)."""
+    metres = 0.0
+    for cab in cabinets:
+        if cab.cabinet_type.startswith("corner"):
+            metres += CORNER_BENCHTOP_METRES
+        elif cab.cabinet_type.startswith(BENCHTOP_TYPE_PREFIXES):
+            metres += (cab.width_mm or 0) / 1000.0
+    return round(metres, 3)
 
-    # Build line items
+
+def price_quote(request: QuoteRequest) -> tuple[list[LineItem], float, float, float]:
+    """Prices a layout: (line_items, subtotal, gst, total).
+
+    Pure — no database, no PDF — so the pricing contract can be tested against
+    the mobile CPQEngine without side effects. See test/fixtures/pricing_cases.json.
+    """
     line_items: list[LineItem] = []
 
     # Group cabinets by type
@@ -201,8 +248,9 @@ def create_quote(request: QuoteRequest):
     for cab_type, qty in cab_counts.items():
         base_unit = CABINET_PRICES.get(cab_type, 300.00)
         unit = round(base_unit * mult, 2)
+        kind = "Appliance" if cab_type.startswith(APPLIANCE_TYPE_PREFIXES) else "Cabinet"
         line_items.append(LineItem(
-            description=f"Cabinet — {cab_type.replace('_', ' ').title()} ({style_label})",
+            description=f"{kind} — {cab_type.replace('_', ' ').title()} ({style_label})",
             qty=qty,
             unit_price=unit,
             total=round(unit * qty, 2),
@@ -219,6 +267,22 @@ def create_quote(request: QuoteRequest):
             total=labour_total,
         ))
 
+    # Benchtop (priced per linear metre of base and corner run)
+    benchtop_metres = _benchtop_linear_metres(request.placed_cabinets)
+    benchtop_rate = BENCHTOP_RATES.get(request.benchtop_material or "")
+    if benchtop_rate and benchtop_metres > 0:
+        benchtop_total = round(benchtop_rate * benchtop_metres, 2)
+        benchtop_label = BENCHTOP_NAMES.get(request.benchtop_material, "Benchtop")
+        line_items.append(LineItem(
+            description=(
+                f"Benchtop — {benchtop_label} "
+                f"({benchtop_metres:.2f} lm @ RM{benchtop_rate:.0f}/m)"
+            ),
+            qty=1,
+            unit_price=benchtop_total,
+            total=benchtop_total,
+        ))
+
     # Obstacle allowances
     for obs in request.obstacles:
         allowance = OBSTACLE_ALLOWANCES.get(obs.type, 0)
@@ -230,9 +294,18 @@ def create_quote(request: QuoteRequest):
                 total=allowance,
             ))
 
-    subtotal = sum(li.total for li in line_items)
+    subtotal = round(sum(li.total for li in line_items), 2)
     gst = round(subtotal * GST_RATE, 2)
     total_price = round(subtotal + gst, 2)
+
+    return line_items, subtotal, gst, total_price
+
+
+@app.post("/quote", response_model=QuoteResponse)
+def create_quote(request: QuoteRequest):
+    quote_id = request.quote_id if (request.quote_id and request.quote_id.startswith("QT-")) else f"QT-{uuid.uuid4().hex[:8].upper()}"
+
+    line_items, subtotal, gst, total_price = price_quote(request)
 
     # Generate PDF
     pdf_path = _generate_pdf(
@@ -257,6 +330,7 @@ def create_quote(request: QuoteRequest):
         "client_email": request.client_email or "",
         "deposit_paid": request.deposit_paid,
         "style_archetype": request.style_archetype,
+        "benchtop_material": request.benchtop_material,
         "wall": request.wall.dict(),
         "obstacles": [o.dict() for o in request.obstacles],
         "placed_cabinets": [c.dict() for c in request.placed_cabinets],
@@ -286,6 +360,7 @@ def create_quote(request: QuoteRequest):
 
 # ─── Persistent Project Database ──────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "projects_db.json")
+PDF_DIR = os.path.join(os.path.dirname(__file__), "generated_pdfs")
 _pdf_store: dict[str, str] = {}
 
 
@@ -435,6 +510,10 @@ def update_project(quote_id: str, updated: dict[str, Any]):
         project["style"] = style
         project["style_archetype"] = style
 
+    # Explicit `in` check so the studio can clear the benchtop with null.
+    if "benchtop_material" in updated:
+        project["benchtop_material"] = updated["benchtop_material"]
+
     if "wall" in updated:
         project["wall"] = updated["wall"]
     if "subtotal" in updated:
@@ -456,7 +535,7 @@ def update_project(quote_id: str, updated: dict[str, Any]):
 
 @app.post("/api/projects/{quote_id}/deposit")
 def pay_project_deposit(quote_id: str):
-    """Processes customer online slot deposit reservation ($250)."""
+    """Processes customer online slot deposit reservation (RM250)."""
     db = _load_projects_db()
     if quote_id not in db:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -478,6 +557,9 @@ def get_catalog():
         "style_names": STYLE_NAMES,
         "labour_rate_per_cabinet": LABOUR_RATE_PER_CABINET,
         "gst_rate": GST_RATE,
+        "obstacle_allowances": OBSTACLE_ALLOWANCES,
+        "benchtops": BENCHTOP_RATES,
+        "benchtop_names": BENCHTOP_NAMES,
     }
 
 
@@ -538,10 +620,17 @@ def export_cutlist(quote_id: str):
 def get_pdf(quote_id: str):
     path = _pdf_store.get(quote_id)
     if not path or not os.path.exists(path):
+        # _pdf_store is in-memory, so after a restart fall back to the stored
+        # path and then to the on-disk proposal folder.
         db = _load_projects_db()
-        project = db.get(quote_id)
-        if project and "pdf_path" in project and os.path.exists(project["pdf_path"]):
-            path = project["pdf_path"]
+        project = db.get(quote_id) or {}
+        stored = project.get("pdf_path")
+        on_disk = os.path.join(PDF_DIR, f"{quote_id}.pdf")
+
+        if stored and os.path.exists(stored):
+            path = stored
+        elif os.path.exists(on_disk):
+            path = on_disk
         else:
             raise HTTPException(status_code=404, detail="PDF not found")
     return FileResponse(
@@ -561,11 +650,11 @@ def _generate_pdf(
     gst: float,
     total_price: float,
 ) -> str:
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".pdf", delete=False, prefix=f"{quote_id}_"
-    )
-    path = tmp.name
-    tmp.close()
+    # Proposals used to land in the OS temp directory, so every signed PDF was
+    # gone after a cleanup or reboot and /pdf/<id> answered 404 forever. Keep
+    # them beside the project database instead.
+    os.makedirs(PDF_DIR, exist_ok=True)
+    path = os.path.join(PDF_DIR, f"{quote_id}.pdf")
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
@@ -606,7 +695,7 @@ def _generate_pdf(
     client_name_str = request.client_name or "Client Walk-in"
     client_contact = f"{request.client_phone or ''} {request.client_email or ''}".strip() or "On-site Consultation"
     style_label = STYLE_NAMES.get(request.style_archetype, "Japandi Natural")
-    deposit_str = f"Deposit: ${request.deposit_paid:.2f} (Slot Locked)" if request.deposit_paid > 0 else "Quotation Only"
+    deposit_str = f"Deposit: RM{request.deposit_paid:,.2f} (Slot Locked)" if request.deposit_paid > 0 else "Quotation Only"
 
     w = request.wall
     meta_info = [
@@ -638,15 +727,15 @@ def _generate_pdf(
         table_data.append([
             li.description,
             str(li.qty),
-            f"${abs(li.unit_price):.2f}",
-            f"{sign}${abs(li.total):.2f}",
+            f"RM{abs(li.unit_price):,.2f}",
+            f"{sign}RM{abs(li.total):,.2f}",
         ])
 
-    # Subtotal / GST / Total rows
+    # Subtotal / SST / Total rows
     table_data += [
-        ["", "", "Subtotal", f"${subtotal:.2f}"],
-        ["", "", f"GST ({int(GST_RATE*100)}%)", f"${gst:.2f}"],
-        ["", "", "TOTAL (incl. GST)", f"${total_price:.2f}"],
+        ["", "", "Subtotal", f"RM{subtotal:,.2f}"],
+        ["", "", f"SST ({int(GST_RATE*100)}%)", f"RM{gst:,.2f}"],
+        ["", "", "TOTAL (incl. SST)", f"RM{total_price:,.2f}"],
     ]
 
     col_widths = [95 * mm, 20 * mm, 40 * mm, 35 * mm]
@@ -709,7 +798,7 @@ def _generate_pdf(
 
     story.append(Spacer(1, 6 * mm))
     story.append(Paragraph(
-        "This proposal locks in material pricing and reserves manufacturing queue priority for 30 days. All prices in AUD including GST.",
+        "This proposal locks in material pricing and reserves manufacturing queue priority for 30 days. All prices in MYR including SST.",
         styles["Normal"],
     ))
 
