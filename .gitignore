@@ -63,3 +63,5 @@ __pycache__/
 temp_video_recordings/
 *.webm
 
+# Web build of the sales app (tool/build_web.sh); built per machine, not committed
+/backend/static/sales/

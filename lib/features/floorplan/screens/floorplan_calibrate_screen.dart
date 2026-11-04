@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../shared/platform/photo_image.dart';
 import '../../../shared/theme.dart';
 import '../../../shared/widgets/nudge_buttons.dart';
 
@@ -129,7 +129,7 @@ class _FloorplanCalibrateScreenState extends State<FloorplanCalibrateScreen> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: Image.file(File(widget.imagePath), fit: BoxFit.contain),
+            child: photoImage(widget.imagePath),
           ),
           Positioned.fill(
             child: IgnorePointer(

@@ -1,7 +1,9 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../shared/platform/photo_flip.dart';
 import '../../../shared/theme.dart';
 
 /// Layer 2 — The camera screen.
@@ -91,13 +93,18 @@ class _CameraScreenState extends State<CameraScreen> {
 
     try {
       final XFile file = await _controller!.takePicture();
+      // In a browser, photos from any camera not marked as the back camera
+      // (e.g. a laptop webcam) come out mirrored; turn them back.
+      final mirrored = kIsWeb &&
+          _controller!.description.lensDirection != CameraLensDirection.back;
+      final path = mirrored ? await unmirrorPhoto(file.path) : file.path;
 
       // ── Immediately dispose — no more drift ──────────────────────────────
       await _controller!.dispose();
       _controller = null;
 
       if (mounted) {
-        context.push('/wall-setup', extra: file.path);
+        context.push('/wall-setup', extra: path);
       }
     } catch (_) {
       setState(() => _isCapturing = false);
@@ -127,6 +134,12 @@ class _CameraScreenState extends State<CameraScreen> {
   /// exception: the client may be looking at the screen.
   static String _cameraProblem(Object error) {
     final code = error is CameraException ? error.code : '';
+    if (kIsWeb) {
+      // Browsers only allow the camera on https:// or localhost, and ask
+      // permission first.
+      return "This browser didn't allow the camera. Pick a photo from the "
+          'gallery instead (on a tablet it can open the camera too).';
+    }
     if (code.startsWith('CameraAccess') || code.contains('ermission')) {
       return 'Camera access is off. Allow it in Settings, or pick a photo '
           'from the gallery.';

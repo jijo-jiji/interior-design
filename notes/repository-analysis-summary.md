@@ -234,3 +234,40 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - **Needed:** `package:http`; `shared_preferences` for offline_store (with a one-time move of the Android file); `XFile.readAsBytes` + `Image.memory`; a `SceneBridge` (WebView on Android, `HtmlElementView` iframe + `postMessage` on web).
 - **Risk:** adding packages changes `pubspec.lock`, so versions must be pinned to the local Flutter.
 - **Decide first:** whether the Flutter app must run on web, or the React Studio / standalone 3D page covers web demos.
+
+## 14. Session 2026-11-04 — the sales app runs in a web browser
+
+**How to run it:** `./tool/build_web.sh` (or `tool\build_web.ps1` on Windows) builds into `backend/static/sales/`, which is gitignored. The office server now serves it at `http://<server>:8000/sales/`, and the app talks to the server it was opened from. For development: `flutter run -d chrome --dart-define=BACKEND_URL=http://localhost:8000`. Details in README → "Running the sales app".
+
+**What changed (Android behaviour is unchanged)**
+- **Dependencies:** `http` and `web` are now direct dependencies. Both were already in `pubspec.lock` as transitive packages at the same versions, so only their `dependency:` lines changed (edited by hand; nothing re-resolved).
+- **`lib/shared/platform/`:** one API each, with an Android file and a browser file chosen by conditional export.
+  - `api_client.dart`: `package:http`, used for all server calls. It returns null when the server is unreachable.
+  - `local_store`: a file on Android (same file name, so existing designs carry over), `localStorage` in the browser.
+  - `photo_image`: `Image.file` on Android, `Image.network` for `blob:` URLs in the browser.
+  - `pointer_shield` and `photo_flip`: see the browser-specific fixes below.
+- **`lib/features/viewer/scene/`:** `SceneBridge` is a WebView on Android and an `<iframe srcdoc>` in the browser.
+  - The iframe and the app talk over `postMessage`, tagged with a per-bridge id.
+  - A script injected into the page defines `StaticTraceChannel`, reports when the page has loaded, and runs only calls that come from the parent window.
+  - `index.html` is unchanged.
+- **Routes:** screens that need a photo or a design passed from the previous screen go home on a reload or a typed URL, instead of crashing.
+- **Web shell:** `web/` folder (title "SS Love", brand colours); `.metadata` gained a web entry.
+
+**Browser-specific fixes found by testing**
+- **Clicks on controls over the 3D view were lost.** An iframe swallows pointer events, even under Flutter buttons. Fixed with `PointerShield`, an invisible div behind each control over the 3D view (the `pointer_interceptor` technique, written in-house because that package isn't in the lock file). The iframe also ignores pointer input while a sheet or dialog is open, or while the Undo message shows.
+- **Browser camera photos were mirrored.** `camera_web` mirrors photos from any camera that isn't reported as the back camera, which would swap windows left and right. `photo_flip` turns them back after capture.
+- **The Continue card couldn't be opened by a screen reader.** It now has a tap action, and a test checks it.
+
+**Verified**
+- **Flutter tests (VM):** 119/119.
+- **Analyzer:** no new notes.
+- **Browser, headless Chromium against the real server** (scripts in the session scratchpad, not committed):
+  - Main flow, 18 checks: name → room size → 3D in an iframe → style → Edit / Pick / Move → auto-saved draft in `localStorage` → quote POSTed and stored on the server → reload on `/#/viewer` goes home.
+  - Real mouse with the accessibility tree off, 13 checks: drag to orbit; Edit over the 3D view; click and drag a cabinet; Move; Clear all → Undo; typing in the quote sheet and sending.
+  - Photos, 12 checks: floor plan upload → measure → 3D; fake camera → wall size → trace → window → 3D; reload → Continue card → 3D.
+- **Build:** release `flutter build web` takes about 60 s, output 42 MB (CanvasKit included for offline use). The WebAssembly dry run passed.
+
+**Still to know**
+- **Camera:** the browser camera needs `https://` or `localhost`. On plain-`http` LAN addresses, use the gallery picker, which can open the camera on tablets. Serving over https would need a certificate on the office server.
+- **Browser storage:** designs live in that browser's storage; clearing site data deletes unsent ones.
+- **Not covered by these checks:** a real iPad or Android tablet browser (only Chromium was tested); pinch-zoom inside the 3D view on touch.

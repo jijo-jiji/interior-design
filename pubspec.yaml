@@ -19,6 +19,10 @@ dependencies:
   go_router: ^14.2.0
   cupertino_icons: ^1.0.8
   image_picker: ^1.1.2
+  # Web support. Both were already resolved (via image_picker / camera), so
+  # these lines pin nothing new.
+  http: ^1.2.0
+  web: ^1.0.0
 
 dev_dependencies:
   flutter_test:

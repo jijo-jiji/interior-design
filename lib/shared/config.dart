@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 // ─── Backend Configuration ──────────────────────────────────────────────────
 //
 // DEMO DAY CHECKLIST (do this before leaving the office):
@@ -11,8 +13,18 @@
 //
 // ────────────────────────────────────────────────────────────────────────────
 
+// In the browser: the office server also serves the web app (at /sales), so
+// the app talks to whichever server it was opened from. When running it
+// separately (`flutter run -d chrome`), point it at the server with
+//   --dart-define=BACKEND_URL=http://localhost:8000
+// ────────────────────────────────────────────────────────────────────────────
+
 class AppConfig {
   AppConfig._();
+
+  /// Set with `--dart-define=BACKEND_URL=...`; wins on every platform.
+  static const String backendUrlOverride =
+      String.fromEnvironment('BACKEND_URL');
 
   // ── Change this to your laptop's LAN IP before the demo ──────────────────
   // Android Emulator  → use '10.0.2.2'
@@ -21,7 +33,11 @@ class AppConfig {
 
   static const int backendPort = 8000;
 
-  static String get backendBaseUrl => 'http://$backendHost:$backendPort';
+  static String get backendBaseUrl {
+    if (backendUrlOverride.isNotEmpty) return backendUrlOverride;
+    if (kIsWeb) return Uri.base.origin;
+    return 'http://$backendHost:$backendPort';
+  }
 
   static String get quoteEndpoint => '$backendBaseUrl/quote';
 }

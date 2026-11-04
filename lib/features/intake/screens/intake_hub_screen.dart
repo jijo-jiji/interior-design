@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../shared/config.dart';
 import '../../../shared/labels.dart';
 import '../../../shared/money.dart';
+import '../../../shared/platform/api_client.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
 import '../../../shared/theme.dart';
@@ -50,21 +50,13 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
     final local = await OfflineStore.getDrafts();
     final waiting = (await OfflineStore.pendingSync()).length;
 
-    List<Map<String, dynamic>> remote = [];
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
-      final req = await client
-          .getUrl(Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final body = await resp.transform(utf8.decoder).join();
-        remote =
-            (jsonDecode(body) as List<dynamic>).cast<Map<String, dynamic>>();
-      }
-      client.close();
-    } catch (_) {
-      // Office server offline or unreachable: show what's on the phone.
+    // Office server offline or unreachable: show what's on the device.
+    var remote = <Map<String, dynamic>>[];
+    final reply = await ApiClient.getJson(
+        Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
+    final list = reply != null && reply.ok ? reply.json : null;
+    if (list is List) {
+      remote = list.whereType<Map<String, dynamic>>().toList();
     }
 
     // Records on this phone first (newest work), then the office's.
@@ -670,7 +662,10 @@ class _ContinueCard extends StatelessWidget {
     return Semantics(
       button: true,
       label: '$title. $subtitle',
+      // The InkWell's own tap is hidden by excludeSemantics: give TalkBack
+      // (and the browser's accessibility tree) the tap here.
       excludeSemantics: true,
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),

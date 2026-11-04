@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -112,6 +113,11 @@ void main() {
     expect(find.text("Continue Puan Aminah's design"), findsOneWidget);
     expect(find.text('Draft · saved just now'), findsOneWidget);
     expect(find.text("Continue Encik Lim's design"), findsNothing);
+    // A screen reader can open it too (not just a finger tap).
+    final card = tester
+        .getSemantics(find.bySemanticsLabel(RegExp('^Continue Puan')))
+        .getSemanticsData();
+    expect(card.hasAction(SemanticsAction.tap), isTrue);
 
     await tester.tap(find.text("Continue Puan Aminah's design"));
     await tester.pumpAndSettle();

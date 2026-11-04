@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,7 @@ import '../utils/payload_builder.dart';
 import '../utils/scale_math.dart';
 import '../widgets/obstacle_editor.dart';
 import '../widgets/trace_box.dart';
+import '../../../shared/platform/photo_image.dart';
 import '../../../shared/theme.dart';
 import '../../../shared/widgets/nudge_buttons.dart';
 
@@ -116,9 +116,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                   children: [
                     // ── Layer 2: Frozen photo ─────────────────────────────
                     Center(
-                      child: Image.file(
-                        File(widget.imagePath),
-                        fit: BoxFit.contain,
+                      child: photoImage(
+                        widget.imagePath,
                         width: canvasW,
                         height: canvasH,
                       ),

@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/theme.dart';
 import '../../../shared/config.dart';
 import '../../../shared/labels.dart';
 import '../../../shared/money.dart';
+import '../../../shared/platform/pointer_shield.dart';
+import '../../../shared/platform/api_client.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
 import '../../../shared/widgets/nudge_buttons.dart';
@@ -17,6 +17,7 @@ import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
+import '../scene/scene_bridge.dart';
 import '../widgets/closing_modal.dart';
 import '../utils/offline_store.dart';
 
@@ -38,7 +39,7 @@ class ViewerScreen extends ConsumerStatefulWidget {
 }
 
 class _ViewerScreenState extends ConsumerState<ViewerScreen> {
-  late final WebViewController _webViewController;
+  late final SceneBridge _scene;
   bool _sceneLoaded = false;
 
   // Who this design is for. The quote number stays the same across every
@@ -132,17 +133,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       }
     }
 
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'StaticTraceChannel',
-        onMessageReceived: _onJsMessage,
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) => _injectScene(),
-        ),
-      );
+    _scene = SceneBridge(onMessage: _onJsMessage, onLoaded: _injectScene);
 
     _loadHtml();
   }
@@ -182,15 +173,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       '<script>$threeJs</script>\n<script>$orbitJs</script>\n</head>',
     );
 
-    await _webViewController.loadHtmlString(html);
+    await _scene.loadHtml(html);
   }
 
   Future<void> _injectScene() async {
     final escaped =
         widget.jsonPayload.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
-    await _webViewController.runJavaScript("setNativeMode(true)");
-    await _webViewController.runJavaScript("loadScene('$escaped')");
+    await _scene.runJavaScript("setNativeMode(true)");
+    await _scene.runJavaScript("loadScene('$escaped')");
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
       _showVariantWarnings(
@@ -200,9 +191,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (mounted) setState(() => _sceneLoaded = true);
   }
 
+  // In the browser the 3D view would take clicks meant for anything drawn
+  // over it. It stops taking them while a sheet or dialog is open (this
+  // screen isn't the current route then) or a message with a button shows.
+  bool _routeIsCurrent = true;
+  int _snackBarsWithActions = 0;
+
+  void _updateScenePointer() =>
+      _scene.setInteractive(_routeIsCurrent && _snackBarsWithActions == 0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeIsCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    _updateScenePointer();
+  }
+
   @override
   void dispose() {
     if (_saveTimer != null) _saveNow(); // don't lose the last change
+    _scene.dispose();
     super.dispose();
   }
 
@@ -246,14 +254,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _placedCabinets.where((c) => c['kind'] != 'filler').length;
 
   void _spawnCabinet(String type) {
-    _webViewController.runJavaScript("spawnCabinet('$type')");
+    _scene.runJavaScript("spawnCabinet('$type')");
     HapticFeedback.lightImpact();
   }
 
   /// Replaces every cabinet in the 3D scene with [_placedCabinets].
   Future<void> _pushCabinetsToScene() {
     // Double-encoded: the inner JSON becomes a safe JS string literal.
-    return _webViewController.runJavaScript(
+    return _scene.runJavaScript(
         'replaceCabinets(${jsonEncode(jsonEncode(_placedCabinets))})');
   }
 
@@ -281,26 +289,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     });
     _pushCabinetsToScene();
     HapticFeedback.lightImpact();
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('All cabinets cleared.'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () {
-              setState(() {
-                _placedCabinets
-                  ..clear()
-                  ..addAll(previous);
-                _activeVariantKey = previousVariant;
-              });
-              _pushCabinetsToScene();
-              _scheduleSave();
-            },
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    _snackBarsWithActions++;
+    _updateScenePointer();
+    messenger
+        .showSnackBar(
+          SnackBar(
+            content: const Text('All cabinets cleared.'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () {
+                setState(() {
+                  _placedCabinets
+                    ..clear()
+                    ..addAll(previous);
+                  _activeVariantKey = previousVariant;
+                });
+                _pushCabinetsToScene();
+                _scheduleSave();
+              },
+            ),
           ),
-        ),
-      );
+        )
+        .closed
+        .then((_) {
+      _snackBarsWithActions--;
+      if (mounted) _updateScenePointer();
+    });
   }
 
   void _setEditing(bool editing) {
@@ -311,24 +326,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         _selectedLabel = null;
       }
     });
-    _webViewController.runJavaScript('setEditMode($editing)');
+    _scene.runJavaScript('setEditMode($editing)');
     HapticFeedback.selectionClick();
   }
 
   void _removeSelected() {
-    _webViewController.runJavaScript('removeSelectedCabinet()');
+    _scene.runJavaScript('removeSelectedCabinet()');
     HapticFeedback.lightImpact();
   }
 
   // The no-drag way to choose and move cabinets (WCAG 2.5.7 and 2.1.1). The
   // page answers with cabinet_selected / cabinet_moved, as for a tap or drag.
   void _selectAdjacent(int direction) {
-    _webViewController.runJavaScript('selectAdjacentCabinet($direction)');
+    _scene.runJavaScript('selectAdjacentCabinet($direction)');
     HapticFeedback.selectionClick();
   }
 
   void _nudgeSelected(int direction) {
-    _webViewController
+    _scene
         .runJavaScript('nudgeSelectedCabinet(${direction * kCabinetNudgeMm})');
     HapticFeedback.selectionClick();
   }
@@ -346,9 +361,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
-  void _onJsMessage(JavaScriptMessage message) {
+  void _onJsMessage(String message) {
     try {
-      final data = jsonDecode(message.message) as Map<String, dynamic>;
+      final data = jsonDecode(message) as Map<String, dynamic>;
       switch (data['event'] as String?) {
         case 'cabinet_placed':
           setState(() {
@@ -403,7 +418,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _switchStyle(String styleKey) {
     if (_currentStyle == styleKey) return;
     setState(() => _currentStyle = styleKey);
-    _webViewController.runJavaScript("applyStyleArchetype('$styleKey')");
+    _scene.runJavaScript("applyStyleArchetype('$styleKey')");
     HapticFeedback.lightImpact();
     _scheduleSave();
   }
@@ -452,24 +467,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     var sent = false;
     var pdfUrl = '';
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5);
-      final req = await client.postUrl(Uri.parse(AppConfig.quoteEndpoint));
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.write(jsonEncode(record));
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      client.close();
-      // Only drop the phone copy once the office has actually accepted it.
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
-        final result = jsonDecode(body) as Map<String, dynamic>;
+    // Offline or the office server is unreachable: it stays queued.
+    final reply =
+        await ApiClient.postJson(Uri.parse(AppConfig.quoteEndpoint), record);
+    // Only drop the device copy once the office has actually accepted it.
+    if (reply != null && reply.ok) {
+      final result = reply.json;
+      if (result is Map<String, dynamic>) {
         pdfUrl = result['pdf_url'] as String? ?? '';
-        sent = true;
-        await OfflineStore.removeDraft(_quoteId);
       }
-    } catch (_) {
-      // Offline or the office server is unreachable: stays queued.
+      sent = true;
+      await OfflineStore.removeDraft(_quoteId);
     }
 
     if (!mounted) return;
@@ -767,18 +775,20 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       body: Stack(
         children: [
           // ── 3D view ─────────────────────────────────────────────────────
-          WebViewWidget(controller: _webViewController),
+          _scene.buildView(),
 
           if (_controlsHidden)
             Positioned(
               right: 14,
               bottom: 14,
-              child: FloatingActionButton.extended(
-                onPressed: () => setState(() => _controlsHidden = false),
-                backgroundColor: AppTheme.surface,
-                foregroundColor: AppTheme.textPrimary,
-                icon: const Icon(Icons.tune_rounded),
-                label: const Text('Show controls'),
+              child: PointerShield(
+                child: FloatingActionButton.extended(
+                  onPressed: () => setState(() => _controlsHidden = false),
+                  backgroundColor: AppTheme.surface,
+                  foregroundColor: AppTheme.textPrimary,
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Show controls'),
+                ),
               ),
             )
           else ...[
@@ -787,42 +797,50 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               top: 12,
               left: 14,
               right: 14,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _StylePill(
-                      label: 'Japandi',
-                      styleKey: 'japandi',
-                      activeKey: _currentStyle,
-                      color: const Color(0xFFC4A47C),
-                      onTap: () => _switchStyle('japandi'),
+              // Only as wide as the pills, so the 3D view beside them stays
+              // draggable in the browser.
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: PointerShield(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _StylePill(
+                          label: 'Japandi',
+                          styleKey: 'japandi',
+                          activeKey: _currentStyle,
+                          color: const Color(0xFFC4A47C),
+                          onTap: () => _switchStyle('japandi'),
+                        ),
+                        const SizedBox(width: 8),
+                        _StylePill(
+                          label: 'Minimalist',
+                          styleKey: 'minimalist',
+                          activeKey: _currentStyle,
+                          color: const Color(0xFF2E3340),
+                          onTap: () => _switchStyle('minimalist'),
+                        ),
+                        const SizedBox(width: 8),
+                        _StylePill(
+                          label: 'Nordic',
+                          styleKey: 'nordic',
+                          activeKey: _currentStyle,
+                          color: const Color(0xFF90A48E),
+                          onTap: () => _switchStyle('nordic'),
+                        ),
+                        const SizedBox(width: 8),
+                        _StylePill(
+                          label: 'Industrial',
+                          styleKey: 'industrial',
+                          activeKey: _currentStyle,
+                          color: const Color(0xFF483C34),
+                          onTap: () => _switchStyle('industrial'),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    _StylePill(
-                      label: 'Minimalist',
-                      styleKey: 'minimalist',
-                      activeKey: _currentStyle,
-                      color: const Color(0xFF2E3340),
-                      onTap: () => _switchStyle('minimalist'),
-                    ),
-                    const SizedBox(width: 8),
-                    _StylePill(
-                      label: 'Nordic',
-                      styleKey: 'nordic',
-                      activeKey: _currentStyle,
-                      color: const Color(0xFF90A48E),
-                      onTap: () => _switchStyle('nordic'),
-                    ),
-                    const SizedBox(width: 8),
-                    _StylePill(
-                      label: 'Industrial',
-                      styleKey: 'industrial',
-                      activeKey: _currentStyle,
-                      color: const Color(0xFF483C34),
-                      onTap: () => _switchStyle('industrial'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -832,31 +850,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               left: 14,
               right: 14,
               bottom: 14,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_editing)
-                    _EditPanel(
-                      selectedLabel: _selectedLabel,
-                      selectedMovable: _selectedMovable,
-                      hasCabinets: _placedCabinets.isNotEmpty,
-                      onAdd: _spawnCabinet,
-                      onSelectAdjacent: _selectAdjacent,
-                      onMove: _nudgeSelected,
-                      onRemoveSelected: _removeSelected,
-                      onClearAll: _clearLayout,
-                      onDone: () => _setEditing(false),
-                    )
-                  else
-                    _LayoutVariantBar(
-                      variants: _variants,
-                      activeKey: _activeVariantKey,
-                      onSelect: _selectVariant,
-                      onEdit: () => _setEditing(true),
-                    ),
-                  const SizedBox(height: 8),
-                  _buildEstimateBar(summary),
-                ],
+              child: PointerShield(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_editing)
+                      _EditPanel(
+                        selectedLabel: _selectedLabel,
+                        selectedMovable: _selectedMovable,
+                        hasCabinets: _placedCabinets.isNotEmpty,
+                        onAdd: _spawnCabinet,
+                        onSelectAdjacent: _selectAdjacent,
+                        onMove: _nudgeSelected,
+                        onRemoveSelected: _removeSelected,
+                        onClearAll: _clearLayout,
+                        onDone: () => _setEditing(false),
+                      )
+                    else
+                      _LayoutVariantBar(
+                        variants: _variants,
+                        activeKey: _activeVariantKey,
+                        onSelect: _selectVariant,
+                        onEdit: () => _setEditing(true),
+                      ),
+                    const SizedBox(height: 8),
+                    _buildEstimateBar(summary),
+                  ],
+                ),
               ),
             ),
           ],

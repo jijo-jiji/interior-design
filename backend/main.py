@@ -694,6 +694,12 @@ PORTAL_DIR = os.path.join(os.path.dirname(__file__), "static", "portal")
 os.makedirs(PORTAL_DIR, exist_ok=True)
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
+# The sales app in a browser (Flutter web build): tool/build_web.sh or
+# tool/build_web.ps1 writes it here. Same server, so no CORS or address setup.
+SALES_DIR = os.path.join(os.path.dirname(__file__), "static", "sales")
+os.makedirs(SALES_DIR, exist_ok=True)
+app.mount("/sales", StaticFiles(directory=SALES_DIR, html=True), name="sales")
+
 @app.get("/view/{quote_id}")
 def view_customer_proposal(quote_id: str):
     """Shareable lightweight client-facing 3D proposal portal."""
