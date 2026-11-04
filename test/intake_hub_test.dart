@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:static_trace/features/intake/providers/consultation_provider.dart';
 import 'package:static_trace/features/intake/screens/intake_hub_screen.dart';
+import 'package:static_trace/features/viewer/utils/offline_store.dart';
 
 void main() {
   late ProviderContainer container;
@@ -19,6 +20,10 @@ void main() {
       GoRoute(
         path: '/template-room',
         builder: (_, __) => const Scaffold(body: Text('Room size screen')),
+      ),
+      GoRoute(
+        path: '/viewer',
+        builder: (_, state) => Scaffold(body: Text('3D view: ${state.extra}')),
       ),
     ]);
     await tester.pumpWidget(UncontrolledProviderScope(
@@ -70,5 +75,46 @@ void main() {
 
     expect(container.read(consultationProvider)?.clientName, '');
     expect(find.text('Room size screen'), findsOneWidget);
+  });
+
+  testWidgets('no Continue card without a saved draft', (tester) async {
+    await pumpHome(tester);
+    expect(find.textContaining('Continue'), findsNothing);
+  });
+
+  testWidgets('the newest draft can be picked up from the home screen',
+      (tester) async {
+    await tester.runAsync(() async {
+      await OfflineStore.saveDraft({
+        'quote_id': 'QT-OLDER',
+        'status': 'draft',
+        'client_name': 'Encik Lim',
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await OfflineStore.saveDraft({
+        'quote_id': 'QT-NEWEST',
+        'status': 'draft',
+        'client_name': 'Puan Aminah',
+      });
+    });
+    addTearDown(() async {
+      await OfflineStore.removeDraft('QT-OLDER');
+      await OfflineStore.removeDraft('QT-NEWEST');
+    });
+    await pumpHome(tester);
+    // Let the list load (the office server is unreachable in tests).
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    expect(find.text("Continue Puan Aminah's design"), findsOneWidget);
+    expect(find.text('Draft · saved just now'), findsOneWidget);
+    expect(find.text("Continue Encik Lim's design"), findsNothing);
+
+    await tester.tap(find.text("Continue Puan Aminah's design"));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('QT-NEWEST'), findsOneWidget);
   });
 }

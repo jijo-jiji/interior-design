@@ -285,10 +285,31 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
     );
   }
 
+  /// The newest unfinished design on this phone, to pick up where the
+  /// salesperson left off.
+  Map<String, dynamic>? get _lastDraft {
+    final drafts = _projects
+        .where((p) =>
+            ProjectStatus.of(p) == ProjectStatus.draft &&
+            p['saved_at'] is String)
+        .toList()
+      ..sort((a, b) =>
+          (b['saved_at'] as String).compareTo(a['saved_at'] as String));
+    return drafts.isEmpty ? null : drafts.first;
+  }
+
   Widget _buildNewClient() {
+    final lastDraft = _lastDraft;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
+        if (lastDraft != null) ...[
+          _ContinueCard(
+            project: lastDraft,
+            onTap: () => _openProject(lastDraft),
+          ),
+          const SizedBox(height: 20),
+        ],
         Padding(
           padding: EdgeInsets.fromLTRB(4, 0, 4, 14),
           child: Column(
@@ -616,6 +637,68 @@ class _MeasureCard extends StatelessWidget {
                       tag,
                       style: context.textTheme.labelMedium
                           ?.copyWith(color: accentColor),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textSecondary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Continue Puan Aminah's design · saved 10 min ago".
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({required this.project, required this.onTap});
+
+  final Map<String, dynamic> project;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (project['client_name'] as String? ?? '').trim();
+    final title =
+        name.isEmpty ? 'Continue the last design' : "Continue $name's design";
+    final saved = DateTime.tryParse(project['saved_at'] as String? ?? '');
+    final subtitle =
+        saved == null ? 'Draft' : 'Draft · saved ${timeAgoLabel(saved)}';
+
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.accentDim,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.border, width: 1.2),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.history_rounded, color: AppTheme.accent),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: context.textTheme.titleSmall
+                          ?.copyWith(color: context.colors.onSurface),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
                     ),
                   ],
                 ),

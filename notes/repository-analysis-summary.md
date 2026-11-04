@@ -199,3 +199,38 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - Text scaling: rows that overflowed at 2x now wrap/shrink. Trace screen first-frame crash (`clamp(50, 1)`) fixed.
 - `test/accessibility_test.dart`: per screen — 48dp + labelled targets, pixel contrast scan, no overflow at 2x, no button label overriding its colour; theme contrast/min-size checks. 95/95 via the VGV plugin's test tool.
 - Open AA findings (not fixed): 2.5.7 dragging alternatives — trace wall-edge lines and window/door boxes, floor plan pins, and moving cabinets in Edit mode are drag-only (signature is exempt). Web: the app imports `dart:io` (HttpClient/File) and cannot build for web at all yet. Spacing tokens / dark theme not done; non-text colours still read from `AppTheme` constants.
+
+## 13. Session 2026-11-04 — no-drag alternatives (WCAG 2.5.7) + capture-flow polish (fix 5)
+
+**Part A — everything that was drag-only now also works with taps, arrows or typed sizes** (commit 265dc37)
+- `lib/shared/widgets/nudge_buttons.dart`: shared 48dp labelled arrow buttons.
+- Trace screen is two steps in a fixed-height bottom panel, so the photo never shifts between steps.
+  - Step 1, "Line up the wall edges": pick Ceiling / Floor / Left / Right, then tap the photo or use the arrows. Uses `WallSetupNotifier.moveEdge`, which keeps edges 5% apart. Edges now start 8% inside the photo instead of on its border.
+  - Step 2, "Mark windows & doors": add window (1200 × 1000, sill 1000) or door (900 × 2100). Each item is listed as a chip that opens the editor.
+  - The debug "Scale: 1mm = … px" readout is gone.
+- `lib/features/trace/widgets/obstacle_editor.dart`: the shared "Window 1 · size and position" dialog (width, height, from left/right wall, from floor/ceiling, Remove). Boxes are labelled for screen readers; their remove button is 48dp.
+- Floor plan:
+  - The room box (its left edge could never move) is replaced by **Wall start (1) / Wall end (2)** marks. Wall width = distance(1, 2) ÷ (A–B px ÷ A–B mm).
+  - Marks are placed by tap or arrows, and sit inside the `InteractiveViewer`, so they stay on the plan when zooming (before, zoom left them misaligned).
+- 3D Edit mode:
+  - **Pick** (previous/next cabinet) and **Move** (50 mm) buttons, backed by the new page functions `selectAdjacentCabinet(dir)` and `nudgeSelectedCabinet(dxMm)` in `assets/3d/index.html`.
+  - `cabinet_selected` carries a `movable` flag; corner (return-wall) units say they can't move yet.
+  - Checked in headless Chromium on the L-shape layout: 9/9 checks.
+- Bug fixed: the trace screen rebuilt every frame, because the canvas size was re-stored after each layout even when unchanged.
+
+**Part B — fix 5**
+- **Wall size screen:**
+  - Plain copy ("Measure the wall… in millimetres").
+  - Thickness field and px-ratio preview removed; depth stays 150.
+  - Range checks catch cm/m slips: width 500–15000, height 1800–5000.
+  - Button: "Next: line up the photo".
+- **Camera:** errors in plain words with a Gallery action (never the raw exception), and a Back button (there was none). `availableCameras()` failures are now caught.
+- **Room size:** Galley and Studio hidden until the generator supports them (they silently laid out the main wall only); labels in sentence case.
+- **Home:** a "Continue <client>'s design · Draft · saved 10 min ago" card for the newest local draft (`timeAgoLabel` in `lib/shared/labels.dart`).
+- **Tests:** 119/119. New files: `trace_screen_test`, `floorplan_screen_test`, `capture_flow_test`. Additions to existing files: viewer Pick/Move, home Continue card, and accessibility cases for the camera screen and trace step 2.
+
+**Web build (planned, not started)**
+- **Blockers:** `dart:io` in 5 files. `HttpClient` in intake hub, viewer and offline_store; `File` + path_provider in offline_store; `Image.file` in trace and floor plan. `webview_flutter` has no `runJavaScript` on web.
+- **Needed:** `package:http`; `shared_preferences` for offline_store (with a one-time move of the Android file); `XFile.readAsBytes` + `Image.memory`; a `SceneBridge` (WebView on Android, `HtmlElementView` iframe + `postMessage` on web).
+- **Risk:** adding packages changes `pubspec.lock`, so versions must be pinned to the local Flutter.
+- **Decide first:** whether the Flutter app must run on web, or the React Studio / standalone 3D page covers web demos.

@@ -32,11 +32,20 @@ class _CameraScreenState extends State<CameraScreen> {
     _controller = null;
     if (mounted) setState(() => _isInitialised = false);
 
-    _cameras = await availableCameras();
+    try {
+      _cameras = await availableCameras();
+    } catch (e) {
+      if (mounted) _showError(_cameraProblem(e), offerGallery: true);
+      return;
+    }
     if (!mounted) return; // widget disposed while awaiting
 
     if (_cameras.isEmpty) {
-      _showError('No cameras found on this device.');
+      _showError(
+        "This phone has no camera we can use. Choose a photo from the "
+        'gallery instead.',
+        offerGallery: true,
+      );
       return;
     }
 
@@ -58,7 +67,7 @@ class _CameraScreenState extends State<CameraScreen> {
       await controller.initialize();
     } catch (e) {
       await controller.dispose(); // clean up on failure
-      if (mounted) _showError('Camera error: $e');
+      if (mounted) _showError(_cameraProblem(e), offerGallery: true);
       return;
     }
 
@@ -90,9 +99,9 @@ class _CameraScreenState extends State<CameraScreen> {
       if (mounted) {
         context.push('/wall-setup', extra: file.path);
       }
-    } catch (e) {
+    } catch (_) {
       setState(() => _isCapturing = false);
-      _showError('Capture failed: $e');
+      _showError("Couldn't take the photo. Try again.");
     }
   }
 
@@ -109,15 +118,40 @@ class _CameraScreenState extends State<CameraScreen> {
       if (mounted) {
         context.push('/wall-setup', extra: file.path);
       }
-    } catch (e) {
-      if (mounted) _showError('Failed to pick image: $e');
+    } catch (_) {
+      if (mounted) _showError("Couldn't open that photo. Try another one.");
     }
   }
 
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppTheme.danger),
-    );
+  /// Plain words for what went wrong, and what to do next. Never the raw
+  /// exception: the client may be looking at the screen.
+  static String _cameraProblem(Object error) {
+    final code = error is CameraException ? error.code : '';
+    if (code.startsWith('CameraAccess') || code.contains('ermission')) {
+      return 'Camera access is off. Allow it in Settings, or pick a photo '
+          'from the gallery.';
+    }
+    return "The camera didn't start. Close other camera apps and try again, "
+        'or pick a photo from the gallery.';
+  }
+
+  void _showError(String msg, {bool offerGallery = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: AppTheme.danger,
+          duration: const Duration(seconds: 6),
+          action: offerGallery
+              ? SnackBarAction(
+                  label: 'Gallery',
+                  textColor: Colors.white,
+                  onPressed: _pickFromGallery,
+                )
+              : null,
+        ),
+      );
   }
 
   @override
@@ -142,11 +176,27 @@ class _CameraScreenState extends State<CameraScreen> {
                 child: CircularProgressIndicator(color: AppTheme.accent),
               ),
 
+            // ── Back ──────────────────────────────────────────────────────
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton.filledTonal(
+                tooltip: 'Back',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+
             // ── Top label ─────────────────────────────────────────────────
             Positioned(
-              top: 16,
-              left: 0,
-              right: 0,
+              // Below the Back button, so a long line never covers it.
+              top: 64,
+              left: 16,
+              right: 16,
               child: Center(
                 child: Container(
                   padding:
@@ -156,7 +206,7 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Point at the wall and tap capture',
+                    'Stand back so the whole wall fits, then take the photo',
                     style: context.textTheme.bodySmall
                         ?.copyWith(color: context.colors.onPrimary),
                   ),
@@ -188,7 +238,7 @@ class _CameraScreenState extends State<CameraScreen> {
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.all(14),
                     ),
-                    tooltip: 'Choose from Gallery',
+                    tooltip: 'Choose a photo from the gallery',
                   ),
 
                   // Camera capture shutter button

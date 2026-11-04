@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:static_trace/features/floorplan/screens/floorplan_calibrate_screen.dart';
 import 'package:static_trace/features/intake/screens/intake_hub_screen.dart';
 import 'package:static_trace/features/template/screens/template_room_screen.dart';
+import 'package:static_trace/features/trace/screens/camera_screen.dart';
 import 'package:static_trace/features/trace/screens/trace_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/features/viewer/screens/viewer_screen.dart';
@@ -32,6 +33,7 @@ final _viewerPayload = jsonEncode({
 final _screens = <String, Widget Function()>{
   'home': () => const IntakeHubScreen(),
   'room size': () => const TemplateRoomScreen(),
+  'camera': () => const CameraScreen(),
   'wall setup': () => const WallSetupScreen(imagePath: _photo),
   'trace': () => const TraceScreen(imagePath: _photo),
   'floor plan': () => const FloorplanCalibrateScreen(imagePath: _photo),

@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/theme.dart';
 
+/// Galley and studio are drawn by the preview but not offered yet: the
+/// layout generator only lays out a single wall or an L. Add their tabs back
+/// once it can fill them.
 enum RoomShape { singleWall, lShape, galley, studio }
 
 class TemplateRoomScreen extends StatefulWidget {
@@ -18,7 +21,6 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
   double _widthMm = 4000;
   double _heightMm = 2700;
   double _returnMm = 2500;
-  double _aisleMm = 1200;
 
   void _launch3D() {
     // Construct the wall specification for Three.js
@@ -29,7 +31,6 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
         'depth_mm': 150.0,
         'shape': _selectedShape.name,
         'return_mm': _selectedShape == RoomShape.lShape ? _returnMm : 0,
-        'aisle_mm': _selectedShape == RoomShape.galley ? _aisleMm : 0,
       },
       'obstacles': <Map<String, dynamic>>[],
       'salesperson_id': 'demo_agent_01',
@@ -63,7 +64,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                 child: Row(
                   children: [
                     _ShapeTab(
-                      label: 'Single Wall',
+                      label: 'Single wall',
                       icon: Icons.horizontal_rule_rounded,
                       isSelected: _selectedShape == RoomShape.singleWall,
                       onTap: () =>
@@ -71,27 +72,11 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                     ),
                     const SizedBox(width: 8),
                     _ShapeTab(
-                      label: 'L-Shape Kitchen',
+                      label: 'L-shape',
                       icon: Icons.turn_right_rounded,
                       isSelected: _selectedShape == RoomShape.lShape,
                       onTap: () =>
                           setState(() => _selectedShape = RoomShape.lShape),
-                    ),
-                    const SizedBox(width: 8),
-                    _ShapeTab(
-                      label: 'Galley (2 Walls)',
-                      icon: Icons.view_column_rounded,
-                      isSelected: _selectedShape == RoomShape.galley,
-                      onTap: () =>
-                          setState(() => _selectedShape = RoomShape.galley),
-                    ),
-                    const SizedBox(width: 8),
-                    _ShapeTab(
-                      label: 'Studio Box',
-                      icon: Icons.crop_square_rounded,
-                      isSelected: _selectedShape == RoomShape.studio,
-                      onTap: () =>
-                          setState(() => _selectedShape = RoomShape.studio),
                     ),
                   ],
                 ),
@@ -141,7 +126,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                     children: [
                       // Wall Width Slider
                       _DimensionSlider(
-                        label: 'Main Wall Width',
+                        label: 'Main wall width',
                         value: _widthMm,
                         min: 2000,
                         max: 8000,
@@ -154,7 +139,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
 
                       // Ceiling Height Slider
                       _DimensionSlider(
-                        label: 'Ceiling Height',
+                        label: 'Ceiling height',
                         value: _heightMm,
                         min: 2200,
                         max: 3600,
@@ -166,26 +151,13 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                       if (_selectedShape == RoomShape.lShape) ...[
                         const SizedBox(height: 10),
                         _DimensionSlider(
-                          label: 'Return Wall Length',
+                          label: 'Return wall length',
                           value: _returnMm,
                           min: 1200,
                           max: 5000,
                           step: 100,
                           unit: 'mm',
                           onChanged: (val) => setState(() => _returnMm = val),
-                        ),
-                      ],
-
-                      if (_selectedShape == RoomShape.galley) ...[
-                        const SizedBox(height: 10),
-                        _DimensionSlider(
-                          label: 'Galley Aisle Clearance',
-                          value: _aisleMm,
-                          min: 900,
-                          max: 2000,
-                          step: 50,
-                          unit: 'mm',
-                          onChanged: (val) => setState(() => _aisleMm = val),
                         ),
                       ],
 
