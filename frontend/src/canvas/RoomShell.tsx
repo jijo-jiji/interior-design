@@ -1,5 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import * as THREE from 'three';
 import { createPlankOakTexture, createPlasterWallTexture } from './materials';
+import { wallsFor } from './floorPlan';
+import type { FloorPlan, RoomView } from './floorPlan';
 
 /** A window or door measured on the main wall by the sales app. */
 export interface WallOpening {
@@ -17,7 +20,33 @@ interface RoomShellProps {
   returnMm?: number;
   aisleMm?: number;
   openings?: WallOpening[];
+  /** The floor plan the room was read from, for the Room and House views. */
+  floorPlan?: FloorPlan | null;
+  roomView?: RoomView;
 }
+
+/** The floor plan's picture, laid on the floor at true size. */
+const PlanSheet: React.FC<{ plan: FloorPlan }> = ({ plan }) => {
+  const texture = useMemo(() => {
+    if (!plan.image) return null;
+    const t = new THREE.TextureLoader().load(plan.image);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  }, [plan.image]);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  if (!texture) return null;
+  const [cx, cz] = plan.imageCenterMm;
+  const [w, h] = plan.imageSizeMm;
+  return (
+    <group position={[cx / 1000, 0.004, cz / 1000]} rotation={[0, (plan.imageRotationDeg * Math.PI) / 180, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[w / 1000, h / 1000]} />
+        <meshStandardMaterial map={texture} roughness={0.95} />
+      </mesh>
+    </group>
+  );
+};
 
 /** Windows and doors where they were measured, so the designer works around
  *  the real wall (the studio used to ignore them). */
@@ -60,6 +89,8 @@ export const RoomShell: React.FC<RoomShellProps> = ({
   returnMm = 2400,
   aisleMm = 1800,
   openings = [],
+  floorPlan = null,
+  roomView = 'kitchen',
 }) => {
   const wallWidth = widthMm / 1000;
   const wallHeight = heightMm / 1000;
@@ -73,7 +104,17 @@ export const RoomShell: React.FC<RoomShellProps> = ({
   // Architectural dimensions
   const floorWidth = Math.max(20, wallWidth + 12);
   const floorLength = Math.max(20, returnLength + 12);
-  const backWallWidth = Math.max(18, wallWidth + 12);
+  // In Kitchen view the main wall runs on as a backdrop; with the plan's
+  // other walls showing it stops where the kitchen does.
+  const showPlan = roomView !== 'kitchen' && floorPlan != null;
+  const backWallWidth = showPlan ? wallWidth : Math.max(18, wallWidth + 12);
+  // The backdrop also rises past the ceiling; among the plan's walls it
+  // stands as tall as they do.
+  const backWallRise = showPlan ? 0 : 1.0;
+  const planWalls = useMemo(
+    () => (showPlan ? wallsFor(floorPlan!, roomView, widthMm, shape === 'lShape' ? returnMm : 0) : []),
+    [showPlan, floorPlan, roomView, widthMm, shape, returnMm],
+  );
 
   // Set seamless texture repeats
   floorMap.repeat.set(5, 5);
@@ -101,11 +142,11 @@ export const RoomShell: React.FC<RoomShellProps> = ({
 
       {/* ── Main Back Wall (Continuous Architectural Backdrop) ──────── */}
       <mesh
-        position={[wallWidth / 2, wallHeight / 2 + 0.5, -0.075]}
+        position={[wallWidth / 2, (wallHeight + backWallRise) / 2, -0.075]}
         receiveShadow
         castShadow
       >
-        <boxGeometry args={[backWallWidth, wallHeight + 1.0, 0.15]} />
+        <boxGeometry args={[backWallWidth, wallHeight + backWallRise, 0.15]} />
         <meshStandardMaterial
           map={wallMap}
           roughness={0.88}
@@ -130,6 +171,15 @@ export const RoomShell: React.FC<RoomShellProps> = ({
 
       {openings.map((o, i) => (
         <Opening key={i} o={o} />
+      ))}
+
+      {/* ── The floor plan around the kitchen (Room / House) ─────────── */}
+      {roomView === 'house' && floorPlan && <PlanSheet plan={floorPlan} />}
+      {planWalls.map((w, i) => (
+        <mesh key={i} position={[w.x, wallHeight / 2, w.z]} castShadow receiveShadow>
+          <boxGeometry args={[w.width, wallHeight, w.depth]} />
+          <meshStandardMaterial map={wallMap} roughness={0.88} metalness={0.01} color="#EAE2DA" />
+        </mesh>
       ))}
 
       {/* ── Return Wall (L-Shape) ─────────────────────────────────────── */}

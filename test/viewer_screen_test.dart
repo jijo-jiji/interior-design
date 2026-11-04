@@ -38,7 +38,7 @@ void main() {
   // first test's fake clock, which never resolves; start each test clean.
   setUp(() => rootBundle.clear());
 
-  Future<void> pumpViewer(WidgetTester tester) async {
+  Future<void> pumpViewer(WidgetTester tester, {String? json}) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -46,7 +46,7 @@ void main() {
     WebViewPlatform.instance = webView;
     await tester.pumpWidget(
       ProviderScope(
-        child: MaterialApp(home: ViewerScreen(jsonPayload: payload)),
+        child: MaterialApp(home: ViewerScreen(jsonPayload: json ?? payload)),
       ),
     );
     // The page assets load from the bundle for real; wait until the
@@ -180,5 +180,38 @@ void main() {
     expect(find.text('Sample layouts'), findsOneWidget);
     expect(find.text('Quote'), findsOneWidget);
     await finish(tester);
+  });
+
+  group('Kitchen / Room / House', () {
+    testWidgets('only for a room read off a floor plan', (tester) async {
+      await pumpViewer(tester);
+      expect(find.text('House'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('switches what the 3D shows', (tester) async {
+      final fromPlan = jsonDecode(payload) as Map<String, dynamic>;
+      fromPlan['floor_plan'] = {
+        'image': 'data:image/png;base64,AAAA',
+        'image_center_mm': [4000, 2500],
+        'image_size_mm': [10000, 7000],
+        'image_rotation_deg': 0,
+        'kitchen_mm': [0, 0, 3600, 2400],
+        'wall_thickness_mm': 150,
+        'walls': [
+          [-150, -150, 3900, 150]
+        ],
+        'rooms': [],
+      };
+      await pumpViewer(tester, json: jsonEncode(fromPlan));
+
+      await tester.tap(find.text('House'));
+      await tester.pump();
+      expect(page().javaScript, contains("setRoomView('house')"));
+      await tester.tap(find.text('Room'));
+      await tester.pump();
+      expect(page().javaScript.last, "setRoomView('room')");
+      await finish(tester);
+    });
   });
 }

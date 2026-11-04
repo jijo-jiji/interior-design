@@ -12,7 +12,8 @@ import 'package:static_trace/features/viewer/models/cpq_engine.dart';
 /// these two suites fails.
 void main() {
   final fixtureFile = File('test/fixtures/pricing_cases.json');
-  final fixture = jsonDecode(fixtureFile.readAsStringSync()) as Map<String, dynamic>;
+  final fixture =
+      jsonDecode(fixtureFile.readAsStringSync()) as Map<String, dynamic>;
   final cases = (fixture['cases'] as List).cast<Map<String, dynamic>>();
 
   group('Pricing contract — CPQEngine matches the backend quote', () {

@@ -1823,7 +1823,171 @@ window.loadScene = function(jsonString) {
     scenePayload = JSON.parse(jsonString);
     const { wall, obstacles = [] } = scenePayload;
     buildWall(wall, obstacles);
+    buildHouse(scenePayload.floor_plan);
+    if (roomView !== 'kitchen') window.setRoomView(roomView);
   } catch (e) { console.error('loadScene error:', e); }
+  invalidate();
+};
+
+// ── Room and House views: the floor plan around the kitchen ──────────────
+// A room read off a floor plan comes with the plan's walls (in mm from the
+// kitchen's corner: x along the main wall, z into the room) and the plan's
+// picture. Kitchen shows the kitchen alone, as before; Room adds the walls
+// around it; House lays the plan on the floor at true size and raises every
+// wall the sales app found on it.
+let houseGroup = null;
+let roomView = 'kitchen';
+
+function kitchenToScene(xMm, zMm) {
+  return [xMm * MM - currentWallW / 2, currentWallDepth + zMm * MM];
+}
+
+// Rectangles as [x, z, width, depth]. What two share, or null.
+function overlap([x, z, w, d], [bx, bz, bw, bd]) {
+  const x0 = Math.max(x, bx), z0 = Math.max(z, bz);
+  const x1 = Math.min(x + w, bx + bw), z1 = Math.min(z + d, bz + bd);
+  return x1 > x0 && z1 > z0 ? [x0, z0, x1 - x0, z1 - z0] : null;
+}
+
+// What's left of a once b is cut out of it: up to four rectangles.
+function cutOut(a, b) {
+  const o = overlap(a, b);
+  if (!o) return [a];
+  const [x, z, w, d] = a;
+  const [ox, oz, ow, od] = o;
+  const left = [];
+  if (ox > x) left.push([x, z, ox - x, d]);
+  if (ox + ow < x + w) left.push([ox + ow, z, x + w - ox - ow, d]);
+  if (oz > z) left.push([ox, z, ow, oz - z]);
+  if (oz + od < z + d) left.push([ox, oz + od, ow, z + d - oz - od]);
+  return left;
+}
+
+function buildHouse(plan) {
+  if (houseGroup) {
+    scene.remove(houseGroup);
+    houseGroup.traverse(o => {
+      o.geometry?.dispose();
+      o.material?.map?.dispose();
+      o.material?.dispose();
+    });
+    houseGroup = null;
+  }
+  if (!plan) return;
+
+  const group = new THREE.Group();
+  group.visible = false;
+  const H = currentWallH;
+  const t = plan.wall_thickness_mm || 150;
+  const k = plan.kitchen_mm || [0, 0, 0, 0];
+  const wall = scenePayload.wall || {};
+  const mainMm = currentWallW / MM;
+  const returnMm = wall.shape === 'lShape' ? (wall.return_mm || 0) : 0;
+
+  // The plan's picture on the floor, turned to line up with the kitchen.
+  if (plan.image && plan.image_size_mm) {
+    const [cx, cz] = kitchenToScene(...plan.image_center_mm);
+    const holder = new THREE.Group();
+    holder.position.set(cx, 0.003, cz);
+    holder.rotation.y = (plan.image_rotation_deg || 0) * Math.PI / 180;
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+    new THREE.TextureLoader().load(plan.image, tex => {
+      if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      mat.map = tex;
+      mat.needsUpdate = true;
+      invalidate();
+    }, undefined, () => console.warn('Floor plan picture unavailable'));
+    const sheet = new THREE.Mesh(
+      new THREE.PlaneGeometry(plan.image_size_mm[0] * MM, plan.image_size_mm[1] * MM), mat);
+    sheet.rotation.x = -Math.PI / 2;
+    sheet.receiveShadow = true;
+    holder.add(sheet);
+    holder.userData.houseOnly = true;
+    group.add(holder);
+  }
+
+  // The plan's walls. The kitchen's own main wall, and for an L its side
+  // wall with the corner, are already drawn (with their doors and windows),
+  // so those stretches are cut out of the plan's walls; the rest of a long
+  // wall, like the house's outside wall running on past the kitchen, stays.
+  // Generous across the thickness: the plan's walls are measured to the
+  // pixel.
+  const own = [[0, -t * 1.6, mainMm, t * 2.2]];
+  if (returnMm > 0) own.push([-t * 1.6, -t * 1.6, t * 2.2, returnMm + t * 1.6]);
+  // Room shows the kitchen's own room: its walls, a wall's thickness round.
+  const room = [k[0] - t * 2, k[1] - t * 2, k[2] + t * 4, k[3] + t * 4];
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xebe5dc, roughness: 0.9 });
+  const raise = ([x, z, w, d], houseOnly) => {
+    if (w < 30 || d < 30) return; // a sliver left by the cutting
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * MM, H, d * MM), wallMat);
+    const [sx, sz] = kitchenToScene(x + w / 2, z + d / 2);
+    mesh.position.set(sx, H / 2, sz);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.houseOnly = houseOnly;
+    group.add(mesh);
+  };
+  for (const r of plan.walls || []) {
+    if (!(r[2] > 0 && r[3] > 0)) continue;
+    let pieces = [r];
+    for (const o of own) pieces = pieces.flatMap(p => cutOut(p, o));
+    for (const p of pieces) {
+      const inRoom = overlap(p, room);
+      if (inRoom) raise(inRoom, false);
+      for (const outside of cutOut(p, room)) raise(outside, true);
+    }
+  }
+
+  houseGroup = group;
+  scene.add(group);
+}
+
+/** 'kitchen', 'room' or 'house'. */
+window.setRoomView = function(view) {
+  roomView = view;
+  if (houseGroup) {
+    houseGroup.visible = view !== 'kitchen';
+    for (const o of houseGroup.children) o.visible = view === 'house' || !o.userData.houseOnly;
+  }
+  const plan = scenePayload.floor_plan;
+  if (view === 'kitchen' || !plan) {
+    window.resetFrontView();
+    return;
+  }
+  // Frame the kitchen with the walls around it, or the whole plan, from
+  // above at an angle.
+  let [x, z, w, d] = plan.kitchen_mm;
+  if (view === 'room') {
+    const m = 1500;
+    x -= m; z -= m; w += 2 * m; d += 2 * m;
+  } else if (plan.image_size_mm) {
+    const turned = Math.abs((plan.image_rotation_deg || 0) % 180) === 90;
+    const [iw, ih] = plan.image_size_mm;
+    w = turned ? ih : iw;
+    d = turned ? iw : ih;
+    x = plan.image_center_mm[0] - w / 2;
+    z = plan.image_center_mm[1] - d / 2;
+  }
+  const [sx, sz] = kitchenToScene(x + w / 2, z + d / 2);
+  // Far enough back for the whole area to fit the screen, whatever its
+  // shape: a phone held upright is narrow, so the width usually decides.
+  // Steep, so the near walls don't hide the rooms behind them. The
+  // controls above and the layouts panel below cover about half the
+  // screen's height, so the depth is fitted into what's left.
+  const elevation = (view === 'house' ? 62 : 55) * Math.PI / 180;
+  const vHalf = camera.fov / 2 * Math.PI / 180;
+  const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+  const shownHalf = Math.atan(Math.tan(vHalf) * 0.5);
+  const across = w * MM;
+  const deep = d * MM * Math.sin(elevation) + currentWallH * Math.cos(elevation);
+  const dist = Math.min(controls.maxDistance * 0.95, 1.1 * Math.max(
+    across / 2 / Math.tan(hHalf),
+    deep / 2 / Math.tan(shownHalf),
+  ));
+  controls.target.set(sx, 0, sz);
+  camera.position.set(sx, dist * Math.sin(elevation), sz + dist * Math.cos(elevation));
+  controls.update();
   invalidate();
 };
 

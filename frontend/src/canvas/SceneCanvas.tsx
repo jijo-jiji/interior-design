@@ -7,6 +7,8 @@ import { RoomShell } from './RoomShell';
 import { LightingRig } from './LightingRig';
 import { CabinetMesh } from './CabinetMesh';
 import type { CabinetData, CabinetFinish, DoorStyle } from './CabinetMesh';
+import { viewExtent } from './floorPlan';
+import type { FloorPlan, RoomView } from './floorPlan';
 
 export type CameraView = 'orbit' | 'top' | 'front';
 
@@ -24,12 +26,17 @@ interface SceneCanvasProps {
   /** Changes whenever the view should be re-framed (e.g. "Fit to screen"). */
   fitKey: number;
   onSelectCabinet: (id: string | null) => void;
+  /** The floor plan the room was read from, and how much of it to show. */
+  floorPlan?: FloorPlan | null;
+  roomView?: RoomView;
 }
 
 /** The part of the room that has to be on screen. */
 interface Bounds {
   minX: number;
   maxX: number;
+  /** 0 for the kitchen alone (the main wall's face); less with the plan. */
+  minZ: number;
   maxZ: number;
   height: number;
   /** Front of the deepest floor cabinet on the main wall. */
@@ -38,20 +45,38 @@ interface Bounds {
   sideFront: number;
 }
 
-function roomBounds(wallW: number, wallH: number, shape: string, returnM: number, cabinets: CabinetData[]): Bounds {
+function roomBounds(
+  wallW: number,
+  wallH: number,
+  shape: string,
+  returnM: number,
+  cabinets: CabinetData[],
+  plan: FloorPlan | null,
+  roomView: RoomView,
+): Bounds {
   const main = cabinets.filter((c) => c.run === 'main' && !c.isWallMounted);
   const side = cabinets.filter((c) => c.run === 'return');
   const baseFront = Math.max(0.6, ...main.map((c) => c.depth));
   const sideFront = Math.max(0, ...side.map((c) => c.depth));
   const sideReach = Math.max(0, ...side.map((c) => c.x + c.width));
   const maxZ = Math.max(baseFront + 0.4, shape === 'lShape' ? Math.max(returnM, sideReach) : 0);
-  return { minX: shape === 'lShape' ? -0.15 : 0, maxX: wallW, maxZ, height: wallH, baseFront, sideFront };
+  const kitchen = { minX: shape === 'lShape' ? -0.15 : 0, maxX: wallW, minZ: 0, maxZ, height: wallH, baseFront, sideFront };
+  // Room and House frame the plan around the kitchen too.
+  const e = plan ? viewExtent(plan, roomView) : null;
+  if (!e) return kitchen;
+  return {
+    ...kitchen,
+    minX: Math.min(kitchen.minX, e[0]),
+    minZ: Math.min(0, e[1]),
+    maxX: Math.max(kitchen.maxX, e[2]),
+    maxZ: Math.max(kitchen.maxZ, e[3]),
+  };
 }
 
 /** Plan view frame: the room plus the dimension lines outside it. */
 function planFrame(b: Bounds) {
   const minX = b.minX - (b.minX < 0 ? 0.9 : 0.2);
-  const minZ = -0.85;
+  const minZ = b.minZ - 0.85;
   return { cx: (minX + b.maxX) / 2, cz: (minZ + b.maxZ) / 2, spanX: b.maxX - minX, spanZ: b.maxZ - minZ };
 }
 
@@ -67,9 +92,10 @@ const ViewRig: React.FC<{ view: CameraView; bounds: Bounds; fitKey: number }> = 
   const controls = useRef<OrbitControlsImpl>(null);
   const persp = useRef<THREE.PerspectiveCamera>(null);
   const ortho = useRef<THREE.OrthographicCamera>(null);
-  const { minX, maxX, maxZ, height } = bounds;
+  const { minX, maxX, minZ, maxZ, height } = bounds;
   const cx = (minX + maxX) / 2;
   const spanX = maxX - minX;
+  const spanZ = maxZ - minZ;
   // What the view looks at. Passed to the controls as a prop too: switching
   // between 3D and Plan swaps camera type, which recreates the controls.
   const target = useMemo<[number, number, number]>(() => {
@@ -78,8 +104,10 @@ const ViewRig: React.FC<{ view: CameraView; bounds: Bounds; fitKey: number }> = 
       return [f.cx, 0, f.cz];
     }
     if (view === 'front') return [cx, height / 2 - 0.2, 0];
+    // With the plan around the kitchen, look at the middle of it all.
+    if (minZ < 0) return [cx, 0.5, (minZ + maxZ) / 2];
     return [cx, Math.min(1.0, height / 2), Math.min(maxZ, 1.2) / 2];
-  }, [view, cx, maxZ, height, bounds]);
+  }, [view, cx, minZ, maxZ, height, bounds]);
 
   // Ortho views re-fit when the canvas resizes; the 3D view keeps whatever
   // angle the designer orbited to until asked (view change or Fit).
@@ -91,11 +119,16 @@ const ViewRig: React.FC<{ view: CameraView; bounds: Bounds; fitKey: number }> = 
     if (view === 'orbit') {
       const cam = persp.current;
       if (!cam) return;
-      const radius = 0.5 * Math.hypot(spanX, height, maxZ);
+      const radius = 0.5 * Math.hypot(spanX, height, spanZ);
       const vFov = THREE.MathUtils.degToRad(cam.fov);
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (size.width / Math.max(1, size.height)));
       const dist = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 0.82;
-      const dir = new THREE.Vector3(maxZ > 1.5 ? 0.55 : 0.32, 0.42, 1).normalize();
+      // With the plan around the kitchen (minZ < 0), look down more steeply
+      // (about 50°) so the near walls don't hide the rooms behind them.
+      const dir =
+        minZ < 0
+          ? new THREE.Vector3(0.3, 1.25, 1).normalize()
+          : new THREE.Vector3(maxZ > 1.5 ? 0.55 : 0.32, 0.42, 1).normalize();
       cam.up.set(0, 1, 0);
       cam.position.copy(t).addScaledVector(dir, dist);
       cam.lookAt(t);
@@ -121,7 +154,7 @@ const ViewRig: React.FC<{ view: CameraView; bounds: Bounds; fitKey: number }> = 
       ctl.target.copy(t);
       ctl.update();
     }
-  }, [view, fitKey, sizeKey, target, bounds, cx, spanX, maxZ, height, size.width, size.height]);
+  }, [view, fitKey, sizeKey, target, bounds, cx, spanX, spanZ, minZ, maxZ, height, size.width, size.height]);
 
   return (
     <>
@@ -249,12 +282,23 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   cameraView,
   fitKey,
   onSelectCabinet,
+  floorPlan = null,
+  roomView: chosenRoomView = 'kitchen',
 }) => {
+  // An elevation draws the kitchen's main wall straight on; the plan's walls
+  // in front of the kitchen would stand in the way, so it shows the kitchen
+  // alone.
+  const roomView: RoomView = cameraView === 'front' ? 'kitchen' : chosenRoomView;
   const wallW = wallWidthMm / 1000;
   const wallH = wallHeightMm / 1000;
   const returnM = returnMm / 1000;
   const bounds = useMemo(
-    () => roomBounds(wallW, wallH, roomShape, returnM, cabinets),
+    () => roomBounds(wallW, wallH, roomShape, returnM, cabinets, floorPlan, roomView),
+    [wallW, wallH, roomShape, returnM, cabinets, floorPlan, roomView],
+  );
+  // The dimension lines measure the kitchen, whatever the view frames.
+  const kitchenBounds = useMemo(
+    () => roomBounds(wallW, wallH, roomShape, returnM, cabinets, null, 'kitchen'),
     [wallW, wallH, roomShape, returnM, cabinets],
   );
   // Plan is a floor plan (wall units would hide the base units); an
@@ -271,11 +315,11 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   const dims = useMemo(
     () =>
       cameraView === 'top'
-        ? planDims(bounds, cabinets, roomShape, returnM)
+        ? planDims(kitchenBounds, cabinets, roomShape, returnM)
         : cameraView === 'front'
-          ? elevationDims(bounds, cabinets)
+          ? elevationDims(kitchenBounds, cabinets)
           : [],
-    [cameraView, bounds, cabinets, roomShape, returnM],
+    [cameraView, kitchenBounds, cabinets, roomShape, returnM],
   );
 
   return (
@@ -288,7 +332,14 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
       >
         <color attach="background" args={[mood === 'day' ? '#FAF7F2' : '#201D1A']} />
         <LightingRig mood={mood} />
-        <RoomShell widthMm={wallWidthMm} heightMm={wallHeightMm} shape={roomShape} returnMm={returnMm} />
+        <RoomShell
+          widthMm={wallWidthMm}
+          heightMm={wallHeightMm}
+          shape={roomShape}
+          returnMm={returnMm}
+          floorPlan={floorPlan}
+          roomView={roomView}
+        />
         {shown.map((cab) => (
           <CabinetMesh
             key={cab.id}

@@ -31,6 +31,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import os
+import re
 import tempfile
 import base64
 
@@ -206,6 +207,11 @@ class QuoteRequest(BaseModel):
     client_email: str | None = None
     deposit_paid: float = 0.0
     signature_base64: str | None = None
+    # The floor plan the room was read from (sales app, floor plan route),
+    # for the Room and House views: the picture as a data URL, plus walls
+    # and rooms in mm from the kitchen's corner. The picture is stored as a
+    # file; the project keeps its address.
+    floor_plan: dict[str, Any] | None = None
 
 class LineItem(BaseModel):
     description: str
@@ -352,6 +358,8 @@ def create_quote(request: QuoteRequest):
         "pdf_url": f"/pdf/{quote_id}",
         "has_signature": bool(request.signature_base64),
     }
+    if request.floor_plan:
+        record["floor_plan"] = _store_floor_plan(quote_id, request.floor_plan)
     db = _load_projects_db()
     db[quote_id] = record
     _save_projects_db(db)
@@ -371,7 +379,34 @@ def create_quote(request: QuoteRequest):
 # ─── Persistent Project Database ──────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "projects_db.json")
 PDF_DIR = os.path.join(os.path.dirname(__file__), "generated_pdfs")
+# Floor plan pictures, one per quote: kept out of projects_db.json, which
+# would grow by hundreds of KB per plan.
+PLAN_DIR = os.path.join(os.path.dirname(__file__), "plan_images")
 _pdf_store: dict[str, str] = {}
+
+_QUOTE_ID = re.compile(r"^QT-[A-Za-z0-9-]{1,40}$")
+MAX_PLAN_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _store_floor_plan(quote_id: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Saves the plan's picture as a file and points the plan at it. A plan
+    already pointing at a stored picture (a design sent again) is kept."""
+    stored = dict(plan)
+    image = stored.get("image")
+    prefix = "data:image/png;base64,"
+    if isinstance(image, str) and image.startswith(prefix) and _QUOTE_ID.match(quote_id):
+        try:
+            png = base64.b64decode(image[len(prefix):], validate=True)
+        except ValueError:
+            png = b""
+        if png.startswith(b"\x89PNG") and len(png) <= MAX_PLAN_IMAGE_BYTES:
+            os.makedirs(PLAN_DIR, exist_ok=True)
+            with open(os.path.join(PLAN_DIR, f"{quote_id}.png"), "wb") as f:
+                f.write(png)
+            stored["image"] = f"/api/projects/{quote_id}/plan.png"
+        else:
+            stored.pop("image", None)
+    return stored
 
 
 def _load_projects_db() -> dict[str, Any]:
@@ -512,6 +547,15 @@ def get_project(quote_id: str):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return _normalize_project(project)
+
+
+@app.get("/api/projects/{quote_id}/plan.png")
+def get_project_plan(quote_id: str):
+    """The floor plan picture a project's room was read from."""
+    path = os.path.join(PLAN_DIR, f"{quote_id}.png")
+    if not _QUOTE_ID.match(quote_id) or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No floor plan for this project")
+    return FileResponse(path, media_type="image/png")
 
 
 @app.put("/api/projects/{quote_id}")

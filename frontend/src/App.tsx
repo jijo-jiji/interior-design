@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SceneCanvas } from './canvas/SceneCanvas';
 import type { CameraView } from './canvas/SceneCanvas';
+import { readFloorPlan } from './canvas/floorPlan';
+import type { FloorPlan, RoomView } from './canvas/floorPlan';
 import type { CabinetFinish, DoorStyle } from './canvas/cabinetBuilder';
 import type { WallOpening } from './canvas/RoomShell';
 import { Header } from './components/Header';
@@ -65,6 +67,9 @@ export const App: React.FC = () => {
   const [doorStyle, setDoorStyle] = useState<DoorStyle>('slab');
   const [lightingMood, setLightingMood] = useState<'day' | 'evening'>('day');
   const [cameraView, setCameraView] = useState<CameraView>('orbit');
+  // The floor plan the room was read from (sales app), for Room / House.
+  const [floorPlan, setFloorPlan] = useState<FloorPlan | null>(null);
+  const [roomView, setRoomView] = useState<RoomView>('kitchen');
   const [fitKey, setFitKey] = useState(0);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('cabinets');
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState<boolean>(false);
@@ -95,6 +100,8 @@ export const App: React.FC = () => {
     setWallHeightMm(Number(wall.height_mm) || 2400);
     setReturnMm(Number(wall.return_mm) || 2400);
     setOpenings(Array.isArray(proj.obstacles) ? proj.obstacles : []);
+    setFloorPlan(readFloorPlan(proj.floor_plan));
+    setRoomView('kitchen');
     setBenchtopMaterial(proj.benchtop_material ?? null);
 
     const styleKey = proj.style_archetype || proj.style;
@@ -318,6 +325,12 @@ export const App: React.FC = () => {
           setCameraView(v);
           setFitKey((k) => k + 1);
         }}
+        hasFloorPlan={floorPlan != null}
+        roomView={roomView}
+        onSelectRoomView={(v) => {
+          setRoomView(v);
+          setFitKey((k) => k + 1);
+        }}
         lightingMood={lightingMood}
         onToggleMood={() => setLightingMood((m) => (m === 'day' ? 'evening' : 'day'))}
         quoteId={activeProjectId}
@@ -365,6 +378,8 @@ export const App: React.FC = () => {
             cameraView={cameraView}
             fitKey={fitKey}
             onSelectCabinet={selectCabinet}
+            floorPlan={floorPlan}
+            roomView={roomView}
           />
           {cameraView !== 'orbit' && (
             <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-surface/90 px-2 py-1 text-xs text-ink-soft">

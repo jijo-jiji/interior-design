@@ -1,11 +1,16 @@
 import React from 'react';
 import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff } from 'lucide-react';
 import type { CameraView } from '../canvas/SceneCanvas';
+import type { RoomView } from '../canvas/floorPlan';
 import { SegmentedControl } from './ui';
 
 interface HeaderProps {
   cameraView: CameraView;
   onSelectCameraView: (view: CameraView) => void;
+  /** Only for a room read off a floor plan. */
+  hasFloorPlan: boolean;
+  roomView: RoomView;
+  onSelectRoomView: (view: RoomView) => void;
   lightingMood: 'day' | 'evening';
   onToggleMood: () => void;
   quoteId: string;
@@ -22,6 +27,12 @@ const VIEW_OPTIONS: { value: CameraView; label: string; title: string }[] = [
   { value: 'front', label: 'Elevation', title: 'Elevation: the main wall straight on, with heights' },
 ];
 
+const ROOM_OPTIONS: { value: RoomView; label: string; title: string }[] = [
+  { value: 'kitchen', label: 'Kitchen', title: 'The kitchen alone' },
+  { value: 'room', label: 'Room', title: 'The kitchen and the walls around it, from the floor plan' },
+  { value: 'house', label: 'House', title: 'The whole floor plan, with its walls raised' },
+];
+
 /** Secondary actions show their words from 1440px; below that, icon only
  *  (named for screen readers and in a tooltip). */
 const actionClass =
@@ -31,6 +42,9 @@ const wideLabel = 'hidden min-[1440px]:inline';
 export const Header: React.FC<HeaderProps> = ({
   cameraView,
   onSelectCameraView,
+  hasFloorPlan,
+  roomView,
+  onSelectRoomView,
   lightingMood,
   onToggleMood,
   quoteId,
@@ -80,6 +94,9 @@ export const Header: React.FC<HeaderProps> = ({
       {/* ── View ──────────────────────────────────────────────────────── */}
       <div className="mx-auto flex shrink-0 items-center gap-2">
         <SegmentedControl label="View" options={VIEW_OPTIONS} value={cameraView} onChange={onSelectCameraView} />
+        {hasFloorPlan && (
+          <SegmentedControl label="Show" options={ROOM_OPTIONS} value={roomView} onChange={onSelectRoomView} />
+        )}
         <button
           type="button"
           onClick={onToggleMood}

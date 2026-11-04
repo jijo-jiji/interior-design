@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:static_trace/features/floorplan/screens/floorplan_calibrate_screen.dart';
+import 'package:static_trace/features/floorplan/screens/floorplan_sizes_screen.dart';
 import 'package:static_trace/features/intake/screens/intake_hub_screen.dart';
 import 'package:static_trace/features/template/screens/template_room_screen.dart';
 import 'package:static_trace/features/trace/screens/camera_screen.dart';
@@ -19,6 +19,7 @@ import 'package:static_trace/features/viewer/widgets/closing_modal.dart';
 import 'package:static_trace/shared/theme.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
+import 'helpers/fake_plan_reader.dart';
 import 'helpers/fake_webview.dart';
 
 const _photo = 'floor_plan/images.png';
@@ -36,7 +37,14 @@ final _screens = <String, Widget Function()>{
   'camera': () => const CameraScreen(),
   'wall setup': () => const WallSetupScreen(imagePath: _photo),
   'trace': () => const TraceScreen(imagePath: _photo),
-  'floor plan': () => const FloorplanCalibrateScreen(imagePath: _photo),
+  // Filled in from a reading: the plan drawing, origins under each field,
+  // and the other sizes as buttons.
+  'floor plan': () => FloorplanSizesScreen(
+        imagePath: _photo,
+        textReader: FakePlanTextReader(),
+        // Measured, so the outline, the Turn button and the walls all show.
+        analyser: FakePlanAnalyser(measuredPlan()),
+      ),
   '3D view': () => ViewerScreen(jsonPayload: _viewerPayload),
   'quote sheet': () => Scaffold(
         body: ClosingModal(

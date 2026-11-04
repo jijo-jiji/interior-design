@@ -80,6 +80,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   late final List<dynamic> _obstacles;
   late final Map<String, dynamic> _wallData;
 
+  /// The floor plan this room was read from, for the Room and House views
+  /// (see FloorplanSizesScreen); null for rooms measured another way.
+  Map<String, dynamic>? _floorPlan;
+
+  /// 'kitchen', 'room' or 'house': how much of the plan the 3D shows.
+  String _roomView = 'kitchen';
+
+  void _setRoomView(String view) {
+    setState(() => _roomView = view);
+    _scene.runJavaScript("setRoomView('$view')");
+  }
+
   String _currentStyle = 'japandi';
 
   /// Auto-generated layouts (A Value / B Balanced / C Premium) for this room.
@@ -95,6 +107,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       parsed = jsonDecode(widget.jsonPayload) as Map<String, dynamic>;
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
       _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
+      _floorPlan = parsed['floor_plan'] as Map<String, dynamic>?;
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
       _benchtopMaterial = parsed['benchtop_material'] as String?;
       if (parsed['placed_cabinets'] != null) {
@@ -246,6 +259,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'status': _status.name,
       'wall': _wallData,
       'obstacles': _obstacles,
+      if (_floorPlan != null) 'floor_plan': _floorPlan,
       'placed_cabinets': _placedCabinets,
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
@@ -1075,6 +1089,30 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
               ),
             ),
+
+            // ── Kitchen / Room / House (rooms read off a floor plan) ─────
+            if (_floorPlan != null)
+              Positioned(
+                top: 66,
+                left: 14,
+                child: PointerShield(
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'kitchen', label: Text('Kitchen')),
+                      ButtonSegment(value: 'room', label: Text('Room')),
+                      ButtonSegment(value: 'house', label: Text('House')),
+                    ],
+                    selected: {_roomView},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) => _setRoomView(s.first),
+                    style: SegmentedButton.styleFrom(
+                      backgroundColor: AppTheme.surface,
+                      selectedBackgroundColor: AppTheme.accent,
+                      selectedForegroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
 
             // ── Layouts / Edit panel + estimate ───────────────────────────
             Positioned(

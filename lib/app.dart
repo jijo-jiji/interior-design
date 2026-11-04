@@ -6,7 +6,7 @@ import 'features/intake/screens/intake_hub_screen.dart';
 import 'features/trace/screens/camera_screen.dart';
 import 'features/trace/screens/wall_setup_screen.dart';
 import 'features/trace/screens/trace_screen.dart';
-import 'features/floorplan/screens/floorplan_calibrate_screen.dart';
+import 'features/floorplan/screens/floorplan_sizes_screen.dart';
 import 'features/template/screens/template_room_screen.dart';
 import 'features/viewer/screens/viewer_screen.dart';
 
@@ -32,10 +32,10 @@ final _router = GoRouter(
       builder: (context, state) => const CameraScreen(),
     ),
     GoRoute(
-      path: '/floorplan-calibrate',
+      path: '/floorplan',
       redirect: _homeIfMissing,
-      name: 'floorplan-calibrate',
-      builder: (context, state) => FloorplanCalibrateScreen(
+      name: 'floorplan',
+      builder: (context, state) => FloorplanSizesScreen(
         imagePath: state.extra as String,
       ),
     ),

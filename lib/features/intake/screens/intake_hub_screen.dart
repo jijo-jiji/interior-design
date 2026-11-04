@@ -120,7 +120,7 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
         imageQuality: 95,
       );
       if (file != null && mounted) {
-        await context.push('/floorplan-calibrate', extra: file.path);
+        await context.push('/floorplan', extra: file.path);
       }
     } catch (_) {
       if (mounted) {
@@ -145,6 +145,7 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
             'depth_mm': 150.0,
           },
       'obstacles': project['obstacles'] ?? [],
+      if (_floorPlanOf(project) case final plan?) 'floor_plan': plan,
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
       'benchtop_material': project['benchtop_material'],
@@ -336,8 +337,8 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
         _MeasureCard(
           title: 'Floor plan',
           description:
-              'Use a floor plan image from WhatsApp or your gallery, and mark '
-              'one length you know.',
+              'Use a floor plan image from WhatsApp or your gallery. The '
+              "kitchen's sizes are read off it for you.",
           tag: 'From a developer plan',
           icon: Icons.architecture_rounded,
           accentColor: AppTheme.success,
@@ -882,4 +883,18 @@ class _FilterChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A project's floor plan (for the 3D's Room and House views), with a
+/// picture stored on the office server turned into a full address the 3D
+/// page can load.
+Map<String, dynamic>? _floorPlanOf(Map<String, dynamic> project) {
+  final plan = project['floor_plan'];
+  if (plan is! Map) return null;
+  final out = Map<String, dynamic>.from(plan);
+  final image = out['image'];
+  if (image is String && image.startsWith('/')) {
+    out['image'] = '${AppConfig.backendBaseUrl}$image';
+  }
+  return out;
 }

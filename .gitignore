@@ -71,3 +71,9 @@ temp_video_recordings/
 
 # Generated quotation PDFs
 backend/generated_pdfs/
+
+# Server secrets (API keys), e.g. backend/.env. Never commit.
+.env
+
+# Floor plan images stored with quotes (backend/main.py)
+backend/plan_images/

@@ -27,6 +27,8 @@ export interface ProjectItem {
   placed_cabinets?: any[];
   obstacles?: any[];
   benchtop_material?: string | null;
+  /** The floor plan the room was read from (see canvas/floorPlan.ts). */
+  floor_plan?: unknown;
 }
 
 interface ProjectPipelineDrawerProps {
