@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -172,8 +172,12 @@ class ObstacleSpec(BaseModel):
     height_mm: float
 
 class PlacedCabinet(BaseModel):
+    # Keep anything else the apps send: dropping fields here used to lose the
+    # generator's kind, side-wall position and mounting height on every quote.
+    model_config = ConfigDict(extra="allow")
+
     cabinet_type: str
-    label: str
+    label: str = ""
     width_mm: float
     height_mm: float
     depth_mm: float
@@ -182,6 +186,12 @@ class PlacedCabinet(BaseModel):
     z_mm: float = 0.0
     wall_index: int = 0
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    # Generated layouts (sales app): how it's drawn, which wall, where.
+    kind: str | None = None
+    run: str = "main"
+    offset_mm: float | None = None
+    mount_mm: float | None = None
+    generated: bool = False
 
 class QuoteRequest(BaseModel):
     quote_id: str | None = None
@@ -392,50 +402,63 @@ def _normalize_project(project: dict[str, Any]) -> dict[str, Any]:
     p["style"] = style
     p["style_archetype"] = style
 
-    # Normalize cabinets list
+    # Normalize cabinets list. Every stored field is kept (kind, run,
+    # offset_mm, mount_mm, generated…), so both apps can redraw exactly what
+    # was designed; the missing ones are filled in.
     raw_cabs = p.get("placed_cabinets") or p.get("cabinets") or []
+    wall = p.get("wall") or {}
+    wall_w_m = float(wall.get("width_mm") or 3600.0) / 1000.0
     normalized_cabs = []
     normalized_placed = []
-    
+
     for idx, c in enumerate(raw_cabs):
         cab_type = c.get("type") or c.get("cabinet_type") or "base_600"
         cab_id = c.get("id") or f"cab-{idx + 1}"
-        
+
         width_m = c.get("width")
         if width_m is None and "width_mm" in c:
             width_m = float(c["width_mm"]) / 1000.0
         if width_m is None:
             width_m = 0.8 if cab_type == "base_800" else 0.6
-            
+
         height_m = c.get("height")
         if height_m is None and "height_mm" in c:
             height_m = float(c["height_mm"]) / 1000.0
         if height_m is None:
-            height_m = 2.1 if cab_type == "tall_600" else (0.72 if cab_type == "wall_600" else 0.85)
+            height_m = 2.1 if cab_type == "tall_600" else (0.7 if cab_type == "wall_600" else 0.85)
 
         depth_m = c.get("depth")
         if depth_m is None and "depth_mm" in c:
             depth_m = float(c["depth_mm"]) / 1000.0
         if depth_m is None:
-            depth_m = 0.35 if cab_type == "wall_600" else 0.6
+            depth_m = 0.32 if cab_type == "wall_600" else 0.6
 
-        # Coordinate x in meters
+        # `x` (studio): left edge in metres from the left end of the wall.
+        # `x_mm` (sales app, DXF): centre in mm from the centre of the wall.
         x_m = c.get("x")
         raw_x_mm = c.get("x_mm")
         if x_m is None:
             if raw_x_mm is not None:
-                val = float(raw_x_mm)
-                # If negative (e.g. Flutter relative to wall center), translate to left offset
-                x_m = (val + 1800.0) / 1000.0 if val < 0 else val / 1000.0
+                x_m = float(raw_x_mm) / 1000.0 + wall_w_m / 2.0 - width_m / 2.0
             elif "distance_from_left_mm" in c:
                 x_m = float(c["distance_from_left_mm"]) / 1000.0
             else:
-                x_m = 0.2 + idx * 0.7
-
-        x_m = max(0.05, round(x_m, 3))
-        x_mm = round(x_m * 1000.0)
+                x_m = 0.05 + idx * 0.65
+        x_m = max(0.0, round(float(x_m), 3))
+        centre_x_mm = (
+            raw_x_mm
+            if raw_x_mm is not None
+            else round((x_m + width_m / 2.0 - wall_w_m / 2.0) * 1000.0)
+        )
+        kind = c.get("kind")
+        is_wall_mounted = (
+            (c.get("mount_mm") or 0) > 0
+            or kind in ("wall", "hood")
+            or cab_type.startswith(("wall", "rangehood"))
+        )
 
         normalized_cabs.append({
+            **c,
             "id": cab_id,
             "type": cab_type,
             "cabinet_type": cab_type,
@@ -446,22 +469,23 @@ def _normalize_project(project: dict[str, Any]) -> dict[str, Any]:
             "height_mm": round(height_m * 1000.0),
             "depth_mm": round(depth_m * 1000.0),
             "x": x_m,
-            "x_mm": raw_x_mm if raw_x_mm is not None else x_mm,
-            "distance_from_left_mm": x_mm,
-            "isWallMounted": cab_type == "wall_600",
+            "x_mm": centre_x_mm,
+            "distance_from_left_mm": round(x_m * 1000.0),
+            "isWallMounted": is_wall_mounted,
         })
 
         normalized_placed.append({
+            **c,
             "id": cab_id,
             "cabinet_type": cab_type,
             "label": c.get("label") or f"{cab_type.replace('_', ' ').title()}",
             "width_mm": round(width_m * 1000.0),
             "height_mm": round(height_m * 1000.0),
             "depth_mm": round(depth_m * 1000.0),
-            "x_mm": raw_x_mm if raw_x_mm is not None else x_mm,
+            "x_mm": centre_x_mm,
             "y_mm": c.get("y_mm", 0.0),
             "z_mm": c.get("z_mm", 0.0),
-            "wall_index": c.get("wall_index", 0),
+            "wall_index": c.get("wall_index", 1 if c.get("run") == "return" else 0),
         })
 
     p["cabinets"] = normalized_cabs

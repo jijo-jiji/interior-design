@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Atelier Architekt — Studio design tokens
+   SS Love Studio — design tokens
 
    Semantic names only: components reference `bg-surface`, `text-ink-muted`,
    `border-line` … never raw hex. Changing a value here re-themes the studio.
@@ -26,6 +26,8 @@
 
   /* Accents */
   --color-clay: #A25F41;
+  /* Clay for text on clay-tint (5.1:1); plain clay there is only 4.1:1. */
+  --color-clay-ink: #8F5238;
   --color-clay-soft: #E6BEAE;
   --color-clay-tint: #F6E7E0;
   --color-sand: #E7D8C9;
@@ -90,3 +92,23 @@
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 8px 28px -8px rgba(36, 31, 27, 0.22);
 }
+
+/* Plan and elevation dimension labels (drei <Html> over the canvas). */
+.dim-label {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #574a3e;
+  font: 600 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(110, 96, 82, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+

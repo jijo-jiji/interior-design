@@ -1,13 +1,57 @@
 import React, { useMemo } from 'react';
 import { createPlankOakTexture, createPlasterWallTexture } from './materials';
 
+/** A window or door measured on the main wall by the sales app. */
+export interface WallOpening {
+  type: string;
+  distance_from_left_mm?: number;
+  distance_from_floor_mm?: number;
+  width_mm?: number;
+  height_mm?: number;
+}
+
 interface RoomShellProps {
   widthMm: number;
   heightMm: number;
   shape: string;
   returnMm?: number;
   aisleMm?: number;
+  openings?: WallOpening[];
 }
+
+/** Windows and doors where they were measured, so the designer works around
+ *  the real wall (the studio used to ignore them). */
+const Opening: React.FC<{ o: WallOpening }> = ({ o }) => {
+  const w = (o.width_mm ?? 900) / 1000;
+  const h = (o.height_mm ?? (o.type === 'door' ? 2100 : 1000)) / 1000;
+  const x = (o.distance_from_left_mm ?? 0) / 1000 + w / 2;
+  const y = (o.distance_from_floor_mm ?? (o.type === 'door' ? 0 : 1000)) / 1000 + h / 2;
+  const t = 0.05; // frame
+  const isDoor = o.type === 'door';
+  return (
+    <group position={[x, y, 0.004]}>
+      <mesh>
+        <planeGeometry args={[w - 2 * t, h - (isDoor ? t : 2 * t)]} />
+        <meshStandardMaterial
+          color={isDoor ? '#B79C82' : '#CFE3EA'}
+          roughness={isDoor ? 0.6 : 0.15}
+          metalness={isDoor ? 0 : 0.1}
+        />
+      </mesh>
+      {[
+        [0, h / 2 - t / 2, w, t],
+        ...(isDoor ? [] : [[0, -h / 2 + t / 2, w, t]]),
+        [-w / 2 + t / 2, 0, t, h],
+        [w / 2 - t / 2, 0, t, h],
+      ].map(([fx, fy, fw, fh], i) => (
+        <mesh key={i} position={[fx, fy, 0.01]}>
+          <boxGeometry args={[fw, fh, 0.03]} />
+          <meshStandardMaterial color="#F4F1EC" roughness={0.5} />
+        </mesh>
+      ))}
+    </group>
+  );
+};
 
 export const RoomShell: React.FC<RoomShellProps> = ({
   widthMm,
@@ -15,6 +59,7 @@ export const RoomShell: React.FC<RoomShellProps> = ({
   shape,
   returnMm = 2400,
   aisleMm = 1800,
+  openings = [],
 }) => {
   const wallWidth = widthMm / 1000;
   const wallHeight = heightMm / 1000;
@@ -83,6 +128,10 @@ export const RoomShell: React.FC<RoomShellProps> = ({
         />
       </mesh>
 
+      {openings.map((o, i) => (
+        <Opening key={i} o={o} />
+      ))}
+
       {/* ── Return Wall (L-Shape) ─────────────────────────────────────── */}
       {shape === 'lShape' && (
         <group position={[0, 0, 0]}>
@@ -114,23 +163,6 @@ export const RoomShell: React.FC<RoomShellProps> = ({
             />
           </mesh>
 
-          {/* Architectural Window with Timber Frame */}
-          <group position={[0.005, wallHeight * 0.6, returnLength * 0.5]}>
-            {/* Window Glass */}
-            <mesh position={[0, 0, 0]}>
-              <boxGeometry args={[0.01, wallHeight * 0.45, returnLength * 0.35]} />
-              <meshStandardMaterial
-                color="#ECF8F8"
-                roughness={0.15}
-                metalness={0.1}
-              />
-            </mesh>
-            {/* Window Timber Frame Trim */}
-            <mesh position={[0.004, 0, 0]}>
-              <boxGeometry args={[0.015, wallHeight * 0.47, returnLength * 0.37]} />
-              <meshStandardMaterial color="#B2967D" roughness={0.4} />
-            </mesh>
-          </group>
         </group>
       )}
 

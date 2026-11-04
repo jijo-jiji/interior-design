@@ -303,3 +303,43 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
   - Untrusted: the setup page says not set up, and https fails with `ERR_CERT_AUTHORITY_INVALID`.
 
 **Not verified here:** real Android or iPad certificate installation; the steps follow each platform's standard flow, and the Android path can differ by brand ("search Settings for CA certificate").
+
+## 16. Session 2026-11-04 — PR #1 merged locally + Studio UI/UX
+
+**PR #1** (DwZukii, `feat/studio-ui-pricing-contract-myr`): the user chose "merge #1 first".
+- Merged into this branch locally (commit "Merge PR #1 …"); not pushed until #1 lands on main.
+- Conflicts were resolved keeping both sides:
+  - 3D page: PR #1's six appliances are drawn by this branch's builder.
+  - Viewer: this branch's layout, with PR #1's benchtop picker, appliance menu, "Send to WhatsApp" and "Open proposal" added back.
+  - PDF delivery made web-safe: in memory via package:http, and the browser's own PDF viewer on the web.
+  - `pubspec.lock` = PR #1's lock (Flutter ≥ 3.38) with google_fonts removed and http/web marked direct.
+- `git rerere` recorded the resolutions.
+
+**Studio** (`frontend/`, built into `backend/static/studio/`):
+- **Same kitchen as the sales app:**
+  - `canvas/cabinetBuilder.ts` is a TypeScript port of the sales app's cabinet builder: finishes, fronts, handles by style, worktops, sink, hob, appliances, corner unit.
+  - `layout/model.ts` handles the sales app's records: centre-from-wall-centre `x_mm`, side-wall `offset_mm`, kind, mounting height, generated sizes.
+  - Studio saves write both conventions. Before this, positions from the tablet were misplaced, saves corrupted them (and the DXF export), the side wall was ignored and only "wall_600" hung on the wall.
+- **Views:** Plan (top-down, orthographic, wall units hidden) and Elevation (main wall, orthographic), each with dimension lines in mm; every view frames the whole kitchen; "Fit to screen".
+- **Layout:**
+  - A toolbar row replaces the dock that covered the 3D view: cabinets, an Appliances menu, undo, Fit, and an always-visible total.
+  - Panel tabs: Room (shape, sizes, side-wall length) / Finish / Cabinets (a keyboard-selectable list) / Price.
+  - Fits 1280×720.
+- **Brand and wording:** "SS Love Studio"; plain labels; statuses Draft / Quote sent / Deposit paid, with filters as in the sales app; text ≥ 12 px.
+- **Room:** real windows and doors from the measurements; the invented side-wall window is removed.
+- **Rendering:** PMREM room environment, so steel and stone reflect.
+- **Saving:** keeps the stored wall (thickness, side-wall length).
+
+**Backend fixes found on the way:**
+- `PlacedCabinet` now keeps extra fields (kind, run, offset_mm, mount_mm, generated). It was dropping them from every quote.
+- `_normalize_project` keeps all fields and computes the Studio's `x` from the real wall width; it used to assume a 3.6 m wall.
+- Tests: `backend/test_layout_records.py` (3).
+
+**Verified:**
+- Studio: vitest 19 (including the model round-trip); tsc clean; oxlint shows only one older warning.
+- axe-core WCAG 2.2 A/AA: 0 violations across six Studio states (one contrast issue fixed with a new `clay-ink` token).
+- Browser functional test, 14 checks: keyboard add/move/delete/undo, appliance menu, wall resize, views, and a save round-trip that moves nothing.
+- Cross-app: a Studio-saved L-shape opens in the sales app with all 14 cabinets at the same positions.
+- Backend: 21 tests plus the pricing contract.
+
+**Open, needs the client:** generated sizes that aren't in the catalogue (base_450, wall_900, base_hob_600, fillers…) are priced at the RM 300 fallback by all three engines, fillers included. A real rule needs SS Love's catalogue.

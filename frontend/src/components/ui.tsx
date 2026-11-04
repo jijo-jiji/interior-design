@@ -108,13 +108,13 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ icon, children, classNam
   </a>
 );
 
-/** Small uppercase section heading used throughout the side panels. */
+/** Section heading used throughout the side panels. */
 export const SectionLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
   children,
   className = '',
 }) => (
   <h3
-    className={`text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted ${className}`}
+    className={`text-[13px] font-semibold text-ink-soft ${className}`}
   >
     {children}
   </h3>

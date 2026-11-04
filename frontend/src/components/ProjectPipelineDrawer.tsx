@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { X, Search, Sliders, CheckCircle2, Clock, FolderKanban } from 'lucide-react';
+import { X, Search, Users } from 'lucide-react';
 import { formatMyr } from '../pricing';
-import { SectionLabel } from './ui';
+import { STATUS_LABELS, statusOf } from '../layout/status';
+import type { ProjectStatus } from '../layout/status';
 
 export interface ProjectItem {
   id: string;
@@ -34,17 +35,20 @@ interface ProjectPipelineDrawerProps {
   projects: ProjectItem[];
   activeProjectId: string;
   onSelectProject: (proj: ProjectItem) => void;
-  wallWidthMm: number;
-  wallHeightMm: number;
-  onChangeWallWidth: (w: number) => void;
-  onChangeWallHeight: (h: number) => void;
 }
 
-const WALL_WIDTH_RANGE = { min: 1200, max: 8000 };
-const WALL_HEIGHT_RANGE = { min: 2000, max: 3600 };
+const STATUS_STYLES: Record<ProjectStatus, string> = {
+  draft: 'bg-surface-sunken text-ink-soft',
+  quote: 'bg-clay-tint text-clay-ink',
+  deposit: 'bg-sage-tint text-sage',
+};
 
-const clamp = (value: number, { min, max }: { min: number; max: number }) =>
-  Math.min(max, Math.max(min, value));
+const FILTERS: { value: ProjectStatus | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'draft', label: 'Drafts' },
+  { value: 'quote', label: 'Quotes sent' },
+  { value: 'deposit', label: 'Deposit paid' },
+];
 
 const formatDate = (iso?: string) => {
   if (!iso) return null;
@@ -60,12 +64,9 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
   projects,
   activeProjectId,
   onSelectProject,
-  wallWidthMm,
-  wallHeightMm,
-  onChangeWallWidth,
-  onChangeWallHeight,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<ProjectStatus | 'all'>('all');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -80,6 +81,7 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
 
   const query = searchQuery.trim().toLowerCase();
   const filteredProjects = projects.filter((p) => {
+    if (filter !== 'all' && statusOf(p) !== filter) return false;
     if (!query) return true;
     const haystack = [
       p.client_name ?? '',
@@ -92,18 +94,16 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Consultation pipeline">
+    <div className="fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Clients">
       <div className="fixed inset-0 bg-espresso/25 backdrop-blur-[2px]" onClick={onClose} />
 
       <div className="relative z-50 flex h-full w-[23rem] max-w-[88vw] flex-col border-r border-line bg-surface-muted shadow-2xl">
         {/* ── Header ────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-2 border-b border-line bg-surface px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <FolderKanban className="h-4 w-4 shrink-0 text-clay" />
-            <h2 className="truncate text-[13px] font-semibold uppercase tracking-wide text-ink">
-              Consultation pipeline
-            </h2>
-            <span className="shrink-0 rounded-full bg-sand px-2 py-0.5 font-mono text-[11px] text-ink">
+            <Users className="h-4 w-4 shrink-0 text-clay" aria-hidden />
+            <h2 className="truncate text-[15px] font-semibold text-ink">Clients</h2>
+            <span className="shrink-0 rounded-full bg-sand px-2 py-0.5 text-xs font-medium text-ink">
               {projects.length}
             </span>
           </div>
@@ -111,8 +111,8 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close the pipeline drawer"
-            className="cursor-pointer rounded-lg p-1.5 text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+            aria-label="Close"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
           >
             <X className="h-4 w-4" />
           </button>
@@ -124,12 +124,27 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
             <Search className="absolute top-2.5 left-3 h-4 w-4 text-ink-muted" />
             <input
               type="search"
-              placeholder="Filter by client, quote ID or style"
-              aria-label="Filter consultations"
+              placeholder="Search name, quote number or style"
+              aria-label="Search clients"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-line bg-surface py-2 pr-3 pl-9 text-[13px] text-ink placeholder-ink-muted focus:border-clay focus:outline-none"
+              className="min-h-10 w-full rounded-xl border border-line-strong bg-surface py-2 pr-3 pl-9 text-[14px] text-ink placeholder-ink-muted focus:border-clay focus:outline-none"
             />
+          </div>
+          <div role="group" aria-label="Show" className="mt-2 flex flex-wrap gap-1">
+            {FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                aria-pressed={filter === f.value}
+                onClick={() => setFilter(f.value)}
+                className={`min-h-8 cursor-pointer rounded-full px-3 text-xs font-medium ${
+                  filter === f.value ? 'bg-espresso text-surface-muted' : 'bg-surface text-ink-soft hover:bg-surface-sunken'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -138,19 +153,18 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
           {filteredProjects.length === 0 && (
             <p className="px-1 py-6 text-center text-[13px] text-ink-muted">
               {projects.length === 0
-                ? 'No consultations yet. Quotes sent from the mobile app appear here.'
-                : `No consultation matches “${searchQuery.trim()}”.`}
+                ? 'No clients yet. Quotes sent from the sales app appear here.'
+                : 'No client matches.'}
             </p>
           )}
 
           {filteredProjects.map((p) => {
             const projId = p.quote_id || p.id;
             const isSelected = projId === activeProjectId;
-            const isPriority =
-              (p.deposit_paid ?? 0) > 0 ||
-              p.status === 'deposit_paid' ||
-              p.status === 'priority_locked';
-            const moduleCount = (p.cabinets || p.placed_cabinets || []).length;
+            const status = statusOf(p);
+            const moduleCount = (p.cabinets || p.placed_cabinets || []).filter(
+              (c: { kind?: string }) => c?.kind !== 'filler',
+            ).length;
             const styleName = p.style_archetype || p.style || 'japandi';
             const created = formatDate(p.created_at);
 
@@ -172,37 +186,23 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
                 <div className="mb-1.5 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h3 className="truncate text-[13px] font-semibold text-ink">
-                      {p.client_name || 'Walk-in consultation'}
+                      {p.client_name || 'Unnamed client'}
                     </h3>
                     <p className="truncate text-xs text-ink-muted">
-                      <span className="capitalize">{styleName}</span> · {moduleCount} module
+                      <span className="capitalize">{styleName}</span> · {moduleCount} cabinet
                       {moduleCount === 1 ? '' : 's'}
                       {created && ` · ${created}`}
                     </p>
                   </div>
-                  <span className="shrink-0 font-mono text-[13px] font-semibold text-ink">
+                  <span className="shrink-0 text-[13px] font-semibold text-ink tabular-nums">
                     {formatMyr(p.total_price || p.subtotal || 0)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between gap-2 border-t border-line pt-1.5">
-                  <span className="truncate font-mono text-[11px] text-ink-muted">{projId}</span>
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      isPriority ? 'bg-sage-tint text-sage' : 'bg-surface-sunken text-ink-muted'
-                    }`}
-                  >
-                    {isPriority ? (
-                      <>
-                        <CheckCircle2 className="h-3 w-3" />
-                        Priority locked
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="h-3 w-3" />
-                        Estimate
-                      </>
-                    )}
+                  <span className="truncate font-mono text-xs text-ink-muted">{projId}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}>
+                    {STATUS_LABELS[status]}
                   </span>
                 </div>
               </button>
@@ -210,47 +210,6 @@ export const ProjectPipelineDrawer: React.FC<ProjectPipelineDrawerProps> = ({
           })}
         </div>
 
-        {/* ── Room bounds ───────────────────────────────────────────── */}
-        <div className="border-t border-line bg-surface px-4 py-3">
-          <SectionLabel className="mb-2 flex items-center gap-1.5">
-            <Sliders className="h-3.5 w-3.5" />
-            Room architectural bounds
-          </SectionLabel>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-[11px] uppercase tracking-wide text-ink-muted">
-                Wall width (mm)
-              </span>
-              <input
-                type="number"
-                step={100}
-                min={WALL_WIDTH_RANGE.min}
-                max={WALL_WIDTH_RANGE.max}
-                value={wallWidthMm}
-                onChange={(e) => onChangeWallWidth(Number(e.target.value))}
-                onBlur={(e) => onChangeWallWidth(clamp(Number(e.target.value), WALL_WIDTH_RANGE))}
-                className="w-full rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[13px] text-ink focus:border-clay focus:outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-[11px] uppercase tracking-wide text-ink-muted">
-                Ceiling height (mm)
-              </span>
-              <input
-                type="number"
-                step={50}
-                min={WALL_HEIGHT_RANGE.min}
-                max={WALL_HEIGHT_RANGE.max}
-                value={wallHeightMm}
-                onChange={(e) => onChangeWallHeight(Number(e.target.value))}
-                onBlur={(e) => onChangeWallHeight(clamp(Number(e.target.value), WALL_HEIGHT_RANGE))}
-                className="w-full rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[13px] text-ink focus:border-clay focus:outline-none"
-              />
-            </label>
-          </div>
-        </div>
       </div>
     </div>
   );

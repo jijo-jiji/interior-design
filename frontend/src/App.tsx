@@ -1,114 +1,100 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SceneCanvas } from './canvas/SceneCanvas';
 import type { CameraView } from './canvas/SceneCanvas';
-import type { CabinetData, CabinetFinish, CabinetType, DoorStyle } from './canvas/CabinetMesh';
+import type { CabinetFinish, DoorStyle } from './canvas/cabinetBuilder';
+import type { WallOpening } from './canvas/RoomShell';
 import { Header } from './components/Header';
 import { ProjectPipelineDrawer } from './components/ProjectPipelineDrawer';
 import type { ProjectItem } from './components/ProjectPipelineDrawer';
 import { JoineryInspector } from './components/JoineryInspector';
-import type { SaveState } from './components/JoineryInspector';
-import { JoineryModuleDock } from './components/JoineryModuleDock';
-import type { ModuleType } from './components/JoineryModuleDock';
+import type { InspectorTab, SaveState } from './components/JoineryInspector';
+import { StudioToolbar } from './components/StudioToolbar';
+import type { CabinetData, ModuleType } from './layout/model';
+import { fromEntry, newModule, toEntry } from './layout/model';
 import { FALLBACK_CATALOG, benchtopLinearMetres, priceLayout } from './pricing';
 import type { Catalog } from './pricing';
 
 const DEMO_PROJECT_ID = 'QT-992AC14B';
-const MIN_X = 0.05;
 const NUDGE_M = 0.05;
+const DEFAULT_WALL_DEPTH_MM = 150;
 
-const MODULE_SIZES: Record<ModuleType, { width: number; height: number; depth: number }> = {
-  base_800: { width: 0.8, height: 0.85, depth: 0.6 },
-  base_600: { width: 0.6, height: 0.85, depth: 0.6 },
-  wall_600: { width: 0.6, height: 0.72, depth: 0.35 },
-  tall_600: { width: 0.6, height: 2.1, depth: 0.6 },
-  // Appliance modules — sizes match CABINET_SPECS in assets/3d/index.html.
-  sink_600: { width: 0.6, height: 0.85, depth: 0.6 },
-  cooktop_600: { width: 0.6, height: 0.85, depth: 0.6 },
-  dishwasher_600: { width: 0.6, height: 0.85, depth: 0.6 },
-  oven_tower_600: { width: 0.6, height: 2.1, depth: 0.6 },
-  fridge_recess_700: { width: 0.7, height: 2.1, depth: 0.65 },
-  rangehood_900: { width: 0.9, height: 0.45, depth: 0.5 },
-};
+/** Sample layout shown until the office server answers. */
+const DEMO_CABINETS: CabinetData[] = [
+  { ...newModule('base_800', 0.2), id: 'cab-1' },
+  { ...newModule('sink_600', 1.0), id: 'cab-2' },
+  { ...newModule('base_600', 1.6), id: 'cab-3' },
+  { ...newModule('wall_600', 1.0), id: 'cab-4' },
+];
 
-/** Modules that hang on the wall rather than stand on the floor. */
-const WALL_MOUNTED_TYPES: string[] = ['wall_600', 'rangehood_900'];
-
-/** First gap on the rail that fits `width`, else hard against the last module. */
-const findFreeX = (
-  existing: CabinetData[],
-  width: number,
-  wallWidthM: number,
-  wallMounted: boolean,
-): number => {
+/** First gap on the same level of the main wall that fits [width]. */
+const findFreeX = (existing: CabinetData[], width: number, wallWidthM: number, wallMounted: boolean): number => {
   const row = existing
-    .filter((c) => Boolean(c.isWallMounted) === wallMounted)
+    .filter((c) => c.run === 'main' && c.isWallMounted === wallMounted)
     .sort((a, b) => a.x - b.x);
-
-  let cursor = MIN_X;
+  let cursor = 0;
   for (const cab of row) {
     if (cab.x - cursor >= width) return cursor;
     cursor = Math.max(cursor, cab.x + cab.width);
   }
-  return Math.max(MIN_X, Math.min(cursor, wallWidthM - width));
+  return Math.max(0, Math.min(cursor, wallWidthM - width));
 };
 
 export const App: React.FC = () => {
-  // ─── Projects & selection ─────────────────────────────────────────────────
+  // ─── Client ────────────────────────────────────────────────────────────────
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>(DEMO_PROJECT_ID);
-  const [clientName, setClientName] = useState<string>('Marcus Aurelius');
+  const [clientName, setClientName] = useState<string>('Sample client');
   const [isPipelineOpen, setIsPipelineOpen] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const hasLoadedInitialProject = useRef(false);
 
-  // Room architecture
+  // ─── Room ──────────────────────────────────────────────────────────────────
+  /** The wall as stored, so saving keeps fields the studio doesn't edit
+   *  (thickness, how it was measured…). */
+  const [wallRecord, setWallRecord] = useState<Record<string, unknown>>({});
   const [wallWidthMm, setWallWidthMm] = useState<number>(3600);
   const [wallHeightMm, setWallHeightMm] = useState<number>(2400);
-  const [roomShape, setRoomShape] = useState<string>('lShape');
-  const [obstacles, setObstacles] = useState<{ type: string }[]>([]);
-  /** Chosen on the tablet during the consultation; the studio prices it too. */
+  const [returnMm, setReturnMm] = useState<number>(2400);
+  const [roomShape, setRoomShape] = useState<string>('singleWall');
+  const [openings, setOpenings] = useState<WallOpening[]>([]);
   const [benchtopMaterial, setBenchtopMaterial] = useState<string | null>(null);
 
-  // Aesthetics
+  // ─── Look and view ─────────────────────────────────────────────────────────
   const [finish, setFinish] = useState<CabinetFinish>('japandi');
   const [doorStyle, setDoorStyle] = useState<DoorStyle>('slab');
   const [lightingMood, setLightingMood] = useState<'day' | 'evening'>('day');
   const [cameraView, setCameraView] = useState<CameraView>('orbit');
+  const [fitKey, setFitKey] = useState(0);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('cabinets');
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState<boolean>(false);
 
-  // Joinery modules
-  const [cabinets, setCabinets] = useState<CabinetData[]>([
-    { id: 'cab-1', type: 'base_800', x: 0.2, width: 0.8, height: 0.85, depth: 0.6 },
-    { id: 'cab-2', type: 'base_600', x: 1.0, width: 0.6, height: 0.85, depth: 0.6 },
-    { id: 'cab-3', type: 'base_600', x: 1.6, width: 0.6, height: 0.85, depth: 0.6 },
-    { id: 'cab-4', type: 'wall_600', x: 1.0, width: 0.6, height: 0.72, depth: 0.35, isWallMounted: true },
-  ]);
-
-  const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>('cab-1');
+  // ─── Cabinets ──────────────────────────────────────────────────────────────
+  const [cabinets, setCabinets] = useState<CabinetData[]>(DEMO_CABINETS);
+  const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<CabinetData[][]>([]);
 
-  // Commercial
+  // ─── Pricing and saving ────────────────────────────────────────────────────
   const [catalog, setCatalog] = useState<Catalog>(FALLBACK_CATALOG);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // ─── Loading a consultation into the scene ────────────────────────────────
+  // ─── Opening a client ──────────────────────────────────────────────────────
   const loadProject = useCallback((proj: ProjectItem) => {
     const projId = proj.quote_id || proj.id;
     if (projId) setActiveProjectId(projId);
-    setClientName(proj.client_name || 'Client consultation');
+    setClientName(proj.client_name || 'Unnamed client');
     setSaveState('idle');
     setSaveError(null);
     setUndoStack([]);
 
-    if (proj.wall) {
-      setWallWidthMm(proj.wall.width_mm || 3600);
-      setWallHeightMm(proj.wall.height_mm || 2400);
-      setRoomShape(proj.wall.shape || 'singleWall');
-    }
-
-    setObstacles(Array.isArray(proj.obstacles) ? proj.obstacles : []);
+    const wall = (proj.wall ?? {}) as Record<string, unknown>;
+    const widthMm = Number(wall.width_mm) || 3600;
+    setWallRecord(wall);
+    setWallWidthMm(widthMm);
+    setWallHeightMm(Number(wall.height_mm) || 2400);
+    setReturnMm(Number(wall.return_mm) || 2400);
+    setOpenings(Array.isArray(proj.obstacles) ? proj.obstacles : []);
     setBenchtopMaterial(proj.benchtop_material ?? null);
 
     const styleKey = proj.style_archetype || proj.style;
@@ -116,53 +102,25 @@ export const App: React.FC = () => {
       setFinish(styleKey as CabinetFinish);
     }
 
-    const rawCabs = proj.cabinets || proj.placed_cabinets || [];
-    const mapped: CabinetData[] = rawCabs.map((c: any, idx: number) => {
-      const cabType: CabinetType = c.type || c.cabinet_type || 'base_600';
-      const fallback = MODULE_SIZES[cabType as ModuleType];
-      const width = c.width || (c.width_mm ? c.width_mm / 1000 : (fallback?.width ?? 0.6));
-      const height = c.height || (c.height_mm ? c.height_mm / 1000 : (fallback?.height ?? 0.85));
-      const depth = c.depth || (c.depth_mm ? c.depth_mm / 1000 : (fallback?.depth ?? 0.6));
-
-      let posX = 0.2 + idx * 0.7;
-      if (typeof c.x === 'number') {
-        posX = c.x;
-      } else if (typeof c.x_mm === 'number') {
-        // Mobile traces measure from the wall centre; the studio measures from the left edge.
-        posX = c.x_mm < 0 ? (c.x_mm + 1800) / 1000 : c.x_mm / 1000;
-      } else if (typeof c.distance_from_left_mm === 'number') {
-        posX = c.distance_from_left_mm / 1000;
-      }
-
-      return {
-        id: c.id || `cab-${idx + 1}`,
-        type: cabType,
-        x: Math.max(MIN_X, Math.round(posX * 1000) / 1000),
-        width,
-        height,
-        depth,
-        isWallMounted: WALL_MOUNTED_TYPES.includes(cabType),
-      };
-    });
-
-    // A consultation with no joinery must clear the scene, not inherit the
-    // previous project's modules.
+    const raw = (proj.cabinets || proj.placed_cabinets || []) as Record<string, unknown>[];
+    const mapped = raw.map((c, i) => fromEntry(c, i, widthMm / 1000));
+    // A side-wall cabinet means an L-shape even if the record didn't say so.
+    const shape = String(wall.shape || (mapped.some((c) => c.run === 'return') ? 'lShape' : 'singleWall'));
+    setRoomShape(shape);
     setCabinets(mapped);
-    setSelectedCabinetId(mapped[0]?.id ?? null);
+    setSelectedCabinetId(null);
+    setFitKey((k) => k + 1);
   }, []);
 
-  // ─── Backend data ─────────────────────────────────────────────────────────
+  // ─── Office server ─────────────────────────────────────────────────────────
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch('/api/projects');
-      if (!res.ok) throw new Error(`Pipeline request failed (${res.status})`);
-
+      if (!res.ok) throw new Error(`Client list request failed (${res.status})`);
       const data: ProjectItem[] = await res.json();
       setProjects(data);
       setIsOffline(false);
-
-      // Only the very first sync picks a project. Later refreshes must leave
-      // whatever the estimator is working on open.
+      // Only the first refresh opens a client; later ones leave the open work alone.
       if (!hasLoadedInitialProject.current) {
         const initial = data.find((p) => (p.quote_id || p.id) === DEMO_PROJECT_ID) || data[0];
         if (initial) {
@@ -171,12 +129,11 @@ export const App: React.FC = () => {
         }
       }
     } catch (err) {
-      console.warn('Could not reach the backend; showing demo data.', err);
+      console.warn("Can't reach the office server; showing sample data.", err);
       setIsOffline(true);
     }
   }, [loadProject]);
 
-  /** The spinner belongs to the click, not to the initial load. */
   const handleSync = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -195,12 +152,11 @@ export const App: React.FC = () => {
     (async () => {
       try {
         const res = await fetch('/api/catalog');
-        if (!res.ok) throw new Error(`Catalog request failed (${res.status})`);
+        if (!res.ok) throw new Error(`Catalogue request failed (${res.status})`);
         const data = await res.json();
-        if (cancelled) return;
-        setCatalog({ ...FALLBACK_CATALOG, ...data });
+        if (!cancelled) setCatalog({ ...FALLBACK_CATALOG, ...data });
       } catch (err) {
-        console.warn('Could not load the pricing catalog; using built-in rates.', err);
+        console.warn("Can't load the price list; using built-in rates.", err);
         if (!cancelled) setIsOffline(true);
       }
     })();
@@ -209,9 +165,9 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // ─── Module manipulation ──────────────────────────────────────────────────
-  // Updaters stay pure (StrictMode runs them twice), so history and the add
-  // handler read the live layout through a ref instead.
+  // ─── Editing cabinets ──────────────────────────────────────────────────────
+  // Updaters stay pure (StrictMode runs them twice), so history and adding
+  // read the live layout through refs.
   const cabinetsRef = useRef(cabinets);
   const undoStackRef = useRef(undoStack);
   useEffect(() => {
@@ -225,43 +181,40 @@ export const App: React.FC = () => {
     setUndoStack((prev) => [...prev.slice(-15), cabinetsRef.current]);
   }, []);
 
+  const selectCabinet = useCallback((id: string | null) => {
+    setSelectedCabinetId(id);
+    if (id) {
+      setInspectorTab('cabinets');
+      setIsInspectorCollapsed(false);
+    }
+  }, []);
+
   const handleAddModule = useCallback(
     (type: ModuleType) => {
       recordHistory();
-      const size = MODULE_SIZES[type];
-      const isWallMounted = WALL_MOUNTED_TYPES.includes(type);
-      const x = findFreeX(cabinetsRef.current, size.width, wallWidthMm / 1000, isWallMounted);
-
-      const newCabinet: CabinetData = {
-        id: `cab-${Date.now()}`,
-        type,
-        x,
-        width: size.width,
-        height: size.height,
-        depth: size.depth,
-        isWallMounted,
-      };
-
-      setCabinets((prev) => [...prev, newCabinet]);
-      setSelectedCabinetId(newCabinet.id);
+      const probe = newModule(type, 0);
+      const x = findFreeX(cabinetsRef.current, probe.width, wallWidthMm / 1000, probe.isWallMounted);
+      const cab = { ...probe, x };
+      setCabinets((prev) => [...prev, cab]);
+      selectCabinet(cab.id);
     },
-    [recordHistory, wallWidthMm],
+    [recordHistory, selectCabinet, wallWidthMm],
   );
 
   const handleNudgeCabinet = useCallback(
     (direction: -1 | 1) => {
       if (!selectedCabinetId) return;
       recordHistory();
-
       setCabinets((prev) =>
         prev.map((c) => {
           if (c.id !== selectedCabinetId) return c;
-          const maxX = Math.max(MIN_X, wallWidthMm / 1000 - c.width);
-          return { ...c, x: Math.max(MIN_X, Math.min(maxX, c.x + direction * NUDGE_M)) };
+          const runLength = c.run === 'return' ? returnMm / 1000 : wallWidthMm / 1000;
+          const maxX = Math.max(0, runLength - c.width);
+          return { ...c, x: Math.max(0, Math.min(maxX, Math.round((c.x + direction * NUDGE_M) * 1000) / 1000)) };
         }),
       );
     },
-    [recordHistory, selectedCabinetId, wallWidthMm],
+    [recordHistory, selectedCabinetId, wallWidthMm, returnMm],
   );
 
   const handleDeleteCabinet = useCallback(
@@ -280,60 +233,50 @@ export const App: React.FC = () => {
     setUndoStack(stack.slice(0, -1));
   }, []);
 
-  // Shrinking the room must not leave joinery hanging past the wall.
-  const handleChangeWallWidth = useCallback((next: number) => {
-    setWallWidthMm(next);
+  // Shrinking a wall must not leave cabinets hanging past it.
+  const clampRun = (run: 'main' | 'return', lengthM: number) =>
     setCabinets((prev) =>
       prev.map((c) => {
-        const maxX = Math.max(MIN_X, next / 1000 - c.width);
+        if (c.run !== run) return c;
+        const maxX = Math.max(0, lengthM - c.width);
         return c.x > maxX ? { ...c, x: maxX } : c;
       }),
     );
+  const handleChangeWallWidth = useCallback((mm: number) => {
+    setWallWidthMm(mm);
+    clampRun('main', mm / 1000);
+  }, []);
+  const handleChangeReturn = useCallback((mm: number) => {
+    setReturnMm(mm);
+    clampRun('return', mm / 1000);
   }, []);
 
-  // ─── Commercial totals (same formula as the backend quote) ────────────────
+  // ─── Price (same formula as the backend quote) ─────────────────────────────
   const totals = useMemo(
-    () => priceLayout(cabinets, obstacles, finish, catalog, benchtopMaterial),
-    [cabinets, obstacles, finish, catalog, benchtopMaterial],
+    () => priceLayout(cabinets, openings, finish, catalog, benchtopMaterial),
+    [cabinets, openings, finish, catalog, benchtopMaterial],
   );
-
   const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets), [cabinets]);
 
   const handleSaveRevisions = useCallback(async () => {
     setSaveState('saving');
     setSaveError(null);
-
+    const wallM = wallWidthMm / 1000;
     const payload = {
-      cabinets: cabinets.map((c) => ({
-        id: c.id,
-        type: c.type,
-        cabinet_type: c.type,
-        label: c.type.replace(/_/g, ' ').toUpperCase(),
-        x: c.x,
-        width: c.width,
-        height: c.height,
-        depth: c.depth,
-        width_mm: Math.round(c.width * 1000),
-        height_mm: Math.round(c.height * 1000),
-        depth_mm: Math.round(c.depth * 1000),
-        x_mm: Math.round(c.x * 1000),
-        y_mm: 0,
-        z_mm: 0,
-        wall_index: 0,
-        distance_from_left_mm: Math.round(c.x * 1000),
-      })),
+      // Positions in the sales app's convention too, so the tablet, the PDF
+      // and the CAD export all see the same layout.
+      cabinets: cabinets.map((c) => toEntry(c, wallM)),
       style: finish,
       style_archetype: finish,
       benchtop_material: benchtopMaterial,
       wall: {
+        ...wallRecord,
+        depth_mm: wallRecord.depth_mm ?? DEFAULT_WALL_DEPTH_MM,
         width_mm: wallWidthMm,
         height_mm: wallHeightMm,
-        depth_mm: 600,
         shape: roomShape,
-        return_mm: 2400,
+        return_mm: roomShape === 'lShape' ? returnMm : (wallRecord.return_mm ?? 0),
       },
-      // Without these the stored record keeps the pre-revision price and the
-      // pipeline card disagrees with the studio.
       line_items: totals.lineItems,
       subtotal: totals.subtotal,
       gst: totals.gst,
@@ -346,43 +289,35 @@ export const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       if (!res.ok) {
         throw new Error(
           res.status === 404
-            ? 'This consultation is not in the backend yet, so there is nothing to update.'
-            : `The backend rejected the revision (${res.status}).`,
+            ? "This client isn't on the office server yet, so there's nothing to update."
+            : `The office server refused the change (${res.status}).`,
         );
       }
-
       setSaveState('saved');
       fetchProjects();
     } catch (err) {
-      console.error('Failed to save project revisions:', err);
+      console.error('Saving failed:', err);
       setSaveState('error');
-      setSaveError(err instanceof Error ? err.message : 'Could not save this revision.');
+      setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
     }
-  }, [
-    activeProjectId,
-    benchtopMaterial,
-    cabinets,
-    fetchProjects,
-    finish,
-    roomShape,
-    totals,
-    wallHeightMm,
-    wallWidthMm,
-  ]);
+  }, [activeProjectId, benchtopMaterial, cabinets, fetchProjects, finish, returnMm, roomShape, totals, wallHeightMm, wallRecord, wallWidthMm]);
 
-  const selectedCabinet = cabinets.find((c) => c.id === selectedCabinetId) ?? null;
+  const showPrice = useCallback(() => {
+    setInspectorTab('price');
+    setIsInspectorCollapsed(false);
+  }, []);
 
   return (
-    <div className="grid h-full w-full grid-rows-[auto_1fr] overflow-hidden bg-canvas select-none">
+    <div className="grid h-full w-full grid-rows-[auto_auto_1fr] overflow-hidden bg-canvas select-none">
       <Header
-        roomShape={roomShape}
-        onSelectShape={setRoomShape}
         cameraView={cameraView}
-        onSelectCameraView={setCameraView}
+        onSelectCameraView={(v) => {
+          setCameraView(v);
+          setFitKey((k) => k + 1);
+        }}
         lightingMood={lightingMood}
         onToggleMood={() => setLightingMood((m) => (m === 'day' ? 'evening' : 'day'))}
         quoteId={activeProjectId}
@@ -393,24 +328,34 @@ export const App: React.FC = () => {
         onOpenPipeline={() => setIsPipelineOpen(true)}
       />
 
+      <StudioToolbar
+        onAddModule={handleAddModule}
+        onUndo={handleUndo}
+        canUndo={undoStack.length > 0}
+        onDeleteSelected={() => selectedCabinetId && handleDeleteCabinet(selectedCabinetId)}
+        onNudgeSelected={handleNudgeCabinet}
+        hasSelected={selectedCabinetId !== null}
+        hotkeysEnabled={!isPipelineOpen}
+        onFit={() => setFitKey((k) => k + 1)}
+        total={totals.total}
+        onShowPrice={showPrice}
+      />
+
       <ProjectPipelineDrawer
         isOpen={isPipelineOpen}
         onClose={() => setIsPipelineOpen(false)}
         projects={projects}
         activeProjectId={activeProjectId}
         onSelectProject={loadProject}
-        wallWidthMm={wallWidthMm}
-        wallHeightMm={wallHeightMm}
-        onChangeWallWidth={handleChangeWallWidth}
-        onChangeWallHeight={setWallHeightMm}
       />
 
-      {/* Canvas and inspector share the row, so the panel never covers the model. */}
+      {/* View and panel share the row, so the panel never covers the model. */}
       <main className="flex min-h-0 min-w-0">
-        <section className="relative min-h-0 min-w-0 flex-1">
+        <section className="relative min-h-0 min-w-0 flex-1" aria-label="Kitchen view">
           <SceneCanvas
             wallWidthMm={wallWidthMm}
             wallHeightMm={wallHeightMm}
+            returnMm={returnMm}
             roomShape={roomShape}
             cabinets={cabinets}
             selectedCabinetId={selectedCabinetId}
@@ -418,36 +363,48 @@ export const App: React.FC = () => {
             doorStyle={doorStyle}
             mood={lightingMood}
             cameraView={cameraView}
-            onSelectCabinet={setSelectedCabinetId}
+            fitKey={fitKey}
+            onSelectCabinet={selectCabinet}
           />
-
-          <JoineryModuleDock
-            onAddModule={handleAddModule}
-            onUndo={handleUndo}
-            canUndo={undoStack.length > 0}
-            onDeleteSelected={() => selectedCabinetId && handleDeleteCabinet(selectedCabinetId)}
-            onNudgeSelected={handleNudgeCabinet}
-            hasSelected={selectedCabinetId !== null}
-            hotkeysEnabled={!isPipelineOpen}
-          />
+          {cameraView !== 'orbit' && (
+            <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-surface/90 px-2 py-1 text-xs text-ink-soft">
+              {cameraView === 'top' ? 'Plan · wall units not shown' : 'Elevation · main wall'} · sizes in mm ·
+              scroll to zoom, drag to move
+            </p>
+          )}
         </section>
 
         <JoineryInspector
+          tab={inspectorTab}
+          onSelectTab={setInspectorTab}
+          roomShape={roomShape}
+          onSelectShape={(s) => {
+            setRoomShape(s);
+            setFitKey((k) => k + 1);
+          }}
+          wallWidthMm={wallWidthMm}
+          onChangeWallWidth={handleChangeWallWidth}
+          wallHeightMm={wallHeightMm}
+          onChangeWallHeight={setWallHeightMm}
+          returnMm={returnMm}
+          onChangeReturn={handleChangeReturn}
           finish={finish}
           onSelectFinish={setFinish}
+          styleNames={catalog.style_names}
+          styleMultipliers={catalog.styles}
           doorStyle={doorStyle}
           onSelectDoorStyle={setDoorStyle}
-          selectedCabinet={selectedCabinet}
-          onNudgeCabinet={handleNudgeCabinet}
-          onDeleteCabinet={handleDeleteCabinet}
-          cabinetCount={cabinets.length}
-          totals={totals}
-          styleMultipliers={catalog.styles}
           benchtopMaterial={benchtopMaterial}
           onSelectBenchtop={setBenchtopMaterial}
           benchtopMetres={benchtopMetres}
           benchtopRates={catalog.benchtops}
           benchtopNames={catalog.benchtop_names}
+          cabinets={cabinets}
+          selectedCabinetId={selectedCabinetId}
+          onSelectCabinet={selectCabinet}
+          onNudgeCabinet={handleNudgeCabinet}
+          onDeleteCabinet={handleDeleteCabinet}
+          totals={totals}
           quoteId={activeProjectId}
           onSaveRevisions={handleSaveRevisions}
           saveState={saveState}

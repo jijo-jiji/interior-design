@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { Html, OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { RoomShell } from './RoomShell';
 import { LightingRig } from './LightingRig';
@@ -12,6 +13,7 @@ export type CameraView = 'orbit' | 'top' | 'front';
 interface SceneCanvasProps {
   wallWidthMm: number;
   wallHeightMm: number;
+  returnMm: number;
   roomShape: string;
   cabinets: CabinetData[];
   selectedCabinetId: string | null;
@@ -19,87 +21,225 @@ interface SceneCanvasProps {
   doorStyle: DoorStyle;
   mood: 'day' | 'evening';
   cameraView: CameraView;
+  /** Changes whenever the view should be re-framed (e.g. "Fit to screen"). */
+  fitKey: number;
   onSelectCabinet: (id: string | null) => void;
 }
 
-// Controller to smoothly animate camera between view angles
-const CameraViewController: React.FC<{
-  view: CameraView;
-  targetX: number;
-  wallWidthM: number;
-}> = ({ view, targetX, wallWidthM }) => {
-  const { camera, size } = useThree();
-  const controlsRef = useRef<any>(null);
+/** The part of the room that has to be on screen. */
+interface Bounds {
+  minX: number;
+  maxX: number;
+  maxZ: number;
+  height: number;
+  /** Front of the deepest floor cabinet on the main wall. */
+  baseFront: number;
+  /** Front of the deepest cabinet on the side wall. */
+  sideFront: number;
+}
 
-  useEffect(() => {
-    const target = new THREE.Vector3(targetX, 0.85, 0.4);
+function roomBounds(wallW: number, wallH: number, shape: string, returnM: number, cabinets: CabinetData[]): Bounds {
+  const main = cabinets.filter((c) => c.run === 'main' && !c.isWallMounted);
+  const side = cabinets.filter((c) => c.run === 'return');
+  const baseFront = Math.max(0.6, ...main.map((c) => c.depth));
+  const sideFront = Math.max(0, ...side.map((c) => c.depth));
+  const sideReach = Math.max(0, ...side.map((c) => c.x + c.width));
+  const maxZ = Math.max(baseFront + 0.4, shape === 'lShape' ? Math.max(returnM, sideReach) : 0);
+  return { minX: shape === 'lShape' ? -0.15 : 0, maxX: wallW, maxZ, height: wallH, baseFront, sideFront };
+}
 
-    // Distance at which `spanM` of wall fills the frame, so plan and elevation
-    // show the whole run instead of a close-up of its middle.
-    const perspective = camera as THREE.PerspectiveCamera;
-    const aspect = perspective.aspect || size.width / Math.max(1, size.height);
-    const vFov = ((perspective.fov ?? 42) * Math.PI) / 180;
-    const fitDistance = (spanM: number) =>
-      Math.max(2.4, spanM / (2 * Math.tan(vFov / 2) * Math.max(0.5, aspect)));
+/** Plan view frame: the room plus the dimension lines outside it. */
+function planFrame(b: Bounds) {
+  const minX = b.minX - (b.minX < 0 ? 0.9 : 0.2);
+  const minZ = -0.85;
+  return { cx: (minX + b.maxX) / 2, cz: (minZ + b.maxZ) / 2, spanX: b.maxX - minX, spanZ: b.maxZ - minZ };
+}
 
-    let destPos: THREE.Vector3;
+const DIM_COLOR = '#6E6052';
+
+/**
+ * Plan = straight down, Elevation = straight at the main wall, both
+ * orthographic (true drawings, no perspective) and fitted with room for the
+ * dimension lines. 3D = a three-quarter view that fits the whole room.
+ */
+const ViewRig: React.FC<{ view: CameraView; bounds: Bounds; fitKey: number }> = ({ view, bounds, fitKey }) => {
+  const size = useThree((s) => s.size);
+  const controls = useRef<OrbitControlsImpl>(null);
+  const persp = useRef<THREE.PerspectiveCamera>(null);
+  const ortho = useRef<THREE.OrthographicCamera>(null);
+  const { minX, maxX, maxZ, height } = bounds;
+  const cx = (minX + maxX) / 2;
+  const spanX = maxX - minX;
+  // What the view looks at. Passed to the controls as a prop too: switching
+  // between 3D and Plan swaps camera type, which recreates the controls.
+  const target = useMemo<[number, number, number]>(() => {
     if (view === 'top') {
-      destPos = new THREE.Vector3(targetX, 0.85 + fitDistance(wallWidthM * 1.15), 0.41);
-    } else if (view === 'front') {
-      destPos = new THREE.Vector3(targetX, 1.15, 0.4 + fitDistance(wallWidthM * 1.1));
-    } else {
-      // 3D Orbit default: intimate eye-level view showing both base and wall joinery
-      destPos = new THREE.Vector3(targetX + 0.35, 1.45, 3.2);
+      const f = planFrame(bounds);
+      return [f.cx, 0, f.cz];
     }
+    if (view === 'front') return [cx, height / 2 - 0.2, 0];
+    return [cx, Math.min(1.0, height / 2), Math.min(maxZ, 1.2) / 2];
+  }, [view, cx, maxZ, height, bounds]);
 
-    // Looking straight down makes the default up vector parallel to the view
-    // direction, which leaves the plan at an arbitrary rotation. Point "up"
-    // along the room's depth axis instead so plan view lands square.
-    camera.up.set(0, view === 'top' ? 0 : 1, view === 'top' ? -1 : 0);
-    if (controlsRef.current) controlsRef.current.update();
+  // Ortho views re-fit when the canvas resizes; the 3D view keeps whatever
+  // angle the designer orbited to until asked (view change or Fit).
+  const sizeKey = view === 'orbit' ? 0 : size.width * 10000 + size.height;
 
-    // Smooth transition
-    let progress = 0;
-    const startPos = camera.position.clone();
-    const interval = setInterval(() => {
-      progress += 0.08;
-      if (progress >= 1) {
-        camera.position.copy(destPos);
-        camera.lookAt(target);
-        if (controlsRef.current) {
-          controlsRef.current.target.copy(target);
-          controlsRef.current.update();
-        }
-        clearInterval(interval);
+  useLayoutEffect(() => {
+    const ctl = controls.current;
+    const t = new THREE.Vector3(...target);
+    if (view === 'orbit') {
+      const cam = persp.current;
+      if (!cam) return;
+      const radius = 0.5 * Math.hypot(spanX, height, maxZ);
+      const vFov = THREE.MathUtils.degToRad(cam.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (size.width / Math.max(1, size.height)));
+      const dist = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 0.82;
+      const dir = new THREE.Vector3(maxZ > 1.5 ? 0.55 : 0.32, 0.42, 1).normalize();
+      cam.up.set(0, 1, 0);
+      cam.position.copy(t).addScaledVector(dir, dist);
+      cam.lookAt(t);
+      cam.updateProjectionMatrix();
+    } else {
+      const cam = ortho.current;
+      if (!cam) return;
+      const margin = 0.9; // metres around the room for dimensions
+      if (view === 'top') {
+        cam.up.set(0, 0, -1);
+        const f = planFrame(bounds);
+        cam.position.set(f.cx, height + 6, f.cz);
+        cam.zoom = Math.min(size.width / (f.spanX + 0.6), size.height / (f.spanZ + 0.6));
       } else {
-        camera.position.lerpVectors(startPos, destPos, progress);
-        camera.lookAt(target);
+        cam.up.set(0, 1, 0);
+        cam.position.set(cx, height / 2 - 0.2, maxZ + 12);
+        cam.zoom = Math.min(size.width / (spanX + 2 * margin), size.height / (height + 2 * margin));
       }
-    }, 16);
-
-    return () => clearInterval(interval);
-  }, [view, targetX, wallWidthM, camera, size.width, size.height]);
+      cam.lookAt(t);
+      cam.updateProjectionMatrix();
+    }
+    if (ctl) {
+      ctl.target.copy(t);
+      ctl.update();
+    }
+  }, [view, fitKey, sizeKey, target, bounds, cx, spanX, maxZ, height, size.width, size.height]);
 
   return (
-    <OrbitControls
-      ref={controlsRef}
-      makeDefault
-      target={[targetX, 0.95, 0.35]}
-      // The plan view sits directly overhead; the 30° floor applies to the
-      // other views, where it stops the camera dropping through the ceiling.
-      minPolarAngle={view === 'top' ? 0 : Math.PI / 6}
-      maxPolarAngle={Math.PI / 2 + 0.02}
-      minDistance={1.2}
-      // Wide rooms need to pull back further than the old fixed 7m ceiling.
-      maxDistance={Math.max(7, wallWidthM * 2.2)}
-      dampingFactor={0.08}
-    />
+    <>
+      {view === 'orbit' ? (
+        <PerspectiveCamera ref={persp} makeDefault fov={42} near={0.05} far={200} />
+      ) : (
+        <OrthographicCamera ref={ortho} makeDefault near={0.05} far={200} />
+      )}
+      <OrbitControls
+        ref={controls}
+        makeDefault
+        target={target}
+        enableRotate={view === 'orbit'}
+        screenSpacePanning
+        minPolarAngle={0}
+        maxPolarAngle={Math.PI / 2 - 0.02}
+        minDistance={0.8}
+        maxDistance={Math.max(10, spanX * 3)}
+        minZoom={10}
+        maxZoom={2000}
+        dampingFactor={0.08}
+      />
+    </>
+  );
+};
+
+/** A dimension line from a to b with end ticks, and its label in mm. */
+interface Dim {
+  a: THREE.Vector3;
+  b: THREE.Vector3;
+  /** Direction of the end ticks. */
+  tick: THREE.Vector3;
+  label: string;
+}
+
+const mm = (m: number) => Math.round(m * 1000).toLocaleString('en-MY');
+
+function planDims(b: Bounds, cabinets: CabinetData[], shape: string, returnM: number): Dim[] {
+  // Drawn outside the room, as on an architect's plan: main-wall sizes
+  // behind the main wall, side-wall sizes beyond the side wall.
+  const y = b.height + 0.05; // above everything, seen from overhead
+  const dims: Dim[] = [];
+  const tickZ = new THREE.Vector3(0, 0, 0.08);
+  const floor = cabinets.filter((c) => c.run === 'main' && !c.isWallMounted).sort((p, q) => p.x - q.x);
+  for (const c of floor) {
+    dims.push({ a: new THREE.Vector3(c.x, y, -0.35), b: new THREE.Vector3(c.x + c.width, y, -0.35), tick: tickZ, label: mm(c.width) });
+  }
+  dims.push({ a: new THREE.Vector3(0, y, -0.7), b: new THREE.Vector3(b.maxX, y, -0.7), tick: tickZ, label: `Wall ${mm(b.maxX)}` });
+  if (shape === 'lShape') {
+    const tickX = new THREE.Vector3(0.08, 0, 0);
+    for (const c of cabinets.filter((k) => k.run === 'return' && !k.isWallMounted).sort((p, q) => p.x - q.x)) {
+      dims.push({ a: new THREE.Vector3(-0.5, y, c.x), b: new THREE.Vector3(-0.5, y, c.x + c.width), tick: tickX, label: mm(c.width) });
+    }
+    dims.push({ a: new THREE.Vector3(-0.85, y, 0), b: new THREE.Vector3(-0.85, y, returnM), tick: tickX, label: `Side wall ${mm(returnM)}` });
+  }
+  return dims;
+}
+
+function elevationDims(b: Bounds, cabinets: CabinetData[]): Dim[] {
+  const z = b.maxZ + 1;
+  const dims: Dim[] = [];
+  const tickY = new THREE.Vector3(0, 0.08, 0);
+  const tickX = new THREE.Vector3(0.08, 0, 0);
+  const main = cabinets.filter((c) => c.run === 'main');
+  for (const c of main.filter((k) => !k.isWallMounted).sort((p, q) => p.x - q.x)) {
+    dims.push({ a: new THREE.Vector3(c.x, -0.22, z), b: new THREE.Vector3(c.x + c.width, -0.22, z), tick: tickY, label: mm(c.width) });
+  }
+  dims.push({ a: new THREE.Vector3(0, -0.55, z), b: new THREE.Vector3(b.maxX, -0.55, z), tick: tickY, label: `Wall ${mm(b.maxX)}` });
+  const right = b.maxX + 0.3;
+  const hasWorktop = main.some((c) => !c.isWallMounted && !['tall', 'oven', 'fridge'].includes(c.kind));
+  if (hasWorktop) {
+    dims.push({ a: new THREE.Vector3(right, 0, z), b: new THREE.Vector3(right, 0.89, z), tick: tickX, label: 'Worktop 890' });
+  }
+  const wallUnit = main.find((c) => c.kind === 'wall');
+  if (wallUnit) {
+    dims.push({ a: new THREE.Vector3(right + 0.45, 0, z), b: new THREE.Vector3(right + 0.45, wallUnit.mount, z), tick: tickX, label: `Under wall units ${mm(wallUnit.mount)}` });
+  }
+  dims.push({ a: new THREE.Vector3(right + 0.9, 0, z), b: new THREE.Vector3(right + 0.9, b.height, z), tick: tickX, label: `Ceiling ${mm(b.height)}` });
+  return dims;
+}
+
+const Dimensions: React.FC<{ dims: Dim[] }> = ({ dims }) => {
+  const geometry = useMemo(() => {
+    const pts: number[] = [];
+    for (const { a, b, tick } of dims) {
+      pts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      for (const p of [a, b]) {
+        pts.push(p.x - tick.x, p.y - tick.y, p.z - tick.z, p.x + tick.x, p.y + tick.y, p.z + tick.z);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    return g;
+  }, [dims]);
+  return (
+    <group>
+      <lineSegments geometry={geometry}>
+        <lineBasicMaterial color={DIM_COLOR} />
+      </lineSegments>
+      {dims.map((d, i) => (
+        <Html
+          key={i}
+          position={d.a.clone().add(d.b).multiplyScalar(0.5)}
+          center
+          zIndexRange={[10, 0]}
+          style={{ pointerEvents: 'none' }}
+        >
+          <span className="dim-label">{d.label}</span>
+        </Html>
+      ))}
+    </group>
   );
 };
 
 export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   wallWidthMm,
   wallHeightMm,
+  returnMm,
   roomShape,
   cabinets,
   selectedCabinetId,
@@ -107,64 +247,61 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   doorStyle,
   mood,
   cameraView,
+  fitKey,
   onSelectCabinet,
 }) => {
-  const wallWidthM = wallWidthMm / 1000;
-  
-  // Calculate average center of all cabinets
-  const cabinetCenterX = cabinets.length > 0
-    ? cabinets.reduce((sum, c) => sum + (c.x + c.width / 2), 0) / cabinets.length
-    : wallWidthM / 2;
+  const wallW = wallWidthMm / 1000;
+  const wallH = wallHeightMm / 1000;
+  const returnM = returnMm / 1000;
+  const bounds = useMemo(
+    () => roomBounds(wallW, wallH, roomShape, returnM, cabinets),
+    [wallW, wallH, roomShape, returnM, cabinets],
+  );
+  // Plan is a floor plan (wall units would hide the base units); an
+  // elevation shows one wall (side-wall units would stand in front of it).
+  const shown = useMemo(
+    () =>
+      cameraView === 'top'
+        ? cabinets.filter((c) => !c.isWallMounted)
+        : cameraView === 'front'
+          ? cabinets.filter((c) => c.run === 'main')
+          : cabinets,
+    [cameraView, cabinets],
+  );
+  const dims = useMemo(
+    () =>
+      cameraView === 'top'
+        ? planDims(bounds, cabinets, roomShape, returnM)
+        : cameraView === 'front'
+          ? elevationDims(bounds, cabinets)
+          : [],
+    [cameraView, bounds, cabinets, roomShape, returnM],
+  );
 
   return (
-    <div className="w-full h-full relative cursor-grab active:cursor-grabbing">
+    <div className="relative h-full w-full cursor-grab active:cursor-grabbing">
       <Canvas
         shadows
-        camera={{ position: [cabinetCenterX + 0.35, 1.45, 3.2], fov: 42 }}
-        // Deselect only when the click hits no module. A DOM handler on the
-        // wrapper would also fire for clicks on a cabinet — R3F's
-        // stopPropagation cannot stop the native event bubbling out of the
-        // canvas — which made modules impossible to select.
+        // Deselect only when the click hits no cabinet.
         onPointerMissed={() => onSelectCabinet(null)}
-        gl={{
-          antialias: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.08,
-        }}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.08 }}
       >
-        {/* Harmonious Studio Background matching Earthy Palette */}
         <color attach="background" args={[mood === 'day' ? '#FAF7F2' : '#201D1A']} />
-
-        {/* Architectural Environment & Lighting */}
         <LightingRig mood={mood} />
-
-        {/* Room Shell (Plank Flooring, Lime-Wash Walls, Skirting) */}
-        <RoomShell
-          widthMm={wallWidthMm}
-          heightMm={wallHeightMm}
-          shape={roomShape}
-        />
-
-        {/* Dynamic Cabinet Joinery Modules */}
-        <group position={[0, 0, 0]}>
-          {cabinets.map((cab) => (
-            <CabinetMesh
-              key={cab.id}
-              cabinet={cab}
-              isSelected={cab.id === selectedCabinetId}
-              finish={finish}
-              doorStyle={doorStyle}
-              onSelect={(id) => onSelectCabinet(id)}
-            />
-          ))}
-        </group>
-
-        {/* Camera View Controls */}
-        <CameraViewController
-          view={cameraView}
-          targetX={cabinetCenterX}
-          wallWidthM={wallWidthM}
-        />
+        <RoomShell widthMm={wallWidthMm} heightMm={wallHeightMm} shape={roomShape} returnMm={returnMm} />
+        {shown.map((cab) => (
+          <CabinetMesh
+            key={cab.id}
+            cabinet={cab}
+            isSelected={cab.id === selectedCabinetId}
+            finish={finish}
+            doorStyle={doorStyle}
+            ceiling={wallH}
+            onSelect={onSelectCabinet}
+          />
+        ))}
+        {dims.length > 0 && <Dimensions dims={dims} />}
+        <ViewRig view={cameraView} bounds={bounds} fitKey={fitKey} />
       </Canvas>
     </div>
   );
