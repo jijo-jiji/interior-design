@@ -65,3 +65,6 @@ temp_video_recordings/
 
 # Web build of the sales app (tool/build_web.sh); built per machine, not committed
 /backend/static/sales/
+
+# The office server's HTTPS keys (backend/office_https.py). Private: never commit.
+/backend/certs/

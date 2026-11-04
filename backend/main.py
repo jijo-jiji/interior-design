@@ -13,9 +13,9 @@ from datetime import datetime
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from reportlab.lib import colors
@@ -41,6 +41,16 @@ except ImportError:
     from dxf_exporter import generate_dxf
     from cutlist_generator import generate_cutlist_csv
 
+# HTTPS for the browser sales app (needs the `cryptography` package; without
+# it the server still runs, over http only).
+try:
+    try:
+        from backend import office_https
+    except ImportError:
+        import office_https
+except ImportError:
+    office_https = None
+
 # ─── App ─────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -55,6 +65,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Set by `python main.py` when the secure (https) server is running.
+app.state.https_port = None
+
+
+@app.middleware("http")
+async def sales_app_over_https(request: Request, call_next):
+    """Browsers only allow the camera on https, so the sales app at
+    http://...:8000/sales is sent to the same page on the https port."""
+    https_port = app.state.https_port
+    path = request.url.path
+    if (
+        https_port
+        and request.url.scheme == "http"
+        and (path == "/sales" or path.startswith("/sales/"))
+    ):
+        host = request.url.hostname or "localhost"
+        if ":" in host:  # IPv6 literal
+            host = f"[{host}]"
+        target = request.url.replace(scheme="https", netloc=f"{host}:{https_port}")
+        return RedirectResponse(str(target), status_code=307)
+    return await call_next(request)
 
 # ─── Pricing table (AUD, mock values) ────────────────────────────────────────
 
@@ -700,6 +732,39 @@ SALES_DIR = os.path.join(os.path.dirname(__file__), "static", "sales")
 os.makedirs(SALES_DIR, exist_ok=True)
 app.mount("/sales", StaticFiles(directory=SALES_DIR, html=True), name="sales")
 
+# ─── Device setup (trust the office server, once per tablet) ────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+def device_setup(request: Request):
+    """Page a tablet opens once (over http) to trust the https server."""
+    if office_https is None:
+        return HTMLResponse(
+            "<p>HTTPS isn't available: run <code>pip install -r requirements.txt</code> "
+            "on the office computer and restart the server.</p>",
+            status_code=503,
+        )
+    certs = office_https.ensure_certificates()
+    return office_https.setup_page(
+        host=request.url.hostname or "localhost",
+        http_port=request.url.port or 80,
+        https_port=app.state.https_port,
+        fingerprint=certs.ca_fingerprint,
+    )
+
+
+@app.get("/setup/{filename}")
+def device_setup_certificate(filename: str):
+    """The office CA certificate (public part only) for tablets to install."""
+    if office_https is None or filename != office_https.CA_DOWNLOAD_NAME:
+        raise HTTPException(status_code=404, detail="Not found")
+    certs = office_https.ensure_certificates()
+    return Response(
+        content=certs.ca_der,
+        media_type="application/x-x509-ca-cert",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/view/{quote_id}")
 def view_customer_proposal(quote_id: str):
     """Shareable lightweight client-facing 3D proposal portal."""
@@ -723,5 +788,73 @@ def root_redirect():
 
 # ─── Dev runner ──────────────────────────────────────────────────────────────
 
+HTTP_PORT = 8000
+HTTPS_PORT = 8443
+
+
+async def _serve_all(servers: list[uvicorn.Server]) -> None:
+    import asyncio
+
+    await asyncio.gather(*(server.serve() for server in servers))
+
+
+def _print_addresses(https_running: bool) -> None:
+    ip = office_https.primary_lan_ip() if office_https else None
+    host = ip or "localhost"
+    print("\nSS Love office server")
+    if https_running:
+        print(f"  Sales app (browser):    https://{host}:{HTTPS_PORT}/sales/")
+        print(f"  Set up a tablet once:   http://{host}:{HTTP_PORT}/setup")
+    print(f"  Android app, Studio:    http://{host}:{HTTP_PORT}")
+    if not ip:
+        print("  (No Wi-Fi/LAN address found: only this computer can connect.)")
+    print()
+
+
+def serve(https: bool = True) -> None:
+    """http on 8000 (Android app, Studio, setup page) and, when possible,
+    https on 8443 (the sales app in a browser, so the camera works)."""
+    import asyncio
+
+    servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=HTTP_PORT))]
+    if https and office_https is None:
+        print("HTTPS is off: run `pip install -r requirements.txt` to turn it on.")
+        https = False
+    if https:
+        certs = office_https.ensure_certificates()
+        app.state.https_port = HTTPS_PORT
+        servers.append(
+            uvicorn.Server(
+                uvicorn.Config(
+                    app,
+                    host="0.0.0.0",
+                    port=HTTPS_PORT,
+                    ssl_certfile=str(certs.server_cert),
+                    ssl_keyfile=str(certs.server_key),
+                )
+            )
+        )
+    _print_addresses(https_running=https)
+    try:
+        asyncio.run(_serve_all(servers))
+    except KeyboardInterrupt:
+        # Ctrl+C: both servers have already shut down cleanly.
+        pass
+    print("Server stopped.")
+
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SS Love office server")
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="reload on code changes (http only, port 8000)",
+    )
+    parser.add_argument("--no-https", action="store_true", help="http only")
+    args = parser.parse_args()
+    if args.dev:
+        uvicorn.run("main:app", host="0.0.0.0", port=HTTP_PORT, reload=True)
+    else:
+        serve(https=not args.no_https)

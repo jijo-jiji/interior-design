@@ -271,3 +271,35 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - **Camera:** the browser camera needs `https://` or `localhost`. On plain-`http` LAN addresses, use the gallery picker, which can open the camera on tablets. Serving over https would need a certificate on the office server.
 - **Browser storage:** designs live in that browser's storage; clearing site data deletes unsent ones.
 - **Not covered by these checks:** a real iPad or Android tablet browser (only Chromium was tested); pinch-zoom inside the 3D view on touch.
+
+## 15. Session 2026-11-04 — HTTPS on the office server (camera in the browser)
+
+**Why:** browsers only allow the camera on `https://` or `localhost`.
+
+**How it works** (`backend/office_https.py`; `cryptography` added to `requirements.txt`)
+- **Two servers:** `python main.py` runs http on 8000 (Android app, Studio, `/setup`) and https on 8443 (the browser sales app). `http://…:8000/sales/` redirects (307) to the https address; the API stays on http for the Android app. Flags: `--no-https`; `--dev` keeps the old auto-reload, http-only mode.
+- **Own certificate authority:** on first start the server creates an office CA (10 years) and a server certificate for `localhost`, the computer name, `<name>.local` and its private LAN IPs.
+- **Renewal:** the server certificate (397 days) renews on start when it nears expiry or the IP changes. The CA stays, so tablets are set up once.
+- **Name constraints:** the CA is limited (critical) to private IP ranges, `localhost`, `*.local` and the computer name, so even a leaked CA key can't impersonate real sites. Names the CA doesn't cover (e.g. after renaming the laptop) are left out of the server certificate, so IPs keep working.
+- **Files:** `backend/certs/`, gitignored (private keys).
+- **`/setup` page** (opened over http):
+  - CA download (DER) and install steps for Android, iPad/iPhone, Windows and Mac.
+  - The CA fingerprint.
+  - A live check: a green tick when the device trusts the server, a "not set up yet" message when it doesn't, and a firewall hint when the secure port doesn't answer within 6 s.
+
+**Verified**
+- **`backend/test_office_https.py`, 10 tests:**
+  - every local name and IP verifies against the CA;
+  - Apple's limits are met (≤ 825 days, serverAuth, RSA 2048);
+  - a certificate the CA signs for `www.maybank2u.com.my` / 8.8.8.8 is rejected;
+  - public IPs are left out;
+  - a new Wi-Fi IP renews the server certificate but keeps the CA;
+  - a renamed computer still works by IP;
+  - the routes: setup page, DER download (and the key is never served), and the `/sales` redirect.
+  - The existing `test_studio.py` still passes (18/18 together).
+- **Live server, with curl and `openssl verify`:** the chain is OK, untrusted clients are refused, `/sales` redirects, and Ctrl+C stops both servers cleanly.
+- **Chromium, 9 checks:** one browser trusts the CA through an NSS DB; the address is `vm.local` mapped to 127.0.0.1, so it isn't treated as localhost.
+  - Trusted: the setup page shows the tick; `http /sales` lands on https; it's a secure context; projects load; the fake camera starts and a photo is taken.
+  - Untrusted: the setup page says not set up, and https fails with `ERR_CERT_AUTHORITY_INVALID`.
+
+**Not verified here:** real Android or iPad certificate installation; the steps follow each platform's standard flow, and the Android path can differ by brand ("search Settings for CA certificate").
