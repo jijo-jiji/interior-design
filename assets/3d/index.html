@@ -1446,7 +1446,13 @@ function selectCabinet(cab) {
   if (nameEl) nameEl.textContent = cab.userData.label || 'Cabinet';
   if (bar) bar.classList.add('show');
   invalidate();
-  notifyFlutter({ event: 'cabinet_selected', id: cab.userData.id, label: cab.userData.label || 'Cabinet' });
+  notifyFlutter({
+    event: 'cabinet_selected',
+    id: cab.userData.id,
+    label: cab.userData.label || 'Cabinet',
+    // Return-wall (L-shape) units can't slide yet, by drag or by button.
+    movable: cab.userData.run !== 'return',
+  });
 }
 
 window.deselectCabinet = function() {
@@ -1482,6 +1488,41 @@ window.removeSelectedCabinet = function() {
   });
 
   showToast(`${label} removed`);
+};
+
+// ── Moving and choosing without dragging (WCAG 2.5.7 and 2.1.1) ────────────
+// Flutter's Move left / Move right buttons. The same rules as a drag: a
+// main-wall cabinet slides along the wall and stays inside it.
+window.nudgeSelectedCabinet = function(dxMm) {
+  const cab = selectedCabinet;
+  if (!cab || !editMode || cab.userData.run === 'return') return;
+  const spec = cab.userData.spec;
+  const halfCabW = (spec ? spec.w : 0.6) / 2;
+  const halfWallW = currentWallW / 2;
+  const x = Math.min(halfWallW - halfCabW,
+    Math.max(-halfWallW + halfCabW, cab.position.x + dxMm * MM));
+  if (Math.abs(x - cab.position.x) < 0.0005) return; // already at the wall end
+  cab.position.x = x;
+  if (selectionBox) selectionBox.setFromObject(cab);
+  invalidate();
+  notifyFlutter({ event: 'cabinet_moved', id: cab.userData.id, x_mm: Math.round(x * 1000) });
+};
+
+// Previous / Next cabinet, so every cabinet can be selected without touching
+// the 3D view: base units left to right, then wall units, then the return wall.
+function cabinetReadingOrder(a, b) {
+  const rank = c => (c.userData.run === 'return' ? 2 : 0) + (c.userData.spec?.isWall ? 1 : 0);
+  const along = c => (c.userData.run === 'return' ? c.position.z : c.position.x);
+  return rank(a) - rank(b) || along(a) - along(b);
+}
+
+window.selectAdjacentCabinet = function(dir) {
+  if (!editMode || !placedCabinets.length) return;
+  const ordered = [...placedCabinets].sort(cabinetReadingOrder);
+  const i = ordered.indexOf(selectedCabinet);
+  const n = ordered.length;
+  const next = i < 0 ? (dir >= 0 ? 0 : n - 1) : (i + (dir >= 0 ? 1 : -1) + n) % n;
+  selectCabinet(ordered[next]);
 };
 
 // ── Touch & Mouse Drag with Magnetic Snapping ──────────────────────────────

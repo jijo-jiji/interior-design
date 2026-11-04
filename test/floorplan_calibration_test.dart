@@ -27,9 +27,9 @@ void main() {
 
       expect(scaleRatio, 0.2);
 
-      // Now calculate room wall width from a 800px crop box
-      const roomCropWidthPx = 800.0;
-      final roomWallMm = roomCropWidthPx / scaleRatio;
+      // Wall marks 800 px apart on the plan
+      const wallMarksPx = 800.0;
+      final roomWallMm = wallMarksPx / scaleRatio;
 
       expect(roomWallMm, 4000.0);
     });

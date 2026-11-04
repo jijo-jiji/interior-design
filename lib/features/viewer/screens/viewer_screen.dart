@@ -12,6 +12,7 @@ import '../../../shared/labels.dart';
 import '../../../shared/money.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
+import '../../../shared/widgets/nudge_buttons.dart';
 import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
@@ -25,6 +26,9 @@ import '../utils/offline_store.dart';
 /// layouts, style switching and a live estimate. The design is saved on the
 /// phone after every change; the price stays hidden until the salesperson
 /// shows it; the quote sheet sends a quote or confirms an order.
+/// Each Move left / Move right tap slides the selected cabinet this far.
+const int kCabinetNudgeMm = 50;
+
 class ViewerScreen extends ConsumerStatefulWidget {
   final String jsonPayload;
   const ViewerScreen({super.key, required this.jsonPayload});
@@ -57,6 +61,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _editing = false;
   String? _selectedId;
   String? _selectedLabel;
+  // Return-wall (L-shape) cabinets can be selected but not moved yet.
+  bool _selectedMovable = true;
 
   /// Full view hides every control so the client sees the whole design.
   bool _controlsHidden = false;
@@ -314,6 +320,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     HapticFeedback.lightImpact();
   }
 
+  // The no-drag way to choose and move cabinets (WCAG 2.5.7 and 2.1.1). The
+  // page answers with cabinet_selected / cabinet_moved, as for a tap or drag.
+  void _selectAdjacent(int direction) {
+    _webViewController.runJavaScript('selectAdjacentCabinet($direction)');
+    HapticFeedback.selectionClick();
+  }
+
+  void _nudgeSelected(int direction) {
+    _webViewController
+        .runJavaScript('nudgeSelectedCabinet(${direction * kCabinetNudgeMm})');
+    HapticFeedback.selectionClick();
+  }
+
   void _showVariantWarnings(LayoutVariant variant) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
@@ -364,6 +383,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           setState(() {
             _selectedId = data['id'] as String?;
             _selectedLabel = data['label'] as String?;
+            _selectedMovable = data['movable'] as bool? ?? true;
           });
         case 'cabinet_deselected':
           setState(() {
@@ -818,8 +838,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   if (_editing)
                     _EditPanel(
                       selectedLabel: _selectedLabel,
+                      selectedMovable: _selectedMovable,
                       hasCabinets: _placedCabinets.isNotEmpty,
                       onAdd: _spawnCabinet,
+                      onSelectAdjacent: _selectAdjacent,
+                      onMove: _nudgeSelected,
                       onRemoveSelected: _removeSelected,
                       onClearAll: _clearLayout,
                       onDone: () => _setEditing(false),
@@ -1042,16 +1065,22 @@ class _LayoutVariantBar extends StatelessWidget {
 /// Edit mode: add cabinets, remove the selected one, or clear everything.
 class _EditPanel extends StatelessWidget {
   final String? selectedLabel;
+  final bool selectedMovable;
   final bool hasCabinets;
   final void Function(String type) onAdd;
+  final ValueChanged<int> onSelectAdjacent;
+  final ValueChanged<int> onMove;
   final VoidCallback onRemoveSelected;
   final VoidCallback onClearAll;
   final VoidCallback onDone;
 
   const _EditPanel({
     required this.selectedLabel,
+    required this.selectedMovable,
     required this.hasCabinets,
     required this.onAdd,
+    required this.onSelectAdjacent,
+    required this.onMove,
     required this.onRemoveSelected,
     required this.onClearAll,
     required this.onDone,
@@ -1086,12 +1115,50 @@ class _EditPanel extends StatelessWidget {
             ],
           ),
           Text(
-            selected == null
-                ? 'Tap a cabinet to select it, then drag to move it.'
-                : '$selected selected. Drag to move it.',
+            switch ((selected, selectedMovable)) {
+              (null, _) => 'Tap a cabinet in the view, or use Pick.',
+              (_, true) => '$selected selected. Drag it, or use Move.',
+              (_, false) =>
+                "$selected selected. Corner-wall cabinets can't be moved yet.",
+            },
             style: context.textTheme.bodySmall
                 ?.copyWith(color: context.colors.onSurfaceVariant),
           ),
+          if (hasCabinets) ...[
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _ControlGroup(
+                  label: 'Pick',
+                  children: [
+                    IconButton.outlined(
+                      tooltip: 'Previous cabinet',
+                      icon: const Icon(Icons.chevron_left_rounded),
+                      onPressed: () => onSelectAdjacent(-1),
+                    ),
+                    IconButton.outlined(
+                      tooltip: 'Next cabinet',
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      onPressed: () => onSelectAdjacent(1),
+                    ),
+                  ],
+                ),
+                if (selected != null && selectedMovable)
+                  _ControlGroup(
+                    label: 'Move',
+                    children: [
+                      NudgeButtons(
+                        vertical: false,
+                        onNudge: (dx, _) => onMove(dx),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -1170,6 +1237,33 @@ class _EditPanel extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// A small caption ("Pick", "Move") in front of a few icon buttons.
+class _ControlGroup extends StatelessWidget {
+  const _ControlGroup({required this.label, required this.children});
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: context.textTheme.labelMedium
+              ?.copyWith(color: context.colors.onSurfaceVariant),
+        ),
+        const SizedBox(width: 8),
+        for (final (i, child) in children.indexed) ...[
+          if (i > 0) const SizedBox(width: 8),
+          child,
+        ],
+      ],
     );
   }
 }

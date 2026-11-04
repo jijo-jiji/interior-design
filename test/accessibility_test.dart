@@ -211,6 +211,49 @@ void main() {
     });
   }
 
+  // Step 2 of the trace screen, with a window box on the photo and its chip
+  // in the panel.
+  group('trace, step 2 with a window', () {
+    Future<void> openStep2(WidgetTester tester, {double scale = 1}) async {
+      await _pump(tester, _screens['trace']!(), scale: scale);
+      for (final label in ['Next', 'Add window']) {
+        await tester.ensureVisible(find.text(label));
+        await tester.pump();
+        await tester.tap(find.text(label));
+        await tester.pump();
+      }
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('tap targets are at least 48x48 and labelled', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openStep2(tester);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('text meets WCAG AA contrast', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openStep2(tester);
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('lays out without overflow at 2x text size', (tester) async {
+      final errors = <String>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError =
+          (details) => errors.add(details.exceptionAsString());
+      await openStep2(tester, scale: 2);
+      FlutterError.onError = previous;
+      expect(errors, isEmpty);
+      await _finish(tester);
+    });
+  });
+
   // The pixel scan above covers this too; this pins the most important
   // button's colours directly.
   testWidgets('3D view: the Quote button label meets 4.5:1', (tester) async {

@@ -115,6 +115,47 @@ void main() {
     await finish(tester);
   });
 
+  testWidgets('cabinets can be picked and moved without dragging',
+      (tester) async {
+    await pumpViewer(tester);
+    await tester.tap(find.text('Edit'));
+    await tester.pump();
+    expect(
+        find.text('Tap a cabinet in the view, or use Pick.'), findsOneWidget);
+    // Nothing selected yet: nothing to move.
+    expect(find.byTooltip('Move right'), findsNothing);
+
+    await tester.tap(find.byTooltip('Next cabinet'));
+    expect(page().javaScript, contains('selectAdjacentCabinet(1)'));
+    fromPage({
+      'event': 'cabinet_selected',
+      'id': 'B-01',
+      'label': 'Base 600',
+      'movable': true,
+    });
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Move right'));
+    expect(page().javaScript, contains('nudgeSelectedCabinet(50)'));
+    await tester.tap(find.byTooltip('Move left'));
+    expect(page().javaScript, contains('nudgeSelectedCabinet(-50)'));
+    await tester.tap(find.byTooltip('Previous cabinet'));
+    expect(page().javaScript, contains('selectAdjacentCabinet(-1)'));
+
+    // A return-wall cabinet: selectable, but no Move buttons.
+    fromPage({
+      'event': 'cabinet_selected',
+      'id': 'R-01',
+      'label': 'Base 600',
+      'movable': false,
+    });
+    await tester.pump();
+    expect(find.byTooltip('Move right'), findsNothing);
+    expect(find.textContaining("Corner-wall cabinets can't be moved yet"),
+        findsOneWidget);
+    await finish(tester);
+  });
+
   testWidgets('a manual change unselects the A/B/C layout', (tester) async {
     await pumpViewer(tester);
     expect(find.textContaining('your changes'), findsNothing);
