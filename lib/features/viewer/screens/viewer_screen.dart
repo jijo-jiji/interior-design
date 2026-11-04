@@ -810,7 +810,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             onPressed: () {
               Navigator.pop(dialogContext);
               ref.read(consultationProvider.notifier).state = null;
-              context.go('/');
+              // Pop back to home rather than go('/'): the home screen waits
+              // on the routes it pushed and reloads when they close, so a
+              // quote saved offline shows as "to send" instead of "All sent".
+              final router = GoRouter.of(context);
+              while (router.canPop()) {
+                router.pop();
+              }
             },
             child: const Text('New client'),
           ),
