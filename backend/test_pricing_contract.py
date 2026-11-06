@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from backend.catalog import default_catalog  # noqa: E402
 from backend.main import QuoteRequest, price_quote  # noqa: E402
 
 FIXTURE = os.path.join(
@@ -37,7 +38,9 @@ def price_case(case: dict):
         benchtop_material=case["benchtop_material"],
     )
     # price_quote is pure: no database write, no PDF.
-    _, subtotal, gst, total = price_quote(request)
+    # Always the sample catalogue (not whatever has been edited on this
+    # machine), so the figures stay comparable with the other two engines.
+    _, subtotal, gst, total = price_quote(request, default_catalog())
     return subtotal, gst, total
 
 
@@ -67,19 +70,13 @@ def test_pricing_matches_contract():
 
 def test_benchtop_only_covers_base_and_corner_run():
     """Wall and tall units carry no benchtop — the metre count must ignore them."""
-    from backend.main import _benchtop_linear_metres, PlacedCabinet
+    from backend.catalog import benchtop_metres
 
-    def cab(cab_type: str, width_mm: float) -> PlacedCabinet:
-        return PlacedCabinet(
-            cabinet_type=cab_type, label=cab_type,
-            width_mm=width_mm, height_mm=850, depth_mm=600,
-        )
-
-    metres = _benchtop_linear_metres([
-        cab("base_800", 800),    # 0.80
-        cab("wall_600", 600),    # ignored
-        cab("tall_600", 600),    # ignored
-        cab("corner_900", 900),  # 1.80 (both wings)
+    metres = benchtop_metres(default_catalog(), [
+        ("base_800", 800),    # 0.80
+        ("wall_600", 600),    # ignored
+        ("tall_600", 600),    # ignored
+        ("corner_900", 900),  # 1.80 (both wings)
     ])
     assert abs(metres - 2.6) < 0.001, f"expected 2.6 lm, got {metres}"
 

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,9 +38,11 @@ import base64
 try:
     from backend.dxf_exporter import generate_dxf
     from backend.cutlist_generator import generate_cutlist_csv
+    from backend import catalog as catalog_lib
 except ImportError:
     from dxf_exporter import generate_dxf
     from cutlist_generator import generate_cutlist_csv
+    import catalog as catalog_lib
 
 # HTTPS for the browser sales app (needs the `cryptography` package; without
 # it the server still runs, over http only).
@@ -89,71 +91,10 @@ async def sales_app_over_https(request: Request, call_next):
         return RedirectResponse(str(target), status_code=307)
     return await call_next(request)
 
-# ─── Pricing table (MYR, mock values) ────────────────────────────────────────
-
-CABINET_PRICES: dict[str, float] = {
-    "base_800":   420.00,
-    "base_600":   340.00,
-    "wall_600":   280.00,
-    "tall_600":   620.00,
-    "corner_900": 580.00,
-    # Appliance modules: the cabinetry, cutouts and services for each unit.
-    "sink_600":        480.00,
-    "cooktop_600":     520.00,
-    "dishwasher_600":  360.00,
-    "oven_tower_600": 1450.00,
-    "fridge_recess_700": 390.00,
-    "rangehood_900":   690.00,
-}
-
-# Which modules carry benchtop over them. Mirrored in CPQEngine (Dart) and
-# frontend/src/pricing.ts — the pricing contract test fails if they drift.
-BENCHTOP_TYPE_PREFIXES = ("base", "corner", "sink", "cooktop", "dishwasher")
-
-# Appliance modules are described as such on the quote, not as "Cabinet —".
-APPLIANCE_TYPE_PREFIXES = ("sink", "cooktop", "dishwasher", "oven", "fridge", "rangehood")
-
-# Benchtop is priced per linear metre of base/corner run, without the style
-# multiplier. Mirrors CPQEngine in lib/features/viewer/models/cpq_engine.dart —
-# the two must stay in step or the app and the signed PDF disagree.
-BENCHTOP_RATES: dict[str, float] = {
-    "quartz_calacatta": 380.00,
-    "granite_black":    480.00,
-    "laminate_matte":   160.00,
-}
-
-BENCHTOP_NAMES: dict[str, str] = {
-    "quartz_calacatta": "Calacatta Engineered Quartz",
-    "granite_black":    "Nero Absolute Granite",
-    "laminate_matte":   "Ultra-Matte Mineral Laminate",
-}
-
-# A corner unit carries benchtop along both wings (900mm each).
-CORNER_BENCHTOP_METRES = 1.8
-
-OBSTACLE_ALLOWANCES: dict[str, float] = {
-    "window": -50.00,   # reduces labour slightly
-    "door":   -80.00,
-}
-
-LABOUR_RATE_PER_CABINET = 120.00
-# Malaysian service tax. The JSON field is still called "gst" so the 19 stored
-# consultations and the studio PUT contract keep working; the label is SST.
-GST_RATE = 0.08  # SST 8%
-
-STYLE_MULTIPLIERS: dict[str, float] = {
-    "japandi": 1.00,
-    "minimalist": 1.08,
-    "nordic": 1.12,
-    "industrial": 1.18,
-}
-
-STYLE_NAMES: dict[str, str] = {
-    "japandi": "Japandi Natural",
-    "minimalist": "Modern Minimalist",
-    "nordic": "Warm Nordic",
-    "industrial": "Industrial Luxe",
-}
+# ─── Catalogue ───────────────────────────────────────────────────────────────
+# Prices, sizes, finishes, tax and the pricing rules are data, not code: see
+# catalog.py. The store keeps the current catalogue and every earlier version.
+catalogs = catalog_lib.CatalogStore()
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -207,6 +148,10 @@ class QuoteRequest(BaseModel):
     client_email: str | None = None
     deposit_paid: float = 0.0
     signature_base64: str | None = None
+    # The catalogue version the app priced this with. The server prices with
+    # the same version, so a quote made offline against an older price list
+    # still prints the number the client was shown.
+    catalog_version: int | None = None
     # The floor plan the room was read from (sales app, floor plan route),
     # for the Room and House views: the picture as a data URL, plus walls
     # and rooms in mm from the kitchen's corner. The picture is stored as a
@@ -236,92 +181,43 @@ def health():
     return {"status": "ok", "service": "static-trace-api"}
 
 
-def _benchtop_linear_metres(cabinets: list[PlacedCabinet]) -> float:
-    """Benchtop runs over base units (their own width) and corners (both wings)."""
-    metres = 0.0
-    for cab in cabinets:
-        if cab.cabinet_type.startswith("corner"):
-            metres += CORNER_BENCHTOP_METRES
-        elif cab.cabinet_type.startswith(BENCHTOP_TYPE_PREFIXES):
-            metres += (cab.width_mm or 0) / 1000.0
-    return round(metres, 3)
+def _catalog_for(request: "QuoteRequest") -> "catalog_lib.Catalog":
+    """The catalogue version the app priced with, else the current one."""
+    if request.catalog_version is not None:
+        found = catalogs.get_version(request.catalog_version)
+        if found is not None:
+            return found
+    return catalogs.current()
 
 
-def price_quote(request: QuoteRequest) -> tuple[list[LineItem], float, float, float]:
-    """Prices a layout: (line_items, subtotal, gst, total).
+def price_quote(
+    request: QuoteRequest,
+    catalog: "catalog_lib.Catalog | None" = None,
+) -> tuple[list[LineItem], float, float, float]:
+    """Prices a layout: (line_items, subtotal, tax, total).
 
     Pure — no database, no PDF — so the pricing contract can be tested against
-    the mobile CPQEngine without side effects. See test/fixtures/pricing_cases.json.
+    the mobile CPQEngine and the Studio without side effects. See
+    test/fixtures/pricing_cases.json. Pass [catalog] to price against a
+    specific catalogue (the contract test uses the sample one).
     """
-    line_items: list[LineItem] = []
-
-    # Group cabinets by type
-    from collections import Counter
-    cab_counts = Counter(c.cabinet_type for c in request.placed_cabinets)
-    mult = STYLE_MULTIPLIERS.get(request.style_archetype, 1.00)
-    style_label = STYLE_NAMES.get(request.style_archetype, "Japandi Natural")
-
-    for cab_type, qty in cab_counts.items():
-        base_unit = CABINET_PRICES.get(cab_type, 300.00)
-        unit = round(base_unit * mult, 2)
-        kind = "Appliance" if cab_type.startswith(APPLIANCE_TYPE_PREFIXES) else "Cabinet"
-        line_items.append(LineItem(
-            description=f"{kind} — {cab_type.replace('_', ' ').title()} ({style_label})",
-            qty=qty,
-            unit_price=unit,
-            total=round(unit * qty, 2),
-        ))
-
-    # Labour
-    total_cabs = sum(cab_counts.values())
-    if total_cabs > 0:
-        labour_total = LABOUR_RATE_PER_CABINET * total_cabs
-        line_items.append(LineItem(
-            description="Installation Labour",
-            qty=total_cabs,
-            unit_price=LABOUR_RATE_PER_CABINET,
-            total=labour_total,
-        ))
-
-    # Benchtop (priced per linear metre of base and corner run)
-    benchtop_metres = _benchtop_linear_metres(request.placed_cabinets)
-    benchtop_rate = BENCHTOP_RATES.get(request.benchtop_material or "")
-    if benchtop_rate and benchtop_metres > 0:
-        benchtop_total = round(benchtop_rate * benchtop_metres, 2)
-        benchtop_label = BENCHTOP_NAMES.get(request.benchtop_material, "Benchtop")
-        line_items.append(LineItem(
-            description=(
-                f"Benchtop — {benchtop_label} "
-                f"({benchtop_metres:.2f} lm @ RM{benchtop_rate:.0f}/m)"
-            ),
-            qty=1,
-            unit_price=benchtop_total,
-            total=benchtop_total,
-        ))
-
-    # Obstacle allowances
-    for obs in request.obstacles:
-        allowance = OBSTACLE_ALLOWANCES.get(obs.type, 0)
-        if allowance != 0:
-            line_items.append(LineItem(
-                description=f"{obs.type.title()} cutout allowance",
-                qty=1,
-                unit_price=allowance,
-                total=allowance,
-            ))
-
-    subtotal = round(sum(li.total for li in line_items), 2)
-    gst = round(subtotal * GST_RATE, 2)
-    total_price = round(subtotal + gst, 2)
-
-    return line_items, subtotal, gst, total_price
+    catalog = catalog or _catalog_for(request)
+    lines, subtotal, tax, total = catalog_lib.price_layout(
+        catalog,
+        [(c.cabinet_type, c.width_mm) for c in request.placed_cabinets],
+        [o.type for o in request.obstacles],
+        request.style_archetype,
+        request.benchtop_material,
+    )
+    return [LineItem(**line) for line in lines], subtotal, tax, total
 
 
 @app.post("/quote", response_model=QuoteResponse)
 def create_quote(request: QuoteRequest):
     quote_id = request.quote_id if (request.quote_id and request.quote_id.startswith("QT-")) else f"QT-{uuid.uuid4().hex[:8].upper()}"
 
-    line_items, subtotal, gst, total_price = price_quote(request)
+    catalog = _catalog_for(request)
+    line_items, subtotal, gst, total_price = price_quote(request, catalog)
 
     # Generate PDF
     pdf_path = _generate_pdf(
@@ -331,6 +227,7 @@ def create_quote(request: QuoteRequest):
         subtotal=subtotal,
         gst=gst,
         total_price=total_price,
+        catalog=catalog,
     )
 
     # Store path for /pdf/<id> retrieval
@@ -347,6 +244,7 @@ def create_quote(request: QuoteRequest):
         "deposit_paid": request.deposit_paid,
         "style_archetype": request.style_archetype,
         "benchtop_material": request.benchtop_material,
+        "catalog_version": catalog.version,
         "wall": request.wall.dict(),
         "obstacles": [o.dict() for o in request.obstacles],
         "placed_cabinets": [c.dict() for c in request.placed_cabinets],
@@ -616,36 +514,63 @@ def pay_project_deposit(quote_id: str):
     return {"status": "success", "deposit_paid": 250.0, "message": "Manufacturing queue reserved"}
 
 
+def _require_admin(supplied: str | None) -> None:
+    if not catalog_lib.admin_key_ok(supplied):
+        raise HTTPException(
+            status_code=401,
+            detail="Changing the catalogue needs the admin key.",
+        )
+
+
 @app.get("/api/catalog")
-def get_catalog():
-    """Returns master cabinet pricing table, style multipliers, and labor rates."""
-    return {
-        "cabinets": CABINET_PRICES,
-        "styles": STYLE_MULTIPLIERS,
-        "style_names": STYLE_NAMES,
-        "labour_rate_per_cabinet": LABOUR_RATE_PER_CABINET,
-        "gst_rate": GST_RATE,
-        "obstacle_allowances": OBSTACLE_ALLOWANCES,
-        "benchtops": BENCHTOP_RATES,
-        "benchtop_names": BENCHTOP_NAMES,
-    }
+def get_catalog(version: int | None = None):
+    """The catalogue: modules and prices, pricing rules, finishes, benchtops,
+    labour, tax and the layout generator's sizes. ``?version=N`` returns an
+    earlier version (the one a quote was priced with)."""
+    found = catalogs.current() if version is None else catalogs.get_version(version)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Catalogue version {version} not found")
+    doc = found.api_dict()
+    doc["requires_admin_key"] = bool(os.environ.get("CATALOG_ADMIN_KEY"))
+    return doc
+
+
+@app.get("/api/catalog/versions")
+def list_catalog_versions():
+    return {"current": catalogs.current().version, "versions": catalogs.versions()}
 
 
 @app.put("/api/catalog")
-def update_catalog(payload: dict[str, Any]):
-    """Updates pricing matrix rules and material multipliers."""
-    global LABOUR_RATE_PER_CABINET
-    if "cabinets" in payload and isinstance(payload["cabinets"], dict):
-        for k, v in payload["cabinets"].items():
-            if k in CABINET_PRICES:
-                CABINET_PRICES[k] = float(v)
-    if "styles" in payload and isinstance(payload["styles"], dict):
-        for k, v in payload["styles"].items():
-            if k in STYLE_MULTIPLIERS:
-                STYLE_MULTIPLIERS[k] = float(v)
-    if "labour_rate_per_cabinet" in payload:
-        LABOUR_RATE_PER_CABINET = float(payload["labour_rate_per_cabinet"])
-    return {"status": "catalog_updated", "catalog": get_catalog()}
+def update_catalog(
+    payload: dict[str, Any],
+    x_admin_key: str | None = Header(default=None),
+):
+    """Saves a new catalogue version.
+
+    Send the whole catalogue document (as GET returns it, without the derived
+    flat maps) plus ``base_version``, the version you started from: a 409 says
+    someone else saved in between. The older partial form
+    (``{"cabinets": {type: price}, "styles": {...}, "labour_rate_per_cabinet": n}``)
+    still works.
+    """
+    _require_admin(x_admin_key)
+    try:
+        if "modules" in payload or "families" in payload:
+            document = {k: v for k, v in payload.items() if k != "base_version"}
+            new = catalogs.save(document, payload.get("base_version"))
+        else:
+            new = catalogs.update_legacy(payload)
+    except catalog_lib.CatalogConflict as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    except catalog_lib.ValidationError as err:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {"where": ".".join(str(p) for p in e["loc"]), "message": e["msg"]}
+                for e in err.errors()
+            ],
+        )
+    return {"status": "catalog_updated", "catalog": new.api_dict()}
 
 
 @app.get("/api/export/{quote_id}/dxf")
@@ -717,7 +642,9 @@ def _generate_pdf(
     subtotal: float,
     gst: float,
     total_price: float,
+    catalog: "catalog_lib.Catalog | None" = None,
 ) -> str:
+    catalog = catalog or _catalog_for(request)
     # Proposals used to land in the OS temp directory, so every signed PDF was
     # gone after a cleanup or reboot and /pdf/<id> answered 404 forever. Keep
     # them beside the project database instead.
@@ -762,7 +689,8 @@ def _generate_pdf(
     # Client & Project Metadata Box
     client_name_str = request.client_name or "Client Walk-in"
     client_contact = f"{request.client_phone or ''} {request.client_email or ''}".strip() or "On-site Consultation"
-    style_label = STYLE_NAMES.get(request.style_archetype, "Japandi Natural")
+    style_option = catalog.style_options.get(request.style_archetype)
+    style_label = style_option.name if style_option else "Japandi Natural"
     deposit_str = f"Deposit: RM{request.deposit_paid:,.2f} (Slot Locked)" if request.deposit_paid > 0 else "Quotation Only"
 
     w = request.wall
@@ -802,7 +730,7 @@ def _generate_pdf(
     # Subtotal / SST / Total rows
     table_data += [
         ["", "", "Subtotal", f"RM{subtotal:,.2f}"],
-        ["", "", f"SST ({int(GST_RATE*100)}%)", f"RM{gst:,.2f}"],
+        ["", "", f"{catalog.tax.label} ({catalog.tax.rate * 100:g}%)", f"RM{gst:,.2f}"],
         ["", "", "TOTAL (incl. SST)", f"RM{total_price:,.2f}"],
     ]
 
