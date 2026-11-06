@@ -172,6 +172,7 @@ const String kDefaultCatalogJson = r'''{
         "base_"
       ],
       "group": "base",
+      "kind": "base",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -189,6 +190,7 @@ const String kDefaultCatalogJson = r'''{
         "base_drawer_"
       ],
       "group": "base",
+      "kind": "drawer",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -206,6 +208,7 @@ const String kDefaultCatalogJson = r'''{
         "base_sink_"
       ],
       "group": "base",
+      "kind": "sink",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -223,6 +226,7 @@ const String kDefaultCatalogJson = r'''{
         "base_hob_"
       ],
       "group": "base",
+      "kind": "hob",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -240,6 +244,7 @@ const String kDefaultCatalogJson = r'''{
         "wall_"
       ],
       "group": "wall",
+      "kind": "wall",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": true,
@@ -257,6 +262,7 @@ const String kDefaultCatalogJson = r'''{
         "tall_"
       ],
       "group": "tall",
+      "kind": "tall",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": true,
@@ -274,6 +280,7 @@ const String kDefaultCatalogJson = r'''{
         "corner_"
       ],
       "group": "corner",
+      "kind": "corner",
       "benchtop": "fixed",
       "benchtop_m": 1.8,
       "labour": true,
@@ -291,6 +298,7 @@ const String kDefaultCatalogJson = r'''{
         "filler_base"
       ],
       "group": "base",
+      "kind": "filler",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": false,
@@ -308,6 +316,7 @@ const String kDefaultCatalogJson = r'''{
         "filler_wall"
       ],
       "group": "wall",
+      "kind": "filler",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": false,
@@ -325,6 +334,7 @@ const String kDefaultCatalogJson = r'''{
         "sink_"
       ],
       "group": "base",
+      "kind": "sink",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -338,6 +348,7 @@ const String kDefaultCatalogJson = r'''{
         "cooktop_"
       ],
       "group": "base",
+      "kind": "hob",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -351,6 +362,7 @@ const String kDefaultCatalogJson = r'''{
         "dishwasher_"
       ],
       "group": "base",
+      "kind": "dishwasher",
       "benchtop": "width",
       "benchtop_m": 0,
       "labour": true,
@@ -364,6 +376,7 @@ const String kDefaultCatalogJson = r'''{
         "oven_"
       ],
       "group": "tall",
+      "kind": "oven",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": true,
@@ -377,6 +390,7 @@ const String kDefaultCatalogJson = r'''{
         "fridge_"
       ],
       "group": "tall",
+      "kind": "fridge",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": true,
@@ -390,6 +404,7 @@ const String kDefaultCatalogJson = r'''{
         "rangehood_"
       ],
       "group": "wall",
+      "kind": "hood",
       "benchtop": "none",
       "benchtop_m": 0,
       "labour": true,

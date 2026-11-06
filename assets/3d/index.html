@@ -1095,6 +1095,28 @@ const KIND_OF_TYPE = {
 // Full-height units: no worktop, tall-cabinet finish.
 const TALL_KINDS = new Set(['tall', 'oven', 'fridge']);
 
+// The catalogue (prices and sizes live on the office server and are edited in
+// the Studio) is the source of module sizes. Flutter sends the modules it is
+// pricing with; the specs above are what the page falls back on without it.
+// Merged, not replaced: a spec keeps flags the catalogue doesn't carry (the
+// cooktop's `hood: false`).
+window.setCatalogModules = function(json) {
+  let modules;
+  try { modules = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return; }
+  if (!Array.isArray(modules)) return;
+  for (const m of modules) {
+    if (!m || !m.type || !(m.width_mm > 0) || !(m.height_mm > 0) || !(m.depth_mm > 0)) continue;
+    const mount = Math.max(0, m.mount_mm || 0);
+    CABINET_SPECS[m.type] = {
+      ...(CABINET_SPECS[m.type] || {}),
+      w: m.width_mm * MM, h: m.height_mm * MM, d: m.depth_mm * MM,
+      isWall: mount > 0, mountH: mount * MM,
+      label: m.label || m.type,
+    };
+    if (m.kind) KIND_OF_TYPE[m.type] = m.kind;
+  }
+};
+
 function specFromEntry(c) {
   const known = CABINET_SPECS[c.cabinet_type];
   if (!c.generated && known) return { ...known, kind: KIND_OF_TYPE[c.cabinet_type] || 'base' };

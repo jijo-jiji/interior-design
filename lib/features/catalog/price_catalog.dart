@@ -84,6 +84,7 @@ class CatalogFamily {
     required this.label,
     required this.prefixes,
     required this.group,
+    required this.kind,
     required this.benchtop,
     required this.benchtopM,
     required this.labour,
@@ -96,6 +97,7 @@ class CatalogFamily {
         label: j['label'] as String,
         prefixes: [for (final p in j['prefixes'] as List) p as String],
         group: j['group'] as String,
+        kind: j['kind'] as String,
         benchtop: BenchtopMode.parse(j['benchtop']),
         benchtopM: _d(j['benchtop_m']),
         labour: j['labour'] as bool? ?? true,
@@ -111,6 +113,10 @@ class CatalogFamily {
 
   /// `base`, `wall`, `tall` or `corner`: which line of the breakdown it joins.
   final String group;
+
+  /// How the 3D view draws it: `base`, `drawer`, `sink`, `hob`, `tall`,
+  /// `corner`, `wall`, `filler`, `dishwasher`, `oven`, `fridge` or `hood`.
+  final String kind;
   final BenchtopMode benchtop;
   final double benchtopM;
   final bool labour;
@@ -184,7 +190,10 @@ class LayoutSpec {
 /// launch with no network.
 class PriceCatalog {
   PriceCatalog.fromJson(Map<String, dynamic> j)
-      : json = j,
+      : json = {
+          for (final e in j.entries)
+            if (!serverOnlyKeys.contains(e.key)) e.key: e.value,
+        },
         version = (j['version'] as num).toInt(),
         name = j['name'] as String,
         isPlaceholder = j['is_placeholder'] as bool? ?? true,
@@ -231,7 +240,19 @@ class PriceCatalog {
   /// arrives from the server (see `CatalogRepository`).
   static PriceCatalog current = PriceCatalog.builtIn();
 
-  /// The document as received, kept so it can be cached as it was.
+  /// What `GET /api/catalog` adds for older clients and for the Studio. It is
+  /// not part of the catalogue, so it is left out of [json].
+  static const serverOnlyKeys = {
+    'cabinets',
+    'styles',
+    'style_names',
+    'benchtops',
+    'benchtop_names',
+    'gst_rate',
+    'requires_admin_key',
+  };
+
+  /// The catalogue document itself, as it is cached on the device.
   final Map<String, dynamic> json;
   final int version;
   final String name;
@@ -295,6 +316,9 @@ class PriceCatalog {
         : widthMm;
     return width / 1000;
   }
+
+  /// How the 3D view draws [type] (see [CatalogFamily.kind]).
+  String kindOf(String type) => familyFor(type)?.kind ?? 'base';
 
   bool carriesLabour(String type) => familyFor(type)?.labour ?? true;
   bool isAppliance(String type) => familyFor(type)?.appliance ?? false;

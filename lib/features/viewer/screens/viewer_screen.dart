@@ -14,6 +14,7 @@ import '../../../shared/platform/api_client.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
 import '../../../shared/widgets/nudge_buttons.dart';
+import '../../catalog/price_catalog.dart';
 import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
@@ -94,6 +95,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   String _currentStyle = 'japandi';
 
+  /// The catalogue this design was opened with. A newer one arriving from the
+  /// office mid-meeting waits for the next design, so the price on screen
+  /// never moves under the client and always matches the version recorded on
+  /// the quote.
+  final PriceCatalog _catalog = PriceCatalog.current;
+
   /// Auto-generated layouts (A Value / B Balanced / C Premium) for this room.
   List<LayoutVariant> _variants = const [];
   String? _activeVariantKey;
@@ -142,7 +149,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // Balanced variant; a restored draft keeps its own cabinets.
     if (parsed != null) {
       try {
-        _variants = const KitchenLayoutGenerator()
+        _variants = KitchenLayoutGenerator.forCatalog(_catalog)
             .generateAll(KitchenRoom.fromPayload(parsed));
         final initial = _variants.where(
             (v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
@@ -198,11 +205,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _scene.loadHtml(html);
   }
 
+  /// The catalogue's modules as the 3D page needs them: sizes and how each
+  /// is drawn, so a size edited in the Studio is what the client sees.
+  String _catalogModulesJson() => jsonEncode([
+        for (final m in _catalog.modules)
+          {
+            'type': m.type,
+            'label': m.label,
+            'width_mm': m.widthMm,
+            'height_mm': m.heightMm,
+            'depth_mm': m.depthMm,
+            'mount_mm': m.mountMm,
+            'kind': _catalog.kindOf(m.type),
+          },
+      ]);
+
   Future<void> _injectScene() async {
     final escaped =
         widget.jsonPayload.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
     await _scene.runJavaScript("setNativeMode(true)");
+    await _scene.runJavaScript(
+        'setCatalogModules(${jsonEncode(_catalogModulesJson())})');
     await _scene.runJavaScript("loadScene('$escaped')");
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
@@ -269,6 +293,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'client_email': _clientEmail,
       'deposit_paid': _depositPaid,
       'total_price': summary.totalPrice,
+      // The server prices with this version, so the signed PDF matches the
+      // number shown here even if the catalogue changed since.
+      'catalog_version': summary.catalogVersion,
       if (signatureBase64 != null) 'signature_base64': signatureBase64,
     };
   }
@@ -453,50 +480,37 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       obstacles: _obstacles,
       styleArchetype: _currentStyle,
       benchtopMaterial: _benchtopMaterial,
+      catalog: _catalog,
     );
   }
 
-  /// Appliance modules. They price like joinery (the cabinetry, cutouts and
-  /// services), so they're added like a cabinet.
-  static const List<({String type, String label, String blurb, IconData icon})>
-      _appliances = [
-    (
-      type: 'sink_600',
-      label: 'Sink 600',
-      blurb: 'Undermount bowl and tap cutout',
-      icon: Icons.water_drop_outlined
-    ),
-    (
-      type: 'cooktop_600',
-      label: 'Cooktop 600',
-      blurb: 'Induction cutout and isolator',
-      icon: Icons.local_fire_department_outlined
-    ),
-    (
-      type: 'dishwasher_600',
-      label: 'Dishwasher 600',
-      blurb: 'Integrated, under the worktop',
-      icon: Icons.local_laundry_service_outlined
-    ),
-    (
-      type: 'oven_tower_600',
-      label: 'Oven tower 600',
-      blurb: 'Wall oven and microwave stack',
-      icon: Icons.microwave_outlined
-    ),
-    (
-      type: 'fridge_recess_700',
-      label: 'Fridge recess 700',
-      blurb: 'Framed recess and panels',
-      icon: Icons.kitchen_outlined
-    ),
-    (
-      type: 'rangehood_900',
-      label: 'Rangehood 900',
-      blurb: 'Wall mounted, ducted',
-      icon: Icons.air_outlined
-    ),
-  ];
+  /// What an appliance line says about itself, by how it is drawn. The
+  /// modules, sizes and prices come from the catalogue; this is wording.
+  static ({String blurb, IconData icon}) _applianceInfo(String kind) =>
+      switch (kind) {
+        'sink' => (
+            blurb: 'Undermount bowl and tap cutout',
+            icon: Icons.water_drop_outlined
+          ),
+        'hob' => (
+            blurb: 'Induction cutout and isolator',
+            icon: Icons.local_fire_department_outlined
+          ),
+        'dishwasher' => (
+            blurb: 'Integrated, under the worktop',
+            icon: Icons.local_laundry_service_outlined
+          ),
+        'oven' => (
+            blurb: 'Wall oven and microwave stack',
+            icon: Icons.microwave_outlined
+          ),
+        'fridge' => (
+            blurb: 'Framed recess and panels',
+            icon: Icons.kitchen_outlined
+          ),
+        'hood' => (blurb: 'Wall mounted, ducted', icon: Icons.air_outlined),
+        _ => (blurb: 'Cabinetry and services', icon: Icons.build_outlined),
+      };
 
   void _showApplianceSheet() {
     showModalBottomSheet(
@@ -522,14 +536,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
               const SizedBox(height: 8),
-              for (final item in _appliances)
+              for (final item in _catalog.applianceModules)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(item.icon, color: AppTheme.accent),
+                  leading: Icon(_applianceInfo(_catalog.kindOf(item.type)).icon,
+                      color: AppTheme.accent),
                   title: Text(item.label),
-                  subtitle: Text(item.blurb),
+                  subtitle:
+                      Text(_applianceInfo(_catalog.kindOf(item.type)).blurb),
                   trailing: Text(
-                    formatMoney(CPQEngine.cabinetPrices[item.type] ?? 0),
+                    formatMoney(item.price),
                     style: context.textTheme.labelLarge,
                   ),
                   onTap: () {
@@ -576,7 +592,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
               const SizedBox(height: 8),
-              for (final entry in CPQEngine.benchtopRates.entries)
+              for (final entry in _catalog.benchtopOptions.entries)
                 RadioListTile<String?>(
                   contentPadding: EdgeInsets.zero,
                   value: entry.key,
@@ -585,10 +601,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     choose(v);
                     Navigator.pop(sheetContext);
                   },
-                  title: Text(CPQEngine.benchtopNames[entry.key] ?? entry.key),
-                  subtitle: Text('${formatMoney(entry.value)} per metre'),
+                  title: Text(entry.value.name),
+                  subtitle:
+                      Text('${formatMoney(entry.value.ratePerM)} per metre'),
                   secondary: Text(
-                    metres > 0 ? '+${formatMoney(metres * entry.value)}' : '—',
+                    metres > 0
+                        ? '+${formatMoney(metres * entry.value.ratePerM)}'
+                        : '—',
                     style: context.textTheme.labelLarge,
                   ),
                 ),
@@ -823,7 +842,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final summary = _cpqSummary;
     // Opening the breakdown is a deliberate reveal.
     if (!_priceVisible) setState(() => _priceVisible = true);
-    final taxPercent = (CPQEngine.gstRate * 100).round();
+    final taxPercent = (_catalog.taxRate * 100).round();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
@@ -1137,7 +1156,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         onBenchtop: _showBenchtopSheet,
                         benchtopName: _benchtopMaterial == null
                             ? null
-                            : CPQEngine.benchtopNames[_benchtopMaterial],
+                            : _catalog.benchtopOptions[_benchtopMaterial]?.name,
+                        modules: _catalog.cabinetModules,
+                        kindOf: _catalog.kindOf,
                         onDone: () => _setEditing(false),
                       )
                     else
@@ -1369,6 +1390,12 @@ class _EditPanel extends StatelessWidget {
   final VoidCallback onAppliances;
   final VoidCallback onBenchtop;
 
+  /// The modules offered in the tray, from the catalogue.
+  final List<CatalogModule> modules;
+
+  /// How the 3D view draws a module type (picks its icon).
+  final String Function(String type) kindOf;
+
   /// The chosen benchtop's name, or null for none.
   final String? benchtopName;
   final VoidCallback onDone;
@@ -1385,6 +1412,8 @@ class _EditPanel extends StatelessWidget {
     required this.onAppliances,
     required this.onBenchtop,
     required this.benchtopName,
+    required this.modules,
+    required this.kindOf,
     required this.onDone,
   });
 
@@ -1466,37 +1495,16 @@ class _EditPanel extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _JoineryModuleButton(
-                  type: 'base_800',
-                  label: 'Base 800',
-                  dims: '800 mm',
-                  icon: Icons.view_agenda_outlined,
-                  onAdd: () => onAdd('base_800'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'base_600',
-                  label: 'Base 600',
-                  dims: '600 mm',
-                  icon: Icons.crop_square_rounded,
-                  onAdd: () => onAdd('base_600'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'wall_600',
-                  label: 'Wall 600',
-                  dims: '600 mm',
-                  icon: Icons.table_rows_outlined,
-                  onAdd: () => onAdd('wall_600'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'tall_600',
-                  label: 'Tall 600',
-                  dims: '2100 mm',
-                  icon: Icons.view_sidebar_outlined,
-                  onAdd: () => onAdd('tall_600'),
-                ),
+                for (var i = 0; i < modules.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  _JoineryModuleButton(
+                    type: modules[i].type,
+                    label: modules[i].label,
+                    dims: _moduleDims(modules[i], kindOf(modules[i].type)),
+                    icon: _moduleIcon(kindOf(modules[i].type)),
+                    onAdd: () => onAdd(modules[i].type),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1683,6 +1691,22 @@ class _SummaryTile extends StatelessWidget {
     );
   }
 }
+
+/// The size worth showing on a tray button: the height of full-height units,
+/// the width of everything else.
+String _moduleDims(CatalogModule m, String kind) {
+  final tall = kind == 'tall' || kind == 'oven' || kind == 'fridge';
+  return '${(tall ? m.heightMm : m.widthMm).round()} mm';
+}
+
+IconData _moduleIcon(String kind) => switch (kind) {
+      'wall' => Icons.table_rows_outlined,
+      'tall' => Icons.view_sidebar_outlined,
+      'corner' => Icons.turn_right_outlined,
+      'drawer' => Icons.table_chart_outlined,
+      'filler' => Icons.horizontal_rule_rounded,
+      _ => Icons.view_agenda_outlined,
+    };
 
 class _JoineryModuleButton extends StatelessWidget {
   final String type;

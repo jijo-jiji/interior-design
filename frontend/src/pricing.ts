@@ -45,6 +45,20 @@ export interface Family {
   label: string;
   prefixes: string[];
   group: 'base' | 'wall' | 'tall' | 'corner';
+  /** How the 3D view draws it. */
+  kind:
+    | 'base'
+    | 'drawer'
+    | 'sink'
+    | 'hob'
+    | 'tall'
+    | 'corner'
+    | 'wall'
+    | 'filler'
+    | 'dishwasher'
+    | 'oven'
+    | 'fridge'
+    | 'hood';
   benchtop: 'width' | 'fixed' | 'none';
   benchtop_m: number;
   labour: boolean;

@@ -101,6 +101,11 @@ class Family(_Strict):
     label: str = Field(min_length=1, max_length=40)
     prefixes: list[str] = Field(min_length=1)
     group: Literal["base", "wall", "tall", "corner"]
+    # How the 3D view draws it.
+    kind: Literal[
+        "base", "drawer", "sink", "hob", "tall", "corner", "wall", "filler",
+        "dishwasher", "oven", "fridge", "hood",
+    ]
     # width: worktop over its width; fixed: benchtop_m metres; none: no worktop.
     benchtop: Literal["width", "fixed", "none"]
     benchtop_m: float = Field(ge=0, le=20)

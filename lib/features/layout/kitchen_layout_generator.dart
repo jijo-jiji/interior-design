@@ -1,3 +1,4 @@
+import '../catalog/price_catalog.dart';
 import 'kitchen_catalog.dart';
 import 'kitchen_layout_models.dart';
 
@@ -27,13 +28,25 @@ import 'kitchen_layout_models.dart';
 /// When a variant cannot fit everything (short walls), it drops tall units
 /// first, then the hob, and reports why in [LayoutVariant.warnings].
 class KitchenLayoutGenerator {
+  /// Uses the sizes and rules of the catalogue the app has now, unless a
+  /// [catalog] or [rules] is given (the tests do, to pin the numbers).
   const KitchenLayoutGenerator({
-    this.catalog = KitchenCatalog.placeholder,
-    this.rules = KitchenRules.placeholder,
-  });
+    KitchenCatalog? catalog,
+    KitchenRules? rules,
+  })  : _catalog = catalog,
+        _rules = rules;
 
-  final KitchenCatalog catalog;
-  final KitchenRules rules;
+  /// A generator for one catalogue, so a design opened on catalogue version N
+  /// is laid out with version N even if a newer one arrives mid-meeting.
+  KitchenLayoutGenerator.forCatalog(PriceCatalog catalog)
+      : _catalog = KitchenCatalog.from(catalog),
+        _rules = KitchenRules.from(catalog);
+
+  final KitchenCatalog? _catalog;
+  final KitchenRules? _rules;
+
+  KitchenCatalog get catalog => _catalog ?? KitchenCatalog.current;
+  KitchenRules get rules => _rules ?? KitchenRules.current;
 
   List<LayoutVariant> generateAll(KitchenRoom room) =>
       [for (final tier in LayoutTier.values) generate(room, tier)];
