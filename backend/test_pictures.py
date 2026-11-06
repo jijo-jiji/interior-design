@@ -219,7 +219,15 @@ def test_an_upload_for_a_bad_quote_id_is_refused(client, tmp_path):
             "quote. The door style shown is for illustration.",
         ),
         ({"doors": "raised", "decor": False, "backsplash": "none"}, "The door style shown is for illustration."),
+        ({"room": True}, "The room around the kitchen shown is for illustration."),
+        ({"room": False, "decor": False}, ""),
+        (
+            {"decor": True, "doors": "raised", "room": True},
+            "The decor (plates, plants, jars and similar) shown is not part of this quote. "
+            "The door style shown is for illustration. The room around the kitchen shown is for illustration.",
+        ),
         # Nonsense is ignored, never printed.
+        ({"room": "yes"}, ""),
         ({"decor": "yes", "backsplash": "<b>x</b>", "doors": "glass"}, ""),
     ],
 )
@@ -229,11 +237,11 @@ def test_the_note_says_what_in_the_pictures_is_not_in_the_quote(scene, expected)
 
 def test_only_the_known_parts_of_the_look_are_kept(client):
     body = _quote([_url(_image())])
-    body["scene"] = {"doors": "shaker", "backsplash": "hex", "decor": True, "mood": "evening",
+    body["scene"] = {"doors": "shaker", "backsplash": "hex", "decor": True, "room": False, "mood": "evening",
                      "secret": "x", "extra": {"a": 1}}
     client.post("/quote", json=body)
     assert client.get("/api/projects/QT-PIC-1").json()["scene"] == {
-        "doors": "shaker", "backsplash": "hex", "decor": True, "mood": "evening",
+        "doors": "shaker", "backsplash": "hex", "decor": True, "room": False, "mood": "evening",
     }
 
 

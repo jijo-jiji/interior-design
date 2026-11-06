@@ -391,6 +391,7 @@ function initScene() {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
+  floorMesh = floor;
 
   setupCabinetDrag();
   initSnapGuide();
@@ -1158,7 +1159,7 @@ function applyFinishMaterials(fin) {
 }
 
 // The floor of the room: wide planks, once their textures have arrived.
-let floorMaterial = null;
+let floorMaterial = null, floorMesh = null;
 function applyFloorTextures() {
   if (!floorMaterial) return;
   const set = finishSet('floor_oak');
@@ -1718,6 +1719,7 @@ function applyMood() {
   if (MAT.led) MAT.led.color.setHex(m.led);
   moodSignature = '';
   updateMoodLights(true);
+  updateRoom(true);
   invalidate();
 }
 
@@ -1747,6 +1749,132 @@ function updateMoodLights(force) {
 window.setMood = function(next) {
   mood = MOODS[next] ? next : 'day';
   applyMood();
+};
+
+// ── The room ─────────────────────────────────────────────────────────────────
+// A room round the kitchen wall: a bounded floor, side walls, a ceiling with
+// downlights, skirting. The walls and the ceiling are single-sided planes that
+// face into the room, so from outside they vanish (a cutaway, like a dolls'
+// house) and from inside they are there: the camera in a picture can sit in
+// the room or look in from the side. They cast no shadow, so the room is lit
+// as if it had large windows; the ceiling is self-lit white.
+let roomOn = true;
+// A picture is always of the kitchen in its room, even while the screen shows
+// the floor plan's own walls (the Room / House views).
+let roomCapture = false;
+const roomShown = () => roomOn && (roomView === 'kitchen' || roomCapture);
+let roomGroup = null, roomSignature = '', roomLights = [];
+// How far the room runs out from the wall: far enough to hold an L's side wall with
+// room to spare, short enough that a picture isn't mostly wall.
+const roomDepth = (D, returnLen) => Math.max(3.6, D + returnLen + 1.3);
+let roomWallMaterial = null, roomCeilingMaterial = null;
+
+function roomMaterials() {
+  if (!roomWallMaterial) {
+    roomWallMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f3ed, roughness: 0.85 });
+    roomCeilingMaterial = new THREE.MeshBasicMaterial({ color: 0xece8e0 });
+  }
+  const style = STYLE_ARCHETYPES[currentArchetypeId];
+  if (style) roomWallMaterial.color.setHex(style.wallColor);
+  roomCeilingMaterial.color.setHex(mood === 'evening' ? 0xd9cdbb : 0xece8e0);
+  return [roomWallMaterial, roomCeilingMaterial];
+}
+
+function updateRoom(force) {
+  const wall = scenePayload.wall || {};
+  const returnLen = wall.shape === 'lShape' ? (wall.return_mm || 0) * MM : 0;
+  const shown = roomShown();
+  const sig = [shown, currentWallW, currentWallH, currentWallDepth, returnLen, mood, currentArchetypeId].join('|');
+  if (!force && sig === roomSignature) return;
+  roomSignature = sig;
+  if (roomGroup) {
+    scene.remove(roomGroup);
+    roomGroup.traverse(o => o.geometry && o.geometry.dispose());
+    roomGroup = null;
+  }
+  for (const l of roomLights) scene.remove(l);
+  roomLights = [];
+  if (floorMesh) floorMesh.visible = !shown;
+  if (!shown || !scene) return;
+
+  const [wallMat, ceilingMat] = roomMaterials();
+  const W = currentWallW, H = currentWallH, D = currentWallDepth, depth = roomDepth(D, returnLen);
+  const group = new THREE.Group();
+  group.userData.isRoom = true;
+  const plane = (w, h, mat, place) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.receiveShadow = mat !== ceilingMat;
+    m.castShadow = false;
+    place(m);
+    group.add(m);
+    return m;
+  };
+
+  // The floor: wide enough to run under an L's side wall; the planks keep the
+  // same scale as the 30 m floor they replace.
+  const x0 = -W / 2 - (returnLen > 0 ? D : 0), x1 = W / 2, fw = x1 - x0, fd = depth;
+  const floor = plane(fw, fd, floorMaterial, m => {
+    m.rotation.x = -Math.PI / 2;
+    m.position.set((x0 + x1) / 2, 0, fd / 2);
+  });
+  const uv = floor.geometry.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * fw / 30, uv.getY(i) * fd / 30);
+  floor.receiveShadow = true;
+
+  // Side walls, facing into the room. A side wall starts where the kitchen's
+  // own wall (or an L's side wall) ends.
+  const zLeft = D + returnLen, zRight = D;
+  plane(depth - zLeft, H, wallMat, m => { m.rotation.y = Math.PI / 2; m.position.set(-W / 2, H / 2, (zLeft + depth) / 2); });
+  plane(depth - zRight, H, wallMat, m => { m.rotation.y = -Math.PI / 2; m.position.set(W / 2, H / 2, (zRight + depth) / 2); });
+
+  // The ceiling, facing down.
+  plane(W, depth - D, ceilingMat, m => { m.rotation.x = Math.PI / 2; m.position.set(0, H, (D + depth) / 2); });
+
+  // Skirting along the back wall and the side walls (the cabinets hide most of it).
+  const skirt = (len, place) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.09, 0.014), wallMat);
+    m.receiveShadow = true;
+    place(m);
+    group.add(m);
+  };
+  skirt(W, m => m.position.set(0, 0.045, D + 0.007));
+  skirt(depth - zRight, m => { m.rotation.y = -Math.PI / 2; m.position.set(W / 2 - 0.007, 0.045, (zRight + depth) / 2); });
+  skirt(depth - zLeft, m => { m.rotation.y = Math.PI / 2; m.position.set(-W / 2 + 0.007, 0.045, (zLeft + depth) / 2); });
+
+  // Recessed downlights in two rows.
+  const across = Math.max(2, Math.round(W / 1.3));
+  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 3.0, 2.6) });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xd9d6d0, roughness: 0.5 });
+  const spots = [];
+  for (let r = 0; r < 2; r++) {
+    for (let i = 0; i < across; i++) {
+      const x = -W / 2 + (i + 0.5) * W / across, z = D + 0.9 + r * 1.7;
+      spots.push([x, z]);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.055, 24), lamp);
+      disc.rotation.x = Math.PI / 2; disc.position.set(x, H - 0.003, z);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.055, 0.075, 24), trim);
+      ring.rotation.x = Math.PI / 2; ring.position.set(x, H - 0.002, z);
+      group.add(disc, ring);
+    }
+  }
+  roomGroup = group;
+  scene.add(group);
+
+  // In the evening the downlights are on too: two real lights over the worktop.
+  if (mood === 'evening') {
+    for (const [x, z] of [spots[0], spots[spots.length - across - 1] || spots[spots.length - 1]]) {
+      const light = new THREE.PointLight(0xffd9a8, 1.1, 5, 2);
+      light.position.set(x, H - 0.15, z);
+      scene.add(light);
+      roomLights.push(light);
+    }
+  }
+}
+
+window.setRoom = function(on) {
+  roomOn = !!on;
+  updateRoom(true);
+  invalidate();
 };
 
 // ── Door styles ──────────────────────────────────────────────────────────────
@@ -2364,6 +2492,7 @@ function animate() {
   updateBacksplash();
   updateDecor();
   updateMoodLights();
+  updateRoom();
   renderer.render(scene, camera);
 }
 
@@ -2518,6 +2647,7 @@ function buildHouse(plan) {
 /** 'kitchen', 'room' or 'house'. */
 window.setRoomView = function(view) {
   roomView = view;
+  updateRoom();
   if (houseGroup) {
     houseGroup.visible = view !== 'kitchen';
     for (const o of houseGroup.children) o.visible = view === 'house' || !o.userData.houseOnly;
@@ -2638,6 +2768,8 @@ window.capturePictures = function(requestId) {
     updateBacksplash();
     updateDecor();
     updateMoodLights();
+    roomCapture = true;
+    updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
     const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
@@ -2664,6 +2796,8 @@ window.capturePictures = function(requestId) {
       console.error('capturePictures error:', e);
     } finally {
       hidden.forEach(o => { o.visible = true; });
+      roomCapture = false;
+      updateRoom();
       renderer.setPixelRatio(prevRatio);
       renderer.setSize(prevSize.x, prevSize.y, false);
       onResize();
@@ -2822,6 +2956,8 @@ window.renderPictures = async function(requestId, options) {
     updateBacksplash();
     updateDecor();
     updateMoodLights();
+    roomCapture = true;
+    updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
     const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
@@ -2857,6 +2993,8 @@ window.renderPictures = async function(requestId, options) {
       showRenderProgress(null);
       canvasEl.style.visibility = wasHidden;
       hidden.forEach(o => { o.visible = true; });
+      roomCapture = false;
+      updateRoom();
       renderer.setPixelRatio(prevRatio);
       renderer.setSize(prevSize.x, prevSize.y, false);
       onResize();

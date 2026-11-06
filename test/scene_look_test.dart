@@ -2,19 +2,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:static_trace/features/viewer/models/scene_look.dart';
 
 void main() {
-  test('a new design has flat doors, subway tile, decor and day light', () {
+  test('a new design has flat doors, subway tile, decor, the room and day light',
+      () {
     const look = SceneLook();
     expect(look.toJson(), {
       'doors': 'slab',
       'backsplash': 'subway',
       'decor': true,
+      'room': true,
       'mood': 'day',
     });
   });
 
   test('a saved look reads back as it was saved', () {
     const look = SceneLook(
-        doors: 'raised', backsplash: 'hex', decor: false, mood: 'evening');
+        doors: 'raised',
+        backsplash: 'hex',
+        decor: false,
+        room: false,
+        mood: 'evening');
     expect(SceneLook.fromJson(look.toJson()), look);
   });
 
@@ -27,6 +33,7 @@ void main() {
         'doors': 'glass-fronted',
         'backsplash': 42,
         'decor': 'yes',
+        'room': 1,
         'mood': 'noon',
       }),
       const SceneLook(),
@@ -41,16 +48,27 @@ void main() {
     expect(look.copyWith(mood: 'evening').mood, 'evening');
     expect(look.copyWith(mood: 'evening').doors, 'slab');
     expect(look.copyWith(decor: false).decor, isFalse);
+    expect(look.copyWith(room: false).room, isFalse);
+    expect(look.copyWith(room: false).decor, isTrue);
+  });
+
+  test('a design saved before the room existed shows the room', () {
+    expect(SceneLook.fromJson({'doors': 'shaker', 'decor': false}).room, isTrue);
   });
 
   test('it tells the page to change the doors first (they rebuild cabinets)',
       () {
     const look = SceneLook(
-        doors: 'shaker', backsplash: 'hex', decor: false, mood: 'evening');
+        doors: 'shaker',
+        backsplash: 'hex',
+        decor: false,
+        room: false,
+        mood: 'evening');
     expect(look.javaScript, [
       "setDoorStyle('shaker')",
       "setBacksplash('hex')",
       'setDecor(false)',
+      'setRoom(false)',
       "setMood('evening')",
     ]);
   });

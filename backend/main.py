@@ -803,8 +803,9 @@ def _clean_scene(scene: dict[str, Any] | None) -> dict[str, Any]:
     for key, allowed in _SCENE_OPTIONS.items():
         if scene.get(key) in allowed:
             out[key] = scene[key]
-    if isinstance(scene.get("decor"), bool):
-        out["decor"] = scene["decor"]
+    for key in ("decor", "room"):
+        if isinstance(scene.get(key), bool):
+            out[key] = scene[key]
     return out
 
 
@@ -822,6 +823,8 @@ def _scene_note(scene: dict[str, Any] | None) -> str:
                 + " not part of this quote.")
     if scene.get("doors", "slab") != "slab":
         note += " The door style shown is for illustration."
+    if scene.get("room", False):
+        note += " The room around the kitchen shown is for illustration."
     return note.strip()
 
 

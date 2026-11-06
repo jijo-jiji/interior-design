@@ -1,11 +1,12 @@
 /// How the design is dressed in the 3D view and in its pictures: the style of
-/// the doors, the backsplash, the decor and the light. Presentation only:
-/// none of it changes the price.
+/// the doors, the backsplash, the decor, the room around the kitchen and the
+/// light. Presentation only: none of it changes the price.
 class SceneLook {
   const SceneLook({
     this.doors = 'slab',
     this.backsplash = 'subway',
     this.decor = true,
+    this.room = true,
     this.mood = 'day',
   });
 
@@ -17,6 +18,10 @@ class SceneLook {
 
   /// Plates, jars, plants and the like on the worktop. Never part of the quote.
   final bool decor;
+
+  /// The room around the kitchen: side walls, ceiling with downlights, skirting
+  /// and a floor. Never part of the quote.
+  final bool room;
 
   /// `day` or `evening` (warm, with the under-cabinet lights on).
   final String mood;
@@ -46,6 +51,7 @@ class SceneLook {
       doors: pick('doors', doorOptions, 'slab'),
       backsplash: pick('backsplash', backsplashOptions, 'subway'),
       decor: json['decor'] is bool ? json['decor'] as bool : true,
+      room: json['room'] is bool ? json['room'] as bool : true,
       mood: pick('mood', moodOptions, 'day'),
     );
   }
@@ -54,15 +60,22 @@ class SceneLook {
         'doors': doors,
         'backsplash': backsplash,
         'decor': decor,
+        'room': room,
         'mood': mood,
       };
 
-  SceneLook copyWith(
-          {String? doors, String? backsplash, bool? decor, String? mood}) =>
+  SceneLook copyWith({
+    String? doors,
+    String? backsplash,
+    bool? decor,
+    bool? room,
+    String? mood,
+  }) =>
       SceneLook(
         doors: doors ?? this.doors,
         backsplash: backsplash ?? this.backsplash,
         decor: decor ?? this.decor,
+        room: room ?? this.room,
         mood: mood ?? this.mood,
       );
 
@@ -72,6 +85,7 @@ class SceneLook {
         "setDoorStyle('$doors')",
         "setBacksplash('$backsplash')",
         'setDecor($decor)',
+        'setRoom($room)',
         "setMood('$mood')",
       ];
 
@@ -81,8 +95,9 @@ class SceneLook {
       other.doors == doors &&
       other.backsplash == backsplash &&
       other.decor == decor &&
+      other.room == room &&
       other.mood == mood;
 
   @override
-  int get hashCode => Object.hash(doors, backsplash, decor, mood);
+  int get hashCode => Object.hash(doors, backsplash, decor, room, mood);
 }

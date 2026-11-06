@@ -340,6 +340,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     value: _look.decor,
                     onChanged: (v) => change(_look.copyWith(decor: v)),
                   ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show the room'),
+                    subtitle: const Text(
+                        'Walls, ceiling and lights around the kitchen. Not '
+                        'included in the quote.'),
+                    value: _look.room,
+                    onChanged: (v) => change(_look.copyWith(room: v)),
+                  ),
                 ],
               ),
             ),
@@ -1314,7 +1323,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
           IconButton(
-            tooltip: 'Look: doors, backsplash, decor and light',
+            tooltip: 'Look: doors, backsplash, decor, room and light',
             onPressed: _sceneLoaded && !_rendering ? _showLookSheet : null,
             icon: const Icon(Icons.palette_outlined),
           ),

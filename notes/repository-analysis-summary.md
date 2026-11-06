@@ -463,7 +463,24 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 
 **Still missing for the reference pictures**
 - **Lighting engine:** no light bouncing between surfaces, no true reflections in the floor, steel or stone, no glass.
-- **Room context:** no ceiling with downlights, no other walls, rugs or furniture; an island, open shelves and glass-front doors are not in the layout generator.
+- **Room context:** the room (below, §21) now gives walls, a ceiling and downlights; there are still no windows beyond the kitchen's own, rugs or furniture, and an island, open shelves and glass-front doors are not in the layout generator.
 - **Better models:** props and appliances are simple shapes (the reference pictures use detailed models); a stainless fridge with its door lines, a real oven, gas hob grates.
 
 **Verified:** Flutter 256 tests, backend 97 (11 new for the look and the quote note), Studio 87. 3D page in Chromium: scene check 21 (door styles, backsplash and the window, decor, light, L-shape, pictures with everything on), textures 18, pictures 12, render guard 7. Through the real app in Chromium: the Look sheet changes the page, the server keeps the look, and the PDF and the picture page carry the note.
+
+## 21. Session 2026-11-06 — the room around the kitchen
+
+**Why:** after the scene was dressed (§20), asked "the true-lighting step or the room around the kitchen first?", the room went first: it needs no new engine, works offline, and a light-bouncing renderer needs an enclosed room to have anything to bounce off.
+
+**Built** (`assets/3d/index.html`, `SceneLook.room`)
+- **The room:** a floor of wood planks (the same scale as the 30 m floor it replaces), a left and a right wall, a ceiling at the wall height with two rows of recessed downlights, and skirting. The depth is `max(3.6 m, wall depth + return + 1.3 m)`, so it reads as a kitchen, not a corridor; an L-shape's left wall starts where the L's own side wall ends.
+- **A dollhouse cutaway:** every wall, the floor and the ceiling are single-sided planes facing into the room, so a wall or the ceiling between the camera and the kitchen is culled and never hides the design: the 3D view from above stays open, and a picture from the open front (or from an angle) sees the far walls, the ceiling and the downlights. The room casts no shadows (the ceiling would shade the whole kitchen) and the ceiling is self-lit.
+- **Evening:** two real point lights sit under two of the downlights over the worktop.
+- **Out of the way:** the room is flagged `isRoom`, not `isWall`, so it is not part of `designBox()` (the pictures' framing is the same with or without it), not removed when the wall is rebuilt, and not a cabinet. In the **Room and House views** of a floor-plan design the plan's own walls show, so the staged room steps aside; a **picture** always includes it (a `roomCapture` flag around the quick pictures and the render).
+- **App:** a "Show the room" switch in the Look sheet; `room` is saved in `scene` (a design saved before this shows the room by default); the server keeps `room` as a boolean; the PDF and the client page add "The room around the kitchen shown is for illustration."
+
+**Open**
+- The walls are a flat colour from the style (no wallpaper, windows, doors or skirting profile), and the room's size is a guess, not the client's real room: it is a stage, hence the note.
+- The next step is still the **lighting engine** (light bouncing and true reflections): path tracing in the browser (slow on a phone, fine on a laptop) or Blender Cycles on the office laptop (best quality, needs the laptop and the server to send the design). Not started: it is the user's call.
+
+**Verified:** see the commit message for the counts. 3D page in Chromium: a new room check of 23 (faces and culling, no shadows, off and on, framing unchanged, evening lights, the L-shape, the plan's views and pictures from them, pictures with and without it), plus the earlier scene (21), textures (18), pictures (12) and render guard (8). Through the real app in Chromium: the Look sheet's switch builds and removes the room on the page, the server keeps it, and the PDF carries the note.

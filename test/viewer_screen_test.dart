@@ -340,6 +340,7 @@ void main() {
         "setDoorStyle('slab')",
         "setBacksplash('subway')",
         'setDecor(true)',
+        'setRoom(true)',
         "setMood('day')",
       ]) {
         final at = js.indexOf(call);
@@ -350,11 +351,12 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('the Look button changes doors, backsplash, light and decor',
+    testWidgets(
+        'the Look button changes doors, backsplash, light, decor and room',
         (tester) async {
       await pumpViewer(tester);
       await tester
-          .tap(find.byTooltip('Look: doors, backsplash, decor and light'));
+          .tap(find.byTooltip('Look: doors, backsplash, decor, room and light'));
       await tester.pumpAndSettle();
       expect(find.text('Look of the design'), findsOneWidget);
       expect(find.textContaining('changes the price'), findsOneWidget);
@@ -371,11 +373,17 @@ void main() {
       await tester.tap(find.text('Evening'));
       await tester.pump();
       expect(latest('setMood'), "setMood('evening')");
-      await tester.tap(find.byType(Switch));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show decor'));
       await tester.pump();
       expect(latest('setDecor'), 'setDecor(false)');
-      // Not included in the quote, in so many words.
-      expect(find.textContaining('Not included in the quote'), findsOneWidget);
+      expect(latest('setRoom'), 'setRoom(true)');
+      await tester.ensureVisible(find.text('Show the room'));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show the room'));
+      await tester.pump();
+      expect(latest('setRoom'), 'setRoom(false)');
+      expect(latest('setDecor'), 'setDecor(false)');
+      // Not included in the quote, in so many words (decor and room).
+      expect(find.textContaining('Not included in the quote'), findsNWidgets(2));
       await finish(tester);
     });
 
@@ -384,7 +392,7 @@ void main() {
       await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
       await pumpViewer(tester);
       await tester
-          .tap(find.byTooltip('Look: doors, backsplash, decor and light'));
+          .tap(find.byTooltip('Look: doors, backsplash, decor, room and light'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Raised panel'));
       await tester.pump();
@@ -400,6 +408,7 @@ void main() {
         'doors': 'raised',
         'backsplash': 'subway',
         'decor': true,
+        'room': true,
         'mood': 'evening',
       });
       await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
@@ -410,6 +419,7 @@ void main() {
           'doors': 'raised',
           'backsplash': 'hex',
           'decor': false,
+          'room': false,
           'mood': 'evening',
         };
       // A new screen, not an update of the old one.
@@ -418,6 +428,7 @@ void main() {
       expect(page().javaScript, contains("setDoorStyle('raised')"));
       expect(page().javaScript, contains("setBacksplash('hex')"));
       expect(page().javaScript, contains('setDecor(false)'));
+      expect(page().javaScript, contains('setRoom(false)'));
       expect(page().javaScript, contains("setMood('evening')"));
       await finish(tester);
     });

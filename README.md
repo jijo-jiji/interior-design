@@ -133,15 +133,21 @@ them with real photographs. Choosing a benchtop in the Edit panel now changes
 the worktop in the 3D view (the Calacatta and granite choices have their own
 look; any other benchtop keeps the style's worktop).
 
-### Look of the design (doors, backsplash, decor, light)
+### Look of the design (doors, backsplash, decor, room, light)
 
 The palette icon on the 3D screen changes how the design is dressed, in 3D
 and in the pictures: **doors** (flat, shaker, raised panel; framed doors also
 get a cornice on the wall units), **backsplash** (none, subway or hexagon
 tile, following the cabinets and stopping at windows), **light** (day, or a
 warm evening with the under-cabinet lights on) and **decor** (plates, jars,
-plants and the like on the worktop, drawn from simple shapes). It is saved
-with the design. **None of it changes the price**, and the quote PDF and the
-client's picture page say that the decor and the backsplash tile shown are
-not part of the quote and that the door style is for illustration. If a door
-style or a tile should cost more, that needs a price rule from the designer.
+plants and the like on the worktop, drawn from simple shapes) and **the room**
+(the side walls, a ceiling with downlights, skirting and a wooden floor
+around the kitchen, so a picture reads as a kitchen in a room instead of
+cabinets on a plain floor; in the evening the downlights are lit too). The
+room is cut away from above, so the 3D view stays open, and it steps aside in
+the Room and House views of a design read from a floor plan, which show the
+plan's own walls. It is saved with the design. **None of it changes the
+price**, and the quote PDF and the client's picture page say that the decor
+and the backsplash tile shown are not part of the quote and that the door
+style and the room are for illustration. If a door style or a tile should
+cost more, that needs a price rule from the designer.
