@@ -878,7 +878,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               value: '×${summary.materialMultiplier}',
             ),
             _SummaryTile(
-              label: 'Installation (${summary.totalModules} units)',
+              label: 'Installation (${summary.labourModules} units)',
               value: formatMoney(summary.labourTotal),
             ),
             if (summary.obstacleAllowance != 0)

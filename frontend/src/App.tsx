@@ -13,8 +13,9 @@ import type { InspectorTab, SaveState } from './components/JoineryInspector';
 import { StudioToolbar } from './components/StudioToolbar';
 import type { CabinetData, ModuleType } from './layout/model';
 import { fromEntry, newModule, toEntry } from './layout/model';
-import { FALLBACK_CATALOG, benchtopLinearMetres, priceLayout } from './pricing';
+import { benchtopLinearMetres, benchtopNames, benchtopRates, priceLayout, styleMultipliers, styleNames } from './pricing';
 import type { Catalog } from './pricing';
+import { FALLBACK_CATALOG } from './defaultCatalog';
 
 const DEMO_PROJECT_ID = 'QT-992AC14B';
 const NUDGE_M = 0.05;
@@ -263,7 +264,7 @@ export const App: React.FC = () => {
     () => priceLayout(cabinets, openings, finish, catalog, benchtopMaterial),
     [cabinets, openings, finish, catalog, benchtopMaterial],
   );
-  const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets), [cabinets]);
+  const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets, catalog), [cabinets, catalog]);
 
   const handleSaveRevisions = useCallback(async () => {
     setSaveState('saving');
@@ -405,15 +406,15 @@ export const App: React.FC = () => {
           onChangeReturn={handleChangeReturn}
           finish={finish}
           onSelectFinish={setFinish}
-          styleNames={catalog.style_names}
-          styleMultipliers={catalog.styles}
+          styleNames={styleNames(catalog)}
+          styleMultipliers={styleMultipliers(catalog)}
           doorStyle={doorStyle}
           onSelectDoorStyle={setDoorStyle}
           benchtopMaterial={benchtopMaterial}
           onSelectBenchtop={setBenchtopMaterial}
           benchtopMetres={benchtopMetres}
-          benchtopRates={catalog.benchtops}
-          benchtopNames={catalog.benchtop_names}
+          benchtopRates={benchtopRates(catalog)}
+          benchtopNames={benchtopNames(catalog)}
           cabinets={cabinets}
           selectedCabinetId={selectedCabinetId}
           onSelectCabinet={selectCabinet}

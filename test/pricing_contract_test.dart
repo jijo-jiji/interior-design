@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:static_trace/features/viewer/models/cpq_engine.dart';
 
-/// Mobile half of the pricing contract.
+/// Mobile half of the pricing contract. It prices with the built-in sample
+/// catalogue, the same one the other two engines use.
 ///
 /// The figures live in test/fixtures/pricing_cases.json and are shared with
 /// backend/test_pricing_contract.py. The app shows the client a price; the
@@ -56,5 +57,9 @@ void main() {
     expect(names, contains('mixed_nordic_quartz')); // corner run + multiplier
     expect(names, contains('unknown_type_falls_back')); // unpriced type
     expect(names, contains('empty_layout')); // nothing placed yet
+    // Sizes the layout generator makes that are not fixed modules.
+    expect(names, contains('generated_l_kitchen_priced_by_width'));
+    expect(names, contains('generated_kitchen_minimalist_granite_window'));
+    expect(names, contains('filler_widths_round_to_the_sen'));
   });
 }
