@@ -1,5 +1,33 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import * as THREE from 'three';
+import { useThree } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
+/** Soft studio reflections (generated, nothing downloaded), as in the sales
+ *  app: without them steel, glass and stone render flat and dark. */
+const StudioEnvironment: React.FC<{ intensity: number }> = ({ intensity }) => {
+  const { gl, scene } = useThree();
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const room = new RoomEnvironment();
+    const env = pmrem.fromScene(room, 0.04).texture;
+    // three.js scene settings are set by assignment; this is the intended API.
+    // oxlint-disable-next-line react/immutability
+    scene.environment = env;
+    room.dispose();
+    pmrem.dispose();
+    return () => {
+      scene.environment = null;
+      env.dispose();
+    };
+  }, [gl, scene]);
+  useEffect(() => {
+    // oxlint-disable-next-line react/immutability
+    scene.environmentIntensity = intensity;
+  }, [scene, intensity]);
+  return null;
+};
 
 interface LightingRigProps {
   mood: 'day' | 'evening';
@@ -10,10 +38,12 @@ export const LightingRig: React.FC<LightingRigProps> = ({ mood }) => {
 
   return (
     <>
+      <StudioEnvironment intensity={isDay ? 0.55 : 0.3} />
+
       {/* ── Soft Ambient Fill ────────────────────────────────────────── */}
       <ambientLight
         color={isDay ? '#FBF9F7' : '#D4C4B2'}
-        intensity={isDay ? 0.75 : 0.35}
+        intensity={isDay ? 0.45 : 0.25}
       />
 
       {/* ── Sky/Ground Hemisphere Bounce ─────────────────────────────── */}

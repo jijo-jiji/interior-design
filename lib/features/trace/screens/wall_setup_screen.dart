@@ -5,8 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../providers/wall_provider.dart';
 import '../../../shared/theme.dart';
 
-/// Wall Setup Screen — user enters real-world dimensions before tracing.
-/// Computes scale ratio on the fly and stores it in WallSetupProvider.
+/// Plausible ranges, to catch a typo or a measurement in cm or m.
+const double kMinWallWidthMm = 500, kMaxWallWidthMm = 15000;
+const double kMinWallHeightMm = 1800, kMaxWallHeightMm = 5000;
+
+/// Wall size: the salesperson types the wall's width and height from a tape
+/// measure. The photo is then lined up against these on the next screen.
 class WallSetupScreen extends ConsumerStatefulWidget {
   final String imagePath;
   const WallSetupScreen({super.key, required this.imagePath});
@@ -19,13 +23,11 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _widthCtrl = TextEditingController(text: '4000');
   final _heightCtrl = TextEditingController(text: '2700');
-  final _depthCtrl = TextEditingController(text: '150');
 
   @override
   void dispose() {
     _widthCtrl.dispose();
     _heightCtrl.dispose();
-    _depthCtrl.dispose();
     super.dispose();
   }
 
@@ -35,7 +37,8 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
     ref.read(wallSetupProvider.notifier).updateDimensions(
           widthMm: double.parse(_widthCtrl.text),
           heightMm: double.parse(_heightCtrl.text),
-          depthMm: double.parse(_depthCtrl.text),
+          // Wall thickness only shapes the 3D wall; a standard brick wall.
+          depthMm: ref.read(wallSetupProvider).depthMm,
         );
     // Clear any previous obstacles
     ref.read(obstaclesProvider.notifier).clear();
@@ -47,7 +50,7 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Wall Dimensions'),
+        title: const Text('Wall size'),
         leading: const BackButton(),
       ),
       body: SingleChildScrollView(
@@ -57,7 +60,6 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Hero illustration ──────────────────────────────────────
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -75,93 +77,48 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Enter real-world wall dimensions',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                      'Measure the wall',
+                      style: context.textTheme.titleMedium,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'These measurements set the pixel-to-mm ratio.\nEvery box you draw will be mathematically precise.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.textSecondary,
-                          ),
+                      'Use a tape: the width from corner to corner, and the '
+                      'height from floor to ceiling. Type them in millimetres.',
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
                       textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(height: 32),
-
-              // ── Inputs ────────────────────────────────────────────────
               _DimField(
                 controller: _widthCtrl,
-                label: 'Wall Width',
-                hint: 'e.g. 4000',
+                label: 'Wall width',
+                what: 'wall width',
+                hint: 'e.g. 3600',
                 icon: Icons.width_normal_rounded,
+                min: kMinWallWidthMm,
+                max: kMaxWallWidthMm,
               ),
               const SizedBox(height: 16),
               _DimField(
                 controller: _heightCtrl,
-                label: 'Wall Height',
+                label: 'Ceiling height',
+                what: 'ceiling height',
                 hint: 'e.g. 2700',
                 icon: Icons.height_rounded,
+                min: kMinWallHeightMm,
+                max: kMaxWallHeightMm,
               ),
-              const SizedBox(height: 16),
-              _DimField(
-                controller: _depthCtrl,
-                label: 'Wall Depth (thickness)',
-                hint: 'e.g. 150',
-                icon: Icons.view_in_ar_rounded,
-              ),
-
               const SizedBox(height: 32),
-
-              // ── Scale ratio preview ───────────────────────────────────
-              ValueListenableBuilder(
-                valueListenable: _widthCtrl,
-                builder: (context, _, __) {
-                  final w = double.tryParse(_widthCtrl.text);
-                  final screenW =
-                      MediaQuery.of(context).size.width - 48; // approx
-                  if (w == null || w <= 0) return const SizedBox();
-                  final ratio = screenW / w;
-                  return Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentDim,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calculate_rounded,
-                            color: AppTheme.accent, size: 20),
-                        const SizedBox(width: 10),
-                        Text(
-                          '1 mm ≈ ${ratio.toStringAsFixed(3)} px  '
-                          '(${screenW.toStringAsFixed(0)} px / ${w.toStringAsFixed(0)} mm)',
-                          style: const TextStyle(
-                            color: AppTheme.accent,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 32),
-
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: _proceed,
-                  icon: const Icon(Icons.draw_rounded),
-                  label: const Text('Start Tracing'),
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  label: const Text('Next: line up the photo'),
                 ),
               ),
             ],
@@ -175,15 +132,39 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
 class _DimField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
+
+  /// Used mid-sentence in error messages: "wall width".
+  final String what;
   final String hint;
   final IconData icon;
+  final double min;
+  final double max;
 
   const _DimField({
     required this.controller,
     required this.label,
+    required this.what,
     required this.hint,
     required this.icon,
+    required this.min,
+    required this.max,
   });
+
+  String? _validate(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'Enter the $what in mm';
+    final mm = double.tryParse(text);
+    if (mm == null) return 'Numbers only, in mm';
+    if (mm < min) {
+      return 'That looks small for a $what. Is it in mm? '
+          '(${min.round()}–${max.round()} mm)';
+    }
+    if (mm > max) {
+      return 'That looks big for a $what. Is it in mm? '
+          '(${min.round()}–${max.round()} mm)';
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -194,17 +175,13 @@ class _DimField extends StatelessWidget {
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
       ],
       decoration: InputDecoration(
-        labelText: '$label (mm)',
+        labelText: label,
         hintText: hint,
         prefixIcon: Icon(icon, color: AppTheme.textSecondary),
         suffixText: 'mm',
+        errorMaxLines: 3,
       ),
-      validator: (v) {
-        if (v == null || v.isEmpty) return 'Required';
-        final n = double.tryParse(v);
-        if (n == null || n <= 0) return 'Enter a positive number';
-        return null;
-      },
+      validator: _validate,
     );
   }
 }

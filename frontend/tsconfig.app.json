@@ -6,6 +6,7 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -22,5 +23,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Tests run under Vitest in Node and use node: imports, so they are not part
+  // of the browser build. tsconfig.node.json covers them.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

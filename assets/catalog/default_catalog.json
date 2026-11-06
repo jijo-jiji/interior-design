@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "name": "Sample catalogue",
+  "is_placeholder": true,
+  "currency": "MYR",
+  "currency_symbol": "RM",
+  "tax": {
+    "label": "SST",
+    "rate": 0.08
+  },
+  "labour_rate_per_cabinet": 120,
+  "unknown_module_price": 300,
+  "obstacle_allowances": {
+    "window": -50,
+    "door": -80
+  },
+  "style_options": {
+    "japandi": {
+      "name": "Japandi Natural",
+      "multiplier": 1.0
+    },
+    "minimalist": {
+      "name": "Modern Minimalist",
+      "multiplier": 1.08
+    },
+    "nordic": {
+      "name": "Warm Nordic",
+      "multiplier": 1.12
+    },
+    "industrial": {
+      "name": "Industrial Luxe",
+      "multiplier": 1.18
+    }
+  },
+  "benchtop_options": {
+    "quartz_calacatta": {
+      "name": "Calacatta Engineered Quartz",
+      "rate_per_m": 380
+    },
+    "granite_black": {
+      "name": "Nero Absolute Granite",
+      "rate_per_m": 480
+    },
+    "laminate_matte": {
+      "name": "Ultra-Matte Mineral Laminate",
+      "rate_per_m": 160
+    }
+  },
+  "modules": [
+    {
+      "type": "base_800",
+      "label": "Base 800",
+      "section": "cabinet",
+      "width_mm": 800,
+      "height_mm": 850,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 420
+    },
+    {
+      "type": "base_600",
+      "label": "Base 600",
+      "section": "cabinet",
+      "width_mm": 600,
+      "height_mm": 850,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 340
+    },
+    {
+      "type": "wall_600",
+      "label": "Wall 600",
+      "section": "cabinet",
+      "width_mm": 600,
+      "height_mm": 700,
+      "depth_mm": 320,
+      "mount_mm": 1400,
+      "price": 280
+    },
+    {
+      "type": "tall_600",
+      "label": "Tall 600",
+      "section": "cabinet",
+      "width_mm": 600,
+      "height_mm": 2100,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 620
+    },
+    {
+      "type": "corner_900",
+      "label": "Corner 900",
+      "section": "cabinet",
+      "width_mm": 900,
+      "height_mm": 850,
+      "depth_mm": 900,
+      "mount_mm": 0,
+      "price": 580
+    },
+    {
+      "type": "sink_600",
+      "label": "Sink 600",
+      "section": "appliance",
+      "width_mm": 600,
+      "height_mm": 850,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 480
+    },
+    {
+      "type": "cooktop_600",
+      "label": "Cooktop 600",
+      "section": "appliance",
+      "width_mm": 600,
+      "height_mm": 850,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 520
+    },
+    {
+      "type": "dishwasher_600",
+      "label": "Dishwasher",
+      "section": "appliance",
+      "width_mm": 600,
+      "height_mm": 850,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 360
+    },
+    {
+      "type": "oven_tower_600",
+      "label": "Oven tower",
+      "section": "appliance",
+      "width_mm": 600,
+      "height_mm": 2100,
+      "depth_mm": 600,
+      "mount_mm": 0,
+      "price": 1450
+    },
+    {
+      "type": "fridge_recess_700",
+      "label": "Fridge recess",
+      "section": "appliance",
+      "width_mm": 700,
+      "height_mm": 2100,
+      "depth_mm": 650,
+      "mount_mm": 0,
+      "price": 390
+    },
+    {
+      "type": "rangehood_900",
+      "label": "Rangehood",
+      "section": "appliance",
+      "width_mm": 900,
+      "height_mm": 450,
+      "depth_mm": 500,
+      "mount_mm": 1550,
+      "price": 690
+    }
+  ],
+  "families": [
+    {
+      "id": "base",
+      "label": "Base unit",
+      "prefixes": [
+        "base_"
+      ],
+      "group": "base",
+      "kind": "base",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 340,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "drawer",
+      "label": "Drawer base",
+      "prefixes": [
+        "base_drawer_"
+      ],
+      "group": "base",
+      "kind": "drawer",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 340,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "sink_unit",
+      "label": "Sink base",
+      "prefixes": [
+        "base_sink_"
+      ],
+      "group": "base",
+      "kind": "sink",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 480,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "hob_unit",
+      "label": "Hob base",
+      "prefixes": [
+        "base_hob_"
+      ],
+      "group": "base",
+      "kind": "hob",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 520,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "wall",
+      "label": "Wall unit",
+      "prefixes": [
+        "wall_"
+      ],
+      "group": "wall",
+      "kind": "wall",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 280,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "tall",
+      "label": "Tall unit",
+      "prefixes": [
+        "tall_"
+      ],
+      "group": "tall",
+      "kind": "tall",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 620,
+        "ref_width_mm": 600,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "corner",
+      "label": "Corner unit",
+      "prefixes": [
+        "corner_"
+      ],
+      "group": "corner",
+      "kind": "corner",
+      "benchtop": "fixed",
+      "benchtop_m": 1.8,
+      "labour": true,
+      "appliance": false,
+      "price": {
+        "at_ref": 580,
+        "ref_width_mm": 900,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "filler_base",
+      "label": "Base filler strip",
+      "prefixes": [
+        "filler_base"
+      ],
+      "group": "base",
+      "kind": "filler",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": false,
+      "appliance": false,
+      "price": {
+        "at_ref": 0,
+        "ref_width_mm": 0,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "filler_wall",
+      "label": "Wall filler strip",
+      "prefixes": [
+        "filler_wall"
+      ],
+      "group": "wall",
+      "kind": "filler",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": false,
+      "appliance": false,
+      "price": {
+        "at_ref": 0,
+        "ref_width_mm": 0,
+        "per_100mm": 40
+      }
+    },
+    {
+      "id": "sink",
+      "label": "Sink module",
+      "prefixes": [
+        "sink_"
+      ],
+      "group": "base",
+      "kind": "sink",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    },
+    {
+      "id": "cooktop",
+      "label": "Cooktop module",
+      "prefixes": [
+        "cooktop_"
+      ],
+      "group": "base",
+      "kind": "hob",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    },
+    {
+      "id": "dishwasher",
+      "label": "Dishwasher module",
+      "prefixes": [
+        "dishwasher_"
+      ],
+      "group": "base",
+      "kind": "dishwasher",
+      "benchtop": "width",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    },
+    {
+      "id": "oven",
+      "label": "Oven tower",
+      "prefixes": [
+        "oven_"
+      ],
+      "group": "tall",
+      "kind": "oven",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    },
+    {
+      "id": "fridge",
+      "label": "Fridge recess",
+      "prefixes": [
+        "fridge_"
+      ],
+      "group": "tall",
+      "kind": "fridge",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    },
+    {
+      "id": "rangehood",
+      "label": "Rangehood",
+      "prefixes": [
+        "rangehood_"
+      ],
+      "group": "wall",
+      "kind": "hood",
+      "benchtop": "none",
+      "benchtop_m": 0,
+      "labour": true,
+      "appliance": true,
+      "price": null
+    }
+  ],
+  "layout": {
+    "base_door_widths_mm": [
+      300,
+      400,
+      450,
+      500,
+      600,
+      800,
+      900
+    ],
+    "drawer_widths_mm": [
+      400,
+      450,
+      500,
+      600,
+      800,
+      900
+    ],
+    "sink_widths_mm": [
+      800,
+      900
+    ],
+    "hob_widths_mm": [
+      600,
+      800
+    ],
+    "tall_width_mm": 600,
+    "wall_widths_mm": [
+      300,
+      400,
+      450,
+      500,
+      600,
+      800,
+      900
+    ],
+    "corner_size_mm": 900,
+    "base_height_mm": 850,
+    "base_depth_mm": 600,
+    "counter_height_mm": 890,
+    "wall_height_mm": 700,
+    "wall_depth_mm": 320,
+    "wall_mount_mm": 1400,
+    "tall_height_mm": 2100,
+    "tall_depth_mm": 600,
+    "rules": {
+      "min_sink_to_hob_mm": 600,
+      "min_hob_side_counter_mm": 300,
+      "min_sink_to_tall_mm": 300,
+      "min_filler_mm": 25,
+      "max_filler_mm": 150,
+      "scribe_tolerance_mm": 10,
+      "door_clearance_mm": 50,
+      "window_clearance_mm": 50,
+      "max_sink_shift_from_window_mm": 300
+    }
+  }
+}

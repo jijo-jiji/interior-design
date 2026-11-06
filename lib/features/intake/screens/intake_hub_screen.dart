@@ -1,107 +1,138 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../shared/theme.dart';
 import '../../../shared/config.dart';
+import '../../../shared/labels.dart';
+import '../../../shared/money.dart';
+import '../../../shared/platform/api_client.dart';
+import '../../../shared/project_status.dart';
+import '../../../shared/sales_config.dart';
+import '../../../shared/theme.dart';
+import '../../catalog/catalog_repository.dart';
+import '../../viewer/models/cpq_engine.dart';
 import '../../viewer/utils/offline_store.dart';
+import '../providers/consultation_provider.dart';
 
-/// Root consultation launcher & CRM Pipeline Hub:
-/// 1. Tab 1 (Start Consultation): Camera wall capture, 2D blueprint calibration, 10s template room.
-/// 2. Tab 2 (Pipeline & History): Search, inspect, and reopen client quotes & offline drafts in 3D.
-class IntakeHubScreen extends StatefulWidget {
+/// Home screen.
+/// - New client: enter the client's name, then choose how to measure the
+///   room (photo of the wall, floor plan, or sizes only).
+/// - Clients: every saved design, quote and order, on this phone and from
+///   the office, to search and reopen in 3D.
+class IntakeHubScreen extends ConsumerStatefulWidget {
   const IntakeHubScreen({super.key});
 
   @override
-  State<IntakeHubScreen> createState() => _IntakeHubScreenState();
+  ConsumerState<IntakeHubScreen> createState() => _IntakeHubScreenState();
 }
 
-class _IntakeHubScreenState extends State<IntakeHubScreen> {
-  int _selectedTabIndex = 0; // 0 = New Consultation, 1 = Pipeline & History
+enum _Filter { all, draft, quote, deposit, unsent }
+
+class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
+  int _tab = 0; // 0 = New client, 1 = Clients
   bool _isPickingFile = false;
 
-  // Pipeline state
-  bool _isLoadingProjects = false;
+  bool _isLoading = false;
   List<Map<String, dynamic>> _projects = [];
-  String _searchQuery = '';
-  String _pipelineFilter = 'all'; // 'all', 'locked', 'estimates', 'offline'
-  int _offlineDraftCount = 0;
+  String _search = '';
+  _Filter _filter = _Filter.all;
+  int _waitingToSend = 0;
 
   @override
   void initState() {
     super.initState();
-    _fetchPipeline();
+    _fetchProjects();
   }
 
-  Future<void> _fetchPipeline() async {
-    setState(() => _isLoadingProjects = true);
+  Future<void> _fetchProjects() async {
+    setState(() => _isLoading = true);
 
-    final drafts = await OfflineStore.getDrafts();
-    _offlineDraftCount = drafts.length;
+    // Prices, sizes and tax come from the office; fetch the latest while the
+    // list loads. A design already open keeps the version it started with.
+    unawaited(CatalogRepository.sync());
 
-    List<Map<String, dynamic>> remoteProjects = [];
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 3);
-      final req = await client.getUrl(Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final body = await resp.transform(utf8.decoder).join();
-        final list = jsonDecode(body) as List<dynamic>;
-        remoteProjects = list.cast<Map<String, dynamic>>();
-      }
-      client.close();
-    } catch (_) {
-      // Backend offline or unreachable
+    final local = await OfflineStore.getDrafts();
+    final waiting = (await OfflineStore.pendingSync()).length;
+
+    // Office server offline or unreachable: show what's on the device.
+    var remote = <Map<String, dynamic>>[];
+    final reply = await ApiClient.getJson(
+        Uri.parse('${AppConfig.backendBaseUrl}/api/projects'));
+    final list = reply != null && reply.ok ? reply.json : null;
+    if (list is List) {
+      remote = list.whereType<Map<String, dynamic>>().toList();
     }
 
-    // Merge offline drafts at top, followed by cloud projects
+    // Records on this phone first (newest work), then the office's.
     final merged = <Map<String, dynamic>>[
-      ...drafts,
-      ...remoteProjects.where((p) => !drafts.any((d) => d['quote_id'] == p['quote_id'])),
+      ...local,
+      ...remote.where((p) => !local.any((d) => d['quote_id'] == p['quote_id'])),
     ];
 
     if (mounted) {
       setState(() {
         _projects = merged;
-        _isLoadingProjects = false;
+        _waitingToSend = waiting;
+        _isLoading = false;
       });
     }
   }
 
-  Future<void> _syncOfflineDrafts() async {
+  Future<void> _sendWaiting() async {
+    final waiting = _waitingToSend;
     final count = await OfflineStore.syncQueue(AppConfig.quoteEndpoint);
     if (!mounted) return;
-
+    final String message;
+    if (count > 0) {
+      message = 'Sent $count ${count == 1 ? 'quote' : 'quotes'} to the office.';
+    } else if (waiting == 0) {
+      message = 'Everything is already sent.';
+    } else {
+      message = "Couldn't reach the office. Try again when you're online.";
+    }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(count > 0 ? 'Successfully synced $count offline quote(s) with studio cloud!' : 'No pending offline quotes or studio unreachable.'),
-        backgroundColor: count > 0 ? const Color(0xFF16A34A) : AppTheme.accent,
-      ),
+      SnackBar(content: Text(message)),
     );
-    _fetchPipeline();
+    _fetchProjects();
   }
+
+  /// Asks who the design is for, then starts the chosen way of measuring.
+  Future<void> _startNewClient(Future<void> Function() measure) async {
+    final consultation = await showModalBottomSheet<Consultation>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _NewClientSheet(),
+    );
+    if (consultation == null || !mounted) return;
+    ref.read(consultationProvider.notifier).state = consultation;
+    await measure();
+    if (mounted) _fetchProjects();
+  }
+
+  Future<void> _openCamera() => context.push('/camera');
+
+  Future<void> _openTemplate() => context.push('/template-room');
 
   Future<void> _pickFloorplanImage() async {
     if (_isPickingFile) return;
     setState(() => _isPickingFile = true);
 
     try {
-      final picker = ImagePicker();
-      final XFile? file = await picker.pickImage(
+      final file = await ImagePicker().pickImage(
         source: ImageSource.gallery,
         imageQuality: 95,
       );
-
       if (file != null && mounted) {
-        context.push('/floorplan-calibrate', extra: file.path);
+        await context.push('/floorplan', extra: file.path);
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to open floor plan: $e'),
+          const SnackBar(
+            content: Text("Couldn't open that image. Try another one."),
             backgroundColor: AppTheme.danger,
           ),
         );
@@ -111,656 +142,439 @@ class _IntakeHubScreenState extends State<IntakeHubScreen> {
     }
   }
 
-  void _openProjectInViewer(Map<String, dynamic> project) {
-    // Construct payload ensuring wall and placed cabinets are passed
+  Future<void> _openProject(Map<String, dynamic> project) async {
     final payload = {
-      'wall': project['wall'] ?? {
-        'width_mm': 4000.0,
-        'height_mm': 2700.0,
-        'depth_mm': 150.0,
-      },
+      'wall': project['wall'] ??
+          {
+            'width_mm': 4000.0,
+            'height_mm': 2700.0,
+            'depth_mm': 150.0,
+          },
       'obstacles': project['obstacles'] ?? [],
+      if (_floorPlanOf(project) case final plan?) 'floor_plan': plan,
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
-      'client_name': project['client_name'] ?? 'Client',
+      'benchtop_material': project['benchtop_material'],
+      'client_name': project['client_name'] ?? '',
       'client_phone': project['client_phone'] ?? '',
       'client_email': project['client_email'] ?? '',
       'deposit_paid': project['deposit_paid'] ?? 0.0,
       'quote_id': project['quote_id'] ?? '',
+      'status': ProjectStatus.of(project).name,
     };
-
-    context.push('/viewer', extra: jsonEncode(payload));
+    await context.push('/viewer', extra: jsonEncode(payload));
+    if (mounted) _fetchProjects();
   }
+
+  bool _isUnsent(Map<String, dynamic> p) =>
+      p['is_offline_draft'] == true &&
+      ProjectStatus.of(p) != ProjectStatus.draft;
+
+  bool _matchesFilter(Map<String, dynamic> p, _Filter filter) =>
+      switch (filter) {
+        _Filter.all => true,
+        _Filter.draft => ProjectStatus.of(p) == ProjectStatus.draft,
+        _Filter.quote => ProjectStatus.of(p) == ProjectStatus.quote,
+        _Filter.deposit => ProjectStatus.of(p) == ProjectStatus.deposit,
+        _Filter.unsent => _isUnsent(p),
+      };
 
   @override
   Widget build(BuildContext context) {
-    final filteredProjects = _projects.where((p) {
-      final q = _searchQuery.toLowerCase();
-      final name = (p['client_name'] as String? ?? '').toLowerCase();
-      final qid = (p['quote_id'] as String? ?? '').toLowerCase();
-      final style = (p['style_archetype'] as String? ?? '').toLowerCase();
-      final matchesQuery = name.contains(q) || qid.contains(q) || style.contains(q);
-      if (!matchesQuery) return false;
-
-      final isOffline = p['is_offline_draft'] == true;
-      final depositPaid = (p['deposit_paid'] as num? ?? 0.0) > 0;
-
-      if (_pipelineFilter == 'locked') return depositPaid;
-      if (_pipelineFilter == 'estimates') return !depositPaid && !isOffline;
-      if (_pipelineFilter == 'offline') return isOffline;
-      return true;
-    }).toList();
-
-    final lockedCount = _projects.where((p) => (p['deposit_paid'] as num? ?? 0.0) > 0).length;
-    final estimateCount = _projects.where((p) => (p['deposit_paid'] as num? ?? 0.0) == 0 && p['is_offline_draft'] != true).length;
-
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: SafeArea(
         child: Column(
           children: [
-            // ── Top Header Bar ───────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.accent.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.view_in_ar_rounded,
-                              color: AppTheme.accent,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text(
-                            'STATIC TRACE',
-                            style: TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'In-Person Interior Design Sales Closer',
-                        style: TextStyle(
-                          color: AppTheme.textSecondary.withOpacity(0.8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Offline status / sync pill
-                  InkWell(
-                    onTap: _syncOfflineDrafts,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: _offlineDraftCount > 0 ? AppTheme.accentTerracotta.withOpacity(0.25) : AppTheme.successDim,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _offlineDraftCount > 0 ? AppTheme.accentTaupe : AppTheme.success.withOpacity(0.4),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _offlineDraftCount > 0 ? Icons.cloud_upload_rounded : Icons.wifi_off_rounded,
-                            size: 13,
-                            color: _offlineDraftCount > 0 ? AppTheme.textPrimary : AppTheme.success,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            _offlineDraftCount > 0 ? '$_offlineDraftCount Offline' : 'Offline Ready',
-                            style: TextStyle(
-                              color: _offlineDraftCount > 0 ? AppTheme.textPrimary : AppTheme.success,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
+            _buildHeader(),
             const Divider(color: AppTheme.border, height: 1),
+            _buildTabs(),
+            Expanded(child: _tab == 0 ? _buildNewClient() : _buildClients()),
+          ],
+        ),
+      ),
+    );
+  }
 
-            // ── Primary Tab Bar (New Consultation vs Pipeline) ───────────
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceRaised,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedTabIndex = 0),
-                      borderRadius: BorderRadius.circular(9),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _selectedTabIndex == 0 ? AppTheme.accent : Colors.transparent,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Center(
-                          child: Text(
-                            'Start Consultation',
-                            style: TextStyle(
-                              color: _selectedTabIndex == 0 ? Colors.white : AppTheme.textSecondary,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () {
-                        setState(() => _selectedTabIndex = 1);
-                        _fetchPipeline();
-                      },
-                      borderRadius: BorderRadius.circular(9),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _selectedTabIndex == 1 ? AppTheme.accent : Colors.transparent,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Pipeline & History',
-                              style: TextStyle(
-                                color: _selectedTabIndex == 1 ? Colors.white : AppTheme.textSecondary,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (_projects.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: _selectedTabIndex == 1 ? Colors.white.withOpacity(0.25) : AppTheme.surfaceElevated,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${_projects.length}',
-                                  style: TextStyle(
-                                    color: _selectedTabIndex == 1 ? Colors.white : AppTheme.textSecondary,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+  Widget _buildHeader() {
+    final waiting = _waitingToSend > 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  SalesConfig.brandName,
+                  style: context.textTheme.titleMedium
+                      ?.copyWith(color: context.colors.onSurface),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  SalesConfig.brandTagline,
+                  style: context.textTheme.bodySmall
+                      ?.copyWith(color: context.colors.onSurfaceVariant),
+                ),
+              ],
             ),
+          ),
+          TextButton.icon(
+            onPressed: _sendWaiting,
+            style: TextButton.styleFrom(
+              foregroundColor:
+                  waiting ? AppTheme.textPrimary : AppTheme.success,
+              minimumSize: const Size(48, 48),
+            ),
+            icon: Icon(
+              waiting ? Icons.cloud_upload_outlined : Icons.cloud_done_outlined,
+              size: 18,
+            ),
+            label: Text(waiting ? '$_waitingToSend to send' : 'All sent'),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // ── Tab 1: Start Consultation ────────────────────────────────
-            if (_selectedTabIndex == 0) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Room Intake Mode',
-                          style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Choose how to bring the client room into 3D:',
-                          style: TextStyle(
-                            color: AppTheme.textSecondary.withOpacity(0.85),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+  Widget _buildTabs() {
+    Widget tab(int index, String label) {
+      final selected = _tab == index;
+      return Expanded(
+        child: InkWell(
+          onTap: () {
+            setState(() => _tab = index);
+            if (index == 1) _fetchProjects();
+          },
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.accent : Colors.transparent,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Text(
+              label,
+              style: context.textTheme.labelLarge?.copyWith(
+                  color: selected
+                      ? context.colors.onPrimary
+                      : context.colors.onSurfaceVariant),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceRaised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Row(
+        children: [
+          tab(0, 'New client'),
+          tab(1,
+              _projects.isEmpty ? 'Clients' : 'Clients (${_projects.length})'),
+        ],
+      ),
+    );
+  }
+
+  /// The newest unfinished design on this phone, to pick up where the
+  /// salesperson left off.
+  Map<String, dynamic>? get _lastDraft {
+    final drafts = _projects
+        .where((p) =>
+            ProjectStatus.of(p) == ProjectStatus.draft &&
+            p['saved_at'] is String)
+        .toList()
+      ..sort((a, b) =>
+          (b['saved_at'] as String).compareTo(a['saved_at'] as String));
+    return drafts.isEmpty ? null : drafts.first;
+  }
+
+  Widget _buildNewClient() {
+    final lastDraft = _lastDraft;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        if (lastDraft != null) ...[
+          _ContinueCard(
+            project: lastDraft,
+            onTap: () => _openProject(lastDraft),
+          ),
+          const SizedBox(height: 20),
+        ],
+        Padding(
+          padding: EdgeInsets.fromLTRB(4, 0, 4, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'How will you measure the room?',
+                style: context.textTheme.titleMedium
+                    ?.copyWith(color: context.colors.onSurface),
               ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    // ── Luxury Hero Consultation Launcher Card ───────────
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFEEE4E1), Color(0xFFE7D8C9)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppTheme.border, width: 1.2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.accent.withOpacity(0.06),
-                            blurRadius: 18,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surface.withOpacity(0.8),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.auto_awesome, color: AppTheme.accent, size: 13),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'ATELIER ACCELERATOR',
-                                      style: TextStyle(
-                                        color: AppTheme.accent,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Text(
-                                'Avg Close: 4m 12s',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.9),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Ready for On-Site Co-Design',
-                            style: TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'From live room measurement to itemized BOQ and signed customer deposit in under 5 minutes.',
-                            style: TextStyle(
-                              color: AppTheme.textSecondary.withOpacity(0.9),
-                              fontSize: 12,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    _ConsultationCard(
-                      title: 'Camera Wall Trace',
-                      subtitle: 'Point camera at client wall, freeze perspective & drag door/window cutouts on-site.',
-                      badge: 'MOST ACCURATE ON-SITE',
-                      badgeColor: AppTheme.accentTaupe,
-                      icon: Icons.camera_alt_rounded,
-                      accentColor: AppTheme.accent,
-                      onTap: () => context.push('/camera'),
-                    ),
-                    const SizedBox(height: 14),
-                    _ConsultationCard(
-                      title: '2D Floor Plan Blueprint',
-                      subtitle: 'Import developer PDF or photo from WhatsApp/Gallery. Calibrate scale with 2 points.',
-                      badge: 'DEVELOPER PLANS & BROCHURES',
-                      badgeColor: AppTheme.success,
-                      icon: Icons.architecture_rounded,
-                      accentColor: AppTheme.success,
-                      isLoading: _isPickingFile,
-                      onTap: _pickFloorplanImage,
-                    ),
-                    const SizedBox(height: 14),
-                    _ConsultationCard(
-                      title: '10-Second Quick Template',
-                      subtitle: 'Instant Single Wall, L-Shape, or Galley room with dimension sliders for fast showroom pitches.',
-                      badge: 'FASTEST (NO PLANS NEEDED)',
-                      badgeColor: AppTheme.accentTaupe,
-                      icon: Icons.bolt_rounded,
-                      accentColor: AppTheme.accentTaupe,
-                      onTap: () => context.push('/template-room'),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ]
-
-            // ── Tab 2: Consultation Pipeline & History ───────────────────
-            else ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppTheme.border),
-                        ),
-                        child: TextField(
-                          onChanged: (v) => setState(() => _searchQuery = v),
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                          decoration: const InputDecoration(
-                            hintText: 'Search client, quote ID, or style...',
-                            hintStyle: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
-                            prefixIcon: Icon(Icons.search_rounded, size: 18, color: AppTheme.textSecondary),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(vertical: 9),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'Refresh Pipeline',
-                      icon: const Icon(Icons.refresh_rounded, color: AppTheme.accent),
-                      onPressed: _fetchPipeline,
-                    ),
-                  ],
-                ),
-              ),
-
-              // Pipeline status filter chips
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _FilterChip(
-                        label: 'All (${_projects.length})',
-                        isSelected: _pipelineFilter == 'all',
-                        onTap: () => setState(() => _pipelineFilter = 'all'),
-                      ),
-                      const SizedBox(width: 8),
-                      _FilterChip(
-                        label: 'Priority Locked ($lockedCount)',
-                        isSelected: _pipelineFilter == 'locked',
-                        accentColor: AppTheme.success,
-                        onTap: () => setState(() => _pipelineFilter = 'locked'),
-                      ),
-                      const SizedBox(width: 8),
-                      _FilterChip(
-                        label: 'Estimates ($estimateCount)',
-                        isSelected: _pipelineFilter == 'estimates',
-                        accentColor: AppTheme.accent,
-                        onTap: () => setState(() => _pipelineFilter = 'estimates'),
-                      ),
-                      const SizedBox(width: 8),
-                      _FilterChip(
-                        label: 'Offline Drafts ($_offlineDraftCount)',
-                        isSelected: _pipelineFilter == 'offline',
-                        accentColor: AppTheme.accentTaupe,
-                        onTap: () => setState(() => _pipelineFilter = 'offline'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: _isLoadingProjects
-                    ? const Center(child: CircularProgressIndicator(color: AppTheme.accent))
-                    : filteredProjects.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.folder_open_rounded, size: 48, color: AppTheme.textTertiary.withOpacity(0.5)),
-                                const SizedBox(height: 10),
-                                const Text(
-                                  'No matching consultations found.',
-                                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            itemCount: filteredProjects.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
-                            itemBuilder: (context, idx) {
-                              final p = filteredProjects[idx];
-                              final isOffline = p['is_offline_draft'] == true;
-                              final deposit = (p['deposit_paid'] as num? ?? 0) > 0;
-                              final style = (p['style_archetype'] as String? ?? 'japandi').toUpperCase();
-                              final totalPrice = (p['total_price'] as num? ?? 0).toDouble();
-
-                              return InkWell(
-                                onTap: () => _openProjectInViewer(p),
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.surface,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: isOffline ? AppTheme.accentTaupe : AppTheme.border,
-                                      width: 1.1,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFF2C2724).withOpacity(0.04),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              p['client_name'] as String? ?? 'Client Consultation',
-                                              style: const TextStyle(
-                                                color: AppTheme.textPrimary,
-                                                fontSize: 14.5,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          Text(
-                                            '\$${totalPrice.toStringAsFixed(0)} AUD',
-                                            style: const TextStyle(
-                                              color: AppTheme.textPrimary,
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w900,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            p['quote_id'] as String? ?? '',
-                                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                                          ),
-                                          const Spacer(),
-                                          // Style tag
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppTheme.surfaceRaised,
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(color: AppTheme.border),
-                                            ),
-                                            child: Text(
-                                              style,
-                                              style: const TextStyle(color: AppTheme.accentTaupe, fontSize: 9.5, fontWeight: FontWeight.bold),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          // Status tag
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: isOffline
-                                                  ? AppTheme.accentTerracotta.withOpacity(0.3)
-                                                  : (deposit ? AppTheme.successDim : AppTheme.surfaceRaised),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              isOffline ? 'OFFLINE DRAFT' : (deposit ? 'PRIORITY LOCKED' : 'ESTIMATE'),
-                                              style: TextStyle(
-                                                color: isOffline
-                                                    ? AppTheme.textPrimary
-                                                    : (deposit ? AppTheme.success : AppTheme.textSecondary),
-                                                fontSize: 9.5,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            '${(p['placed_cabinets'] as List?)?.length ?? 0} modules placed',
-                                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                                          ),
-                                          const Row(
-                                            children: [
-                                              Text(
-                                                'Open in 3D',
-                                                style: TextStyle(color: AppTheme.accent, fontSize: 11.5, fontWeight: FontWeight.bold),
-                                              ),
-                                              SizedBox(width: 4),
-                                              Icon(Icons.arrow_forward_rounded, color: AppTheme.accent, size: 13),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+              SizedBox(height: 4),
+              Text(
+                "You'll add the client's name first.",
+                style: context.textTheme.bodyMedium
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
             ],
+          ),
+        ),
+        _MeasureCard(
+          title: 'Photo of the wall',
+          description:
+              'Take a photo, line up the wall edges, then mark the windows '
+              'and doors.',
+          tag: 'Most accurate',
+          icon: Icons.camera_alt_rounded,
+          accentColor: AppTheme.accent,
+          onTap: () => _startNewClient(_openCamera),
+        ),
+        const SizedBox(height: 12),
+        _MeasureCard(
+          title: 'Floor plan',
+          description:
+              'Use a floor plan image from WhatsApp or your gallery. The '
+              "kitchen's sizes are read off it for you.",
+          tag: 'From a developer plan',
+          icon: Icons.architecture_rounded,
+          accentColor: AppTheme.success,
+          isLoading: _isPickingFile,
+          onTap: () => _startNewClient(_pickFloorplanImage),
+        ),
+        const SizedBox(height: 12),
+        _MeasureCard(
+          title: 'Room size only',
+          description:
+              "Pick the room shape and type in the sizes. Best when there's no "
+              'photo or plan.',
+          tag: 'Fastest',
+          icon: Icons.straighten_rounded,
+          accentColor: AppTheme.accent,
+          onTap: () => _startNewClient(_openTemplate),
+        ),
+      ],
+    );
+  }
 
-            // ── Footer ───────────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: const BoxDecoration(
-                color: AppTheme.surfaceRaised,
-                border: Border(top: BorderSide(color: AppTheme.border)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.success,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Three.js Local Engine Loaded',
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                      ),
-                    ],
+  Widget _buildClients() {
+    final q = _search.toLowerCase();
+    final visible = _projects.where((p) {
+      final name = (p['client_name'] as String? ?? '').toLowerCase();
+      final id = (p['quote_id'] as String? ?? '').toLowerCase();
+      return (name.contains(q) || id.contains(q)) && _matchesFilter(p, _filter);
+    }).toList();
+    int count(_Filter f) => _projects.where((p) => _matchesFilter(p, f)).length;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  onChanged: (v) => setState(() => _search = v),
+                  style: context.textTheme.bodyLarge
+                      ?.copyWith(color: context.colors.onSurface),
+                  decoration: InputDecoration(
+                    hintText: 'Search by client or quote number',
+                    hintStyle: context.textTheme.bodyMedium
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      size: 20,
+                      color: AppTheme.textSecondary,
+                    ),
+                    isDense: true,
                   ),
-                  Text(
-                    'v2.0.0 • Sales Closer Hub',
-                    style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.7), fontSize: 11),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+              IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh_rounded, color: AppTheme.accent),
+                onPressed: _fetchProjects,
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              for (final (f, label) in [
+                (_Filter.all, 'All'),
+                (_Filter.draft, 'Drafts'),
+                (_Filter.quote, 'Quotes sent'),
+                (_Filter.deposit, 'Deposit paid'),
+                (_Filter.unsent, 'Waiting to send'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _FilterChip(
+                    label: '$label (${count(f)})',
+                    isSelected: _filter == f,
+                    onTap: () => setState(() => _filter = f),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppTheme.accent),
+                )
+              : visible.isEmpty
+                  ? _EmptyClients(hasAny: _projects.isNotEmpty)
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) => _ClientCard(
+                        project: visible[i],
+                        unsent: _isUnsent(visible[i]),
+                        onTap: () => _openProject(visible[i]),
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── New client sheet ─────────────────────────────────────────────────────
+
+class _NewClientSheet extends StatefulWidget {
+  const _NewClientSheet();
+
+  @override
+  State<_NewClientSheet> createState() => _NewClientSheetState();
+}
+
+class _NewClientSheetState extends State<_NewClientSheet> {
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  void _continue({bool skip = false}) {
+    Navigator.pop(
+      context,
+      Consultation(
+        quoteId: newQuoteId(),
+        clientName: skip ? '' : _name.text.trim(),
+        clientPhone: skip ? '' : _phone.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasName = _name.text.trim().isNotEmpty;
+    return Container(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'New client',
+                style: context.textTheme.titleMedium
+                    ?.copyWith(color: context.colors.onSurface),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Their design is saved under this name as you work.',
+                style: context.textTheme.bodyMedium
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _name,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Client name',
+                  prefixIcon: Icon(Icons.person_outline),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _phone,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  if (hasName) _continue();
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Phone / WhatsApp (optional)',
+                  prefixIcon: Icon(Icons.phone_outlined),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                child: ElevatedButton(
+                  onPressed: hasName ? _continue : null,
+                  child: const Text('Continue'),
+                ),
+              ),
+              TextButton(
+                onPressed: () => _continue(skip: true),
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                child: const Text('Skip for now'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _ConsultationCard extends StatelessWidget {
+// ── Widgets ──────────────────────────────────────────────────────────────
+
+class _MeasureCard extends StatelessWidget {
   final String title;
-  final String subtitle;
-  final String badge;
-  final Color badgeColor;
+  final String description;
+  final String tag;
   final IconData icon;
   final Color accentColor;
   final VoidCallback onTap;
   final bool isLoading;
 
-  const _ConsultationCard({
+  const _MeasureCard({
     required this.title,
-    required this.subtitle,
-    required this.badge,
-    required this.badgeColor,
+    required this.description,
+    required this.tag,
     required this.icon,
     required this.accentColor,
     required this.onTap,
@@ -769,93 +583,264 @@ class _ConsultationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: title,
+      child: InkWell(
+        onTap: isLoading ? null : onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.border, width: 1.2),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: isLoading
+                    ? SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Icon(icon, color: accentColor, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: context.textTheme.titleSmall
+                          ?.copyWith(color: context.colors.onSurface),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      tag,
+                      style: context.textTheme.labelMedium
+                          ?.copyWith(color: accentColor),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textSecondary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Continue Puan Aminah's design · saved 10 min ago".
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({required this.project, required this.onTap});
+
+  final Map<String, dynamic> project;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (project['client_name'] as String? ?? '').trim();
+    final title =
+        name.isEmpty ? 'Continue the last design' : "Continue $name's design";
+    final saved = DateTime.tryParse(project['saved_at'] as String? ?? '');
+    final subtitle =
+        saved == null ? 'Draft' : 'Draft · saved ${timeAgoLabel(saved)}';
+
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
+      // The InkWell's own tap is hidden by excludeSemantics: give TalkBack
+      // (and the browser's accessibility tree) the tap here.
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.accentDim,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.border, width: 1.2),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.history_rounded, color: AppTheme.accent),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: context.textTheme.titleSmall
+                          ?.copyWith(color: context.colors.onSurface),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: context.textTheme.bodyMedium
+                          ?.copyWith(color: context.colors.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textSecondary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientCard extends StatelessWidget {
+  final Map<String, dynamic> project;
+  final bool unsent;
+  final VoidCallback onTap;
+
+  const _ClientCard({
+    required this.project,
+    required this.unsent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = ProjectStatus.of(project);
+    final name = project['client_name'] as String? ?? '';
+    final total = (project['total_price'] as num? ?? 0).toDouble();
+    final styleKey = project['style_archetype'] as String? ?? 'japandi';
+    final cabinets = ((project['placed_cabinets'] as List?) ?? const [])
+        .where((c) => c is! Map || c['kind'] != 'filler')
+        .length;
+    final statusColor = switch (status) {
+      ProjectStatus.deposit => AppTheme.success,
+      ProjectStatus.quote => AppTheme.textPrimary,
+      ProjectStatus.draft => AppTheme.textSecondary,
+    };
+
+    Widget tag(String text, Color color, Color background) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            text,
+            style: context.textTheme.labelSmall?.copyWith(color: color),
+          ),
+        );
+
     return InkWell(
-      onTap: isLoading ? null : onTap,
-      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppTheme.border, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2C2724).withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.border, width: 1.1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: badgeColor.withOpacity(0.35), width: 0.8),
-                  ),
+                Expanded(
                   child: Text(
-                    badge,
-                    style: TextStyle(
-                      color: badgeColor,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
+                    name.isEmpty ? 'Unnamed client' : name,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textTheme.titleSmall
+                        ?.copyWith(color: context.colors.onSurface),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: accentColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
+                if (total > 0)
+                  Text(
+                    formatMoney(total),
+                    style: context.textTheme.labelLarge
+                        ?.copyWith(color: context.colors.onSurface),
                   ),
-                  child: isLoading
-                      ? SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(color: accentColor, strokeWidth: 2),
-                        )
-                      : Icon(icon, color: accentColor, size: 22),
-                ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
             Text(
-              title,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              '${project['quote_id'] ?? ''}  ·  '
+              '${CPQEngine.styleNames[styleKey] ?? styleKey}  ·  '
+              '${cabinetCountLabel(cabinets)}',
+              style: context.textTheme.bodySmall
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: AppTheme.textSecondary.withOpacity(0.85),
-                fontSize: 12.5,
-                height: 1.35,
-              ),
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             Row(
               children: [
+                tag(status.label, statusColor, AppTheme.surfaceRaised),
+                if (unsent) ...[
+                  const SizedBox(width: 6),
+                  tag('Waiting to send', AppTheme.textPrimary,
+                      AppTheme.accentTerracotta.withValues(alpha: 0.35)),
+                ],
+                const Spacer(),
                 Text(
-                  'Launch Mode',
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Open',
+                  style: context.textTheme.labelLarge
+                      ?.copyWith(color: context.colors.primary),
                 ),
-                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right_rounded,
+                    color: AppTheme.accent, size: 18),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyClients extends StatelessWidget {
+  final bool hasAny;
+  const _EmptyClients({required this.hasAny});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.folder_open_rounded,
+                size: 44, color: AppTheme.textSecondary),
+            const SizedBox(height: 10),
+            Text(
+              hasAny
+                  ? 'No clients match.'
+                  : 'No clients yet. Start one from New client.',
+              textAlign: TextAlign.center,
+              style: context.textTheme.bodyMedium
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
           ],
         ),
@@ -867,41 +852,55 @@ class _ConsultationCard extends StatelessWidget {
 class _FilterChip extends StatelessWidget {
   final String label;
   final bool isSelected;
-  final Color accentColor;
   final VoidCallback onTap;
 
   const _FilterChip({
     required this.label,
     required this.isSelected,
-    this.accentColor = AppTheme.accent,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? accentColor.withOpacity(0.15) : AppTheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? accentColor : AppTheme.border,
-            width: isSelected ? 1.2 : 1.0,
+    return Center(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          constraints: const BoxConstraints(minHeight: 40),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.accent : AppTheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? AppTheme.accent : AppTheme.border,
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
-            fontSize: 11.5,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          child: Text(
+            label,
+            style: context.textTheme.labelMedium?.copyWith(
+                color: isSelected
+                    ? context.colors.onPrimary
+                    : context.colors.onSurface),
           ),
         ),
       ),
     );
   }
+}
+
+/// A project's floor plan (for the 3D's Room and House views), with a
+/// picture stored on the office server turned into a full address the 3D
+/// page can load.
+Map<String, dynamic>? _floorPlanOf(Map<String, dynamic> project) {
+  final plan = project['floor_plan'];
+  if (plan is! Map) return null;
+  final out = Map<String, dynamic>.from(plan);
+  final image = out['image'];
+  if (image is String && image.startsWith('/')) {
+    out['image'] = '${AppConfig.backendBaseUrl}$image';
+  }
+  return out;
 }

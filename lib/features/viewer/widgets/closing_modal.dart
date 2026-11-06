@@ -1,61 +1,69 @@
 import 'package:flutter/material.dart';
+
+import '../../../shared/labels.dart';
+import '../../../shared/money.dart';
+import '../../../shared/sales_config.dart';
 import '../../../shared/theme.dart';
 import 'signature_pad.dart';
 
-class ClosingModal extends StatefulWidget {
-  final Map<String, dynamic> wallData;
-  final List<Map<String, dynamic>> placedCabinets;
-  final String styleArchetype;
-  final String styleName;
-  final double totalPrice;
-  final double depositAmount;
-  final Future<void> Function({
-    required String clientName,
-    required String clientPhone,
-    required String clientEmail,
-    required bool depositLocked,
-    required String? signatureBase64,
-  }) onConfirm;
+/// Called when the salesperson saves the quote. [depositAmount] is 0 when the
+/// client hasn't paid a deposit.
+typedef QuoteConfirmCallback = Future<void> Function({
+  required String clientName,
+  required String clientPhone,
+  required String clientEmail,
+  required double depositAmount,
+  required String? signatureBase64,
+});
 
+/// The quote sheet at the end of the meeting.
+///
+/// - "Save & send quote" needs only the client's name; the signature is
+///   optional, so a client who wants to think it over still gets a quote.
+/// - "Confirm order" (the client paid a deposit) also needs the amount and
+///   the client's signature.
+class ClosingModal extends StatefulWidget {
   const ClosingModal({
     super.key,
-    required this.wallData,
     required this.placedCabinets,
-    required this.styleArchetype,
     required this.styleName,
     required this.totalPrice,
-    this.depositAmount = 250.00,
     required this.onConfirm,
+    this.clientName = '',
+    this.clientPhone = '',
+    this.clientEmail = '',
   });
+
+  final List<Map<String, dynamic>> placedCabinets;
+  final String styleName;
+  final double totalPrice;
+  final QuoteConfirmCallback onConfirm;
+  final String clientName;
+  final String clientPhone;
+  final String clientEmail;
 
   static Future<void> show(
     BuildContext context, {
-    required Map<String, dynamic> wallData,
     required List<Map<String, dynamic>> placedCabinets,
-    required String styleArchetype,
     required String styleName,
     required double totalPrice,
-    double depositAmount = 250.00,
-    required Future<void> Function({
-      required String clientName,
-      required String clientPhone,
-      required String clientEmail,
-      required bool depositLocked,
-      required String? signatureBase64,
-    }) onConfirm,
+    required QuoteConfirmCallback onConfirm,
+    String clientName = '',
+    String clientPhone = '',
+    String clientEmail = '',
   }) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ClosingModal(
-        wallData: wallData,
         placedCabinets: placedCabinets,
-        styleArchetype: styleArchetype,
         styleName: styleName,
         totalPrice: totalPrice,
-        depositAmount: depositAmount,
         onConfirm: onConfirm,
+        clientName: clientName,
+        clientPhone: clientPhone,
+        clientEmail: clientEmail,
       ),
     );
   }
@@ -65,11 +73,12 @@ class ClosingModal extends StatefulWidget {
 }
 
 class _ClosingModalState extends State<ClosingModal> {
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
+  late final _nameController = TextEditingController(text: widget.clientName);
+  late final _phoneController = TextEditingController(text: widget.clientPhone);
+  late final _emailController = TextEditingController(text: widget.clientEmail);
+  final _depositController = TextEditingController();
   final _signatureController = SignatureController();
-  bool _depositLocked = true;
+  bool _depositPaid = false;
   bool _isSubmitting = false;
 
   @override
@@ -77,30 +86,46 @@ class _ClosingModalState extends State<ClosingModal> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _depositController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
 
+  void _complain(String message) {
+    // Replace any message still showing, rather than queueing behind it.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: AppTheme.danger),
+      );
+  }
+
   Future<void> _submit() async {
     if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter the client name to continue.'),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
+      _complain("Enter the client's name.");
       return;
+    }
+    var deposit = 0.0;
+    if (_depositPaid) {
+      deposit = parseMoney(_depositController.text) ?? 0;
+      if (deposit <= 0) {
+        _complain('Enter the deposit amount.');
+        return;
+      }
+      if (_signatureController.isEmpty) {
+        _complain('The client needs to sign to confirm the order.');
+        return;
+      }
     }
 
     setState(() => _isSubmitting = true);
-
     try {
       final sigBase64 = await _signatureController.toBase64Png();
       await widget.onConfirm(
         clientName: _nameController.text.trim(),
         clientPhone: _phoneController.text.trim(),
         clientEmail: _emailController.text.trim(),
-        depositLocked: _depositLocked,
+        depositAmount: deposit,
         signatureBase64: sigBase64,
       );
     } finally {
@@ -111,13 +136,14 @@ class _ClosingModalState extends State<ClosingModal> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final bottomInset = mediaQuery.viewInsets.bottom;
+    final cabinets =
+        widget.placedCabinets.where((c) => c['kind'] != 'filler').length;
+    final sectionStyle =
+        context.textTheme.labelLarge?.copyWith(color: context.colors.onSurface);
 
     return Container(
-      constraints: BoxConstraints(
-        maxHeight: mediaQuery.size.height * 0.92,
-      ),
-      padding: EdgeInsets.only(bottom: bottomInset),
+      constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.92),
+      padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       decoration: const BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -126,7 +152,6 @@ class _ClosingModalState extends State<ClosingModal> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 10, bottom: 8),
@@ -141,48 +166,48 @@ class _ClosingModalState extends State<ClosingModal> {
 
           // Header
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            padding: const EdgeInsets.fromLTRB(20, 6, 8, 6),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Lock In Design & Quote',
-                      style: TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Quote',
+                        style: context.textTheme.titleMedium
+                            ?.copyWith(color: context.colors.onSurface),
                       ),
-                    ),
-                    Text(
-                      'Reserve production slot with client commitment',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary.withOpacity(0.8),
-                        fontSize: 12,
+                      SizedBox(height: 2),
+                      Text(
+                        'Send the quote, or confirm the order if the client '
+                        'paid a deposit.',
+                        style: context.textTheme.bodySmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 IconButton(
+                  tooltip: 'Close',
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: AppTheme.textSecondary),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
           ),
-
           const Divider(height: 1, color: AppTheme.border),
 
-          // Scrollable Form Body
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Deal Summary Card ──────────────────────────────────────
+                  // Summary
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -195,234 +220,40 @@ class _ClosingModalState extends State<ClosingModal> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.accent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  widget.styleName,
-                                  style: const TextStyle(
-                                    color: AppTheme.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: AppTheme.surfaceElevated,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
+                            Expanded(
                               child: Text(
-                                '${widget.placedCabinets.length} Modules',
-                                style: const TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                widget.styleName,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.textTheme.labelLarge
+                                    ?.copyWith(color: context.colors.onSurface),
                               ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              cabinetCountLabel(cabinets),
+                              style: context.textTheme.bodySmall?.copyWith(
+                                  color: context.colors.onSurfaceVariant),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            const Text(
-                              'Total Project Estimate',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              '\$${widget.totalPrice.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                color: AppTheme.accent,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '36mo Financing available:',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary.withOpacity(0.7),
-                                fontSize: 11,
-                              ),
-                            ),
-                            Text(
-                              '\$${(widget.totalPrice / 36 * 1.05).toStringAsFixed(0)}/mo',
-                              style: const TextStyle(
-                                color: AppTheme.success,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── Client Details Inputs ─────────────────────────────────
-                  const Text(
-                    'Client Details',
-                    style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  TextField(
-                    controller: _nameController,
-                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                    decoration: InputDecoration(
-                      labelText: 'Client Full Name *',
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                      prefixIcon: const Icon(Icons.person_outline, color: AppTheme.accent, size: 18),
-                      filled: true,
-                      fillColor: AppTheme.surfaceRaised,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppTheme.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppTheme.border),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppTheme.accent),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: 'Phone / WhatsApp',
-                            labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                            prefixIcon: const Icon(Icons.phone_outlined, color: AppTheme.accent, size: 18),
-                            filled: true,
-                            fillColor: AppTheme.surfaceRaised,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.accent),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: 'Email Address',
-                            labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                            prefixIcon: const Icon(Icons.email_outlined, color: AppTheme.accent, size: 18),
-                            filled: true,
-                            fillColor: AppTheme.surfaceRaised,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppTheme.accent),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── Reservation Slot Commitment ───────────────────────────
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _depositLocked
-                          ? AppTheme.accentTerracotta.withOpacity(0.2)
-                          : AppTheme.surfaceRaised,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _depositLocked
-                            ? AppTheme.accentTaupe
-                            : AppTheme.border,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Switch.adaptive(
-                          value: _depositLocked,
-                          activeColor: AppTheme.accent,
-                          onChanged: (val) => setState(() => _depositLocked = val),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 10),
+                        // Wraps onto two lines at large text sizes.
+                        SizedBox(
+                          width: double.infinity,
+                          child: Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.end,
+                            spacing: 8,
                             children: [
                               Text(
-                                'Lock in Slot with \$${widget.depositAmount.toStringAsFixed(0)} Deposit',
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                'Estimated total',
+                                style: context.textTheme.bodyMedium?.copyWith(
+                                    color: context.colors.onSurfaceVariant),
                               ),
                               Text(
-                                'Guarantees material price & manufacturing priority for 30 days',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.8),
-                                  fontSize: 11,
-                                ),
+                                formatMoney(widget.totalPrice),
+                                style: context.textTheme.titleLarge
+                                    ?.copyWith(color: context.colors.primary),
                               ),
                             ],
                           ),
@@ -430,31 +261,106 @@ class _ClosingModalState extends State<ClosingModal> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 18),
 
-                  const SizedBox(height: 16),
-
-                  // ── Signature Canvas ──────────────────────────────────────
-                  const Text(
-                    'Client Digital Signature',
-                    style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                  // Client
+                  Text('Client', style: sectionStyle),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _nameController,
+                    textCapitalization: TextCapitalization.words,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Name *',
+                      prefixIcon: Icon(Icons.person_outline),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  SignaturePad(
-                    controller: _signatureController,
-                    height: 150,
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Phone / WhatsApp',
+                      prefixIcon: Icon(Icons.phone_outlined),
+                    ),
                   ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    style: context.textTheme.bodyLarge
+                        ?.copyWith(color: context.colors.onSurface),
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
 
+                  // Deposit
+                  // Its own Material so the switch row's tap ripple shows.
+                  Material(
+                    color: AppTheme.surfaceRaised,
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: _depositPaid
+                            ? AppTheme.accentTaupe
+                            : AppTheme.border,
+                      ),
+                    ),
+                    child: SwitchListTile.adaptive(
+                      value: _depositPaid,
+                      activeColor: AppTheme.accent,
+                      contentPadding: const EdgeInsets.only(left: 8),
+                      title: Text(
+                        'Client paid a deposit',
+                        style: context.textTheme.labelLarge
+                            ?.copyWith(color: context.colors.onSurface),
+                      ),
+                      subtitle: Text(
+                        'Turns this quote into a confirmed order.',
+                        style: context.textTheme.bodySmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
+                      ),
+                      onChanged: (v) => setState(() => _depositPaid = v),
+                    ),
+                  ),
+                  if (_depositPaid) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _depositController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      style: context.textTheme.bodyLarge
+                          ?.copyWith(color: context.colors.onSurface),
+                      decoration: const InputDecoration(
+                        labelText: 'Deposit amount *',
+                        prefixIcon: Icon(Icons.payments_outlined),
+                        prefixText: '${SalesConfig.currency} ',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+
+                  // Signature
+                  Text(
+                    _depositPaid
+                        ? 'Client signature *'
+                        : 'Client signature (optional)',
+                    style: sectionStyle,
+                  ),
+                  const SizedBox(height: 8),
+                  SignaturePad(controller: _signatureController, height: 150),
                   const SizedBox(height: 20),
 
-                  // ── Confirm & Sign Button ─────────────────────────────────
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.accent,
@@ -462,40 +368,27 @@ class _ClosingModalState extends State<ClosingModal> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        elevation: 2,
                       ),
-                      child: _isSubmitting
-                          ? const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                                SizedBox(width: 10),
-                                Text('Finalising Proposal…'),
-                              ],
+                      icon: _isSubmitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.verified_rounded, size: 20),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _depositLocked
-                                      ? 'Sign & Lock In Slot (\$${widget.depositAmount.toStringAsFixed(0)})'
-                                      : 'Sign & Generate Proposal',
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
+                          : Icon(
+                              _depositPaid
+                                  ? Icons.verified_rounded
+                                  : Icons.send_rounded,
+                              size: 20,
                             ),
+                      label: Text(_isSubmitting
+                          ? 'Saving…'
+                          : (_depositPaid
+                              ? 'Confirm order'
+                              : 'Save & send quote')),
                     ),
                   ),
                 ],

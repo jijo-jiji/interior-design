@@ -433,7 +433,7 @@ def build_pdf(filename: str):
         body_style
     ))
     story.append(Paragraph("• <b>Mobile-First 360° Visualizer:</b> Loads directly in Safari/Chrome without app installation. Customers can spin the 3D kitchen, toggle finishes (Japandi, Nordic, Minimalist, Industrial), and inspect their exact cabinet inclusions.", bullet_style))
-    story.append(Paragraph("• <b>Deposit & Slot Reservation:</b> Includes a direct call-to-action to lock in manufacturing queue priority ($250 AUD slot reservation via online payment gateway).", bullet_style))
+    story.append(Paragraph("• <b>Deposit & Slot Reservation:</b> Includes a direct call-to-action to lock in manufacturing queue priority (RM250 slot reservation via online payment gateway).", bullet_style))
 
     story.append(Spacer(1, 6))
 
@@ -470,7 +470,7 @@ def build_pdf(filename: str):
         [
             Paragraph("<b>Phase 4</b>", table_cell_bold),
             Paragraph("Customer Shareable 3D Proposal Portal", table_cell_bold),
-            Paragraph("• Standalone customer route `/view/{quote_id}`<br/>• Native WhatsApp deep link from mobile app<br/>• Homeowner 360° interactive spin & style toggle<br/>• Online slot deposit payment trigger ($250 AUD)", table_cell_style),
+            Paragraph("• Standalone customer route `/view/{quote_id}`<br/>• Native WhatsApp deep link from mobile app<br/>• Homeowner 360° interactive spin & style toggle<br/>• Online slot deposit payment trigger (RM250)", table_cell_style),
             Paragraph("Mobile browser smoke test & WhatsApp payload verification", table_cell_good),
         ],
         [

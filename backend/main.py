@@ -6,6 +6,7 @@ The Flutter app calls POST /quote when the salesperson finalises a layout.
 
 from __future__ import annotations
 
+import html
 import io
 import json
 import uuid
@@ -13,14 +14,15 @@ from datetime import datetime
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
@@ -31,15 +33,28 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import os
+import re
 import tempfile
 import base64
 
 try:
     from backend.dxf_exporter import generate_dxf
     from backend.cutlist_generator import generate_cutlist_csv
+    from backend import catalog as catalog_lib
 except ImportError:
     from dxf_exporter import generate_dxf
     from cutlist_generator import generate_cutlist_csv
+    import catalog as catalog_lib
+
+# HTTPS for the browser sales app (needs the `cryptography` package; without
+# it the server still runs, over http only).
+try:
+    try:
+        from backend import office_https
+    except ImportError:
+        import office_https
+except ImportError:
+    office_https = None
 
 # ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -56,37 +71,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Pricing table (AUD, mock values) ────────────────────────────────────────
+# Set by `python main.py` when the secure (https) server is running.
+app.state.https_port = None
 
-CABINET_PRICES: dict[str, float] = {
-    "base_800":   420.00,
-    "base_600":   340.00,
-    "wall_600":   280.00,
-    "tall_600":   620.00,
-    "corner_900": 580.00,
-}
 
-OBSTACLE_ALLOWANCES: dict[str, float] = {
-    "window": -50.00,   # reduces labour slightly
-    "door":   -80.00,
-}
+@app.middleware("http")
+async def sales_app_over_https(request: Request, call_next):
+    """Browsers only allow the camera on https, so the sales app at
+    http://...:8000/sales is sent to the same page on the https port."""
+    https_port = app.state.https_port
+    path = request.url.path
+    if (
+        https_port
+        and request.url.scheme == "http"
+        and (path == "/sales" or path.startswith("/sales/"))
+    ):
+        host = request.url.hostname or "localhost"
+        if ":" in host:  # IPv6 literal
+            host = f"[{host}]"
+        target = request.url.replace(scheme="https", netloc=f"{host}:{https_port}")
+        return RedirectResponse(str(target), status_code=307)
+    return await call_next(request)
 
-LABOUR_RATE_PER_CABINET = 120.00
-GST_RATE = 0.10  # 10%
-
-STYLE_MULTIPLIERS: dict[str, float] = {
-    "japandi": 1.00,
-    "minimalist": 1.08,
-    "nordic": 1.12,
-    "industrial": 1.18,
-}
-
-STYLE_NAMES: dict[str, str] = {
-    "japandi": "Japandi Natural",
-    "minimalist": "Modern Minimalist",
-    "nordic": "Warm Nordic",
-    "industrial": "Industrial Luxe",
-}
+# ─── Catalogue ───────────────────────────────────────────────────────────────
+# Prices, sizes, finishes, tax and the pricing rules are data, not code: see
+# catalog.py. The store keeps the current catalogue and every earlier version.
+catalogs = catalog_lib.CatalogStore()
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -106,8 +116,12 @@ class ObstacleSpec(BaseModel):
     height_mm: float
 
 class PlacedCabinet(BaseModel):
+    # Keep anything else the apps send: dropping fields here used to lose the
+    # generator's kind, side-wall position and mounting height on every quote.
+    model_config = ConfigDict(extra="allow")
+
     cabinet_type: str
-    label: str
+    label: str = ""
     width_mm: float
     height_mm: float
     depth_mm: float
@@ -116,6 +130,12 @@ class PlacedCabinet(BaseModel):
     z_mm: float = 0.0
     wall_index: int = 0
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    # Generated layouts (sales app): how it's drawn, which wall, where.
+    kind: str | None = None
+    run: str = "main"
+    offset_mm: float | None = None
+    mount_mm: float | None = None
+    generated: bool = False
 
 class QuoteRequest(BaseModel):
     quote_id: str | None = None
@@ -124,11 +144,29 @@ class QuoteRequest(BaseModel):
     placed_cabinets: list[PlacedCabinet] = []
     salesperson_id: str = "demo_agent_01"
     style_archetype: str = "japandi"
+    benchtop_material: str | None = None
     client_name: str | None = None
     client_phone: str | None = None
     client_email: str | None = None
     deposit_paid: float = 0.0
     signature_base64: str | None = None
+    # The catalogue version the app priced this with. The server prices with
+    # the same version, so a quote made offline against an older price list
+    # still prints the number the client was shown.
+    catalog_version: int | None = None
+    # The floor plan the room was read from (sales app, floor plan route),
+    # for the Room and House views: the picture as a data URL, plus walls
+    # and rooms in mm from the kitchen's corner. The picture is stored as a
+    # file; the project keeps its address.
+    floor_plan: dict[str, Any] | None = None
+    # Pictures of the design (the 3D page's "Save picture"): data URLs, JPEG
+    # or PNG, up to MAX_PICTURES. The server stores them as files, prints
+    # them in the quote PDF and serves them to the client.
+    design_images: list[str] = []
+    # How the design was dressed in the pictures (sales app "Look"): doors,
+    # backsplash, decor, light. Presentation only; the quote says what in it
+    # is not part of the price.
+    scene: dict[str, Any] | None = None
 
 class LineItem(BaseModel):
     description: str
@@ -153,54 +191,47 @@ def health():
     return {"status": "ok", "service": "static-trace-api"}
 
 
+def _catalog_for(request: "QuoteRequest") -> "catalog_lib.Catalog":
+    """The catalogue version the app priced with, else the current one."""
+    if request.catalog_version is not None:
+        found = catalogs.get_version(request.catalog_version)
+        if found is not None:
+            return found
+    return catalogs.current()
+
+
+def price_quote(
+    request: QuoteRequest,
+    catalog: "catalog_lib.Catalog | None" = None,
+) -> tuple[list[LineItem], float, float, float]:
+    """Prices a layout: (line_items, subtotal, tax, total).
+
+    Pure — no database, no PDF — so the pricing contract can be tested against
+    the mobile CPQEngine and the Studio without side effects. See
+    test/fixtures/pricing_cases.json. Pass [catalog] to price against a
+    specific catalogue (the contract test uses the sample one).
+    """
+    catalog = catalog or _catalog_for(request)
+    lines, subtotal, tax, total = catalog_lib.price_layout(
+        catalog,
+        [(c.cabinet_type, c.width_mm) for c in request.placed_cabinets],
+        [o.type for o in request.obstacles],
+        request.style_archetype,
+        request.benchtop_material,
+    )
+    return [LineItem(**line) for line in lines], subtotal, tax, total
+
+
 @app.post("/quote", response_model=QuoteResponse)
 def create_quote(request: QuoteRequest):
     quote_id = request.quote_id if (request.quote_id and request.quote_id.startswith("QT-")) else f"QT-{uuid.uuid4().hex[:8].upper()}"
 
-    # Build line items
-    line_items: list[LineItem] = []
+    catalog = _catalog_for(request)
+    line_items, subtotal, gst, total_price = price_quote(request, catalog)
 
-    # Group cabinets by type
-    from collections import Counter
-    cab_counts = Counter(c.cabinet_type for c in request.placed_cabinets)
-    mult = STYLE_MULTIPLIERS.get(request.style_archetype, 1.00)
-    style_label = STYLE_NAMES.get(request.style_archetype, "Japandi Natural")
-
-    for cab_type, qty in cab_counts.items():
-        base_unit = CABINET_PRICES.get(cab_type, 300.00)
-        unit = round(base_unit * mult, 2)
-        line_items.append(LineItem(
-            description=f"Cabinet — {cab_type.replace('_', ' ').title()} ({style_label})",
-            qty=qty,
-            unit_price=unit,
-            total=round(unit * qty, 2),
-        ))
-
-    # Labour
-    total_cabs = sum(cab_counts.values())
-    if total_cabs > 0:
-        labour_total = LABOUR_RATE_PER_CABINET * total_cabs
-        line_items.append(LineItem(
-            description="Installation Labour",
-            qty=total_cabs,
-            unit_price=LABOUR_RATE_PER_CABINET,
-            total=labour_total,
-        ))
-
-    # Obstacle allowances
-    for obs in request.obstacles:
-        allowance = OBSTACLE_ALLOWANCES.get(obs.type, 0)
-        if allowance != 0:
-            line_items.append(LineItem(
-                description=f"{obs.type.title()} cutout allowance",
-                qty=1,
-                unit_price=allowance,
-                total=allowance,
-            ))
-
-    subtotal = sum(li.total for li in line_items)
-    gst = round(subtotal * GST_RATE, 2)
-    total_price = round(subtotal + gst, 2)
+    # Pictures first, so the PDF can print them. A quote sent again without
+    # new pictures keeps the ones it had.
+    pictures = _store_pictures(quote_id, request.design_images)
 
     # Generate PDF
     pdf_path = _generate_pdf(
@@ -210,6 +241,9 @@ def create_quote(request: QuoteRequest):
         subtotal=subtotal,
         gst=gst,
         total_price=total_price,
+        catalog=catalog,
+        pictures=[path for path, _ in pictures],
+        scene=_clean_scene(request.scene),
     )
 
     # Store path for /pdf/<id> retrieval
@@ -225,6 +259,8 @@ def create_quote(request: QuoteRequest):
         "client_email": request.client_email or "",
         "deposit_paid": request.deposit_paid,
         "style_archetype": request.style_archetype,
+        "benchtop_material": request.benchtop_material,
+        "catalog_version": catalog.version,
         "wall": request.wall.dict(),
         "obstacles": [o.dict() for o in request.obstacles],
         "placed_cabinets": [c.dict() for c in request.placed_cabinets],
@@ -236,6 +272,13 @@ def create_quote(request: QuoteRequest):
         "pdf_url": f"/pdf/{quote_id}",
         "has_signature": bool(request.signature_base64),
     }
+    if request.floor_plan:
+        record["floor_plan"] = _store_floor_plan(quote_id, request.floor_plan)
+    look = _clean_scene(request.scene)
+    if look:
+        record["scene"] = look
+    if pictures:
+        record["pictures"] = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(pictures) + 1)]
     db = _load_projects_db()
     db[quote_id] = record
     _save_projects_db(db)
@@ -254,7 +297,102 @@ def create_quote(request: QuoteRequest):
 
 # ─── Persistent Project Database ──────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "projects_db.json")
+PDF_DIR = os.path.join(os.path.dirname(__file__), "generated_pdfs")
+# Floor plan pictures, one per quote: kept out of projects_db.json, which
+# would grow by hundreds of KB per plan.
+PLAN_DIR = os.path.join(os.path.dirname(__file__), "plan_images")
+# Pictures of the design, a few per quote, kept out of projects_db.json too.
+PICTURE_DIR = os.path.join(os.path.dirname(__file__), "design_pictures")
+MAX_PICTURES = 6
+MAX_PICTURE_BYTES = 6 * 1024 * 1024
 _pdf_store: dict[str, str] = {}
+
+_QUOTE_ID = re.compile(r"^QT-[A-Za-z0-9-]{1,40}$")
+MAX_PLAN_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _store_floor_plan(quote_id: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Saves the plan's picture as a file and points the plan at it. A plan
+    already pointing at a stored picture (a design sent again) is kept."""
+    stored = dict(plan)
+    image = stored.get("image")
+    prefix = "data:image/png;base64,"
+    if isinstance(image, str) and image.startswith(prefix) and _QUOTE_ID.match(quote_id):
+        try:
+            png = base64.b64decode(image[len(prefix):], validate=True)
+        except ValueError:
+            png = b""
+        if png.startswith(b"\x89PNG") and len(png) <= MAX_PLAN_IMAGE_BYTES:
+            os.makedirs(PLAN_DIR, exist_ok=True)
+            with open(os.path.join(PLAN_DIR, f"{quote_id}.png"), "wb") as f:
+                f.write(png)
+            stored["image"] = f"/api/projects/{quote_id}/plan.png"
+        else:
+            stored.pop("image", None)
+    return stored
+
+
+_PICTURE_TYPES = {
+    "data:image/jpeg;base64,": (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    "data:image/png;base64,": (b"\x89PNG", ".png", "image/png"),
+}
+
+
+def _picture_files(quote_id: str) -> list[tuple[str, str]]:
+    """A quote's stored pictures in order: (file path, media type)."""
+    found = []
+    if not _QUOTE_ID.match(quote_id):
+        return found
+    for n in range(1, MAX_PICTURES + 1):
+        for _, ext, media in _PICTURE_TYPES.values():
+            path = os.path.join(PICTURE_DIR, f"{quote_id}-{n}{ext}")
+            if os.path.exists(path):
+                found.append((path, media))
+                break
+    return found
+
+
+def _accept_pictures(images: list[str]) -> list[tuple[bytes, str]]:
+    """The pictures worth keeping: JPEG or PNG (the first bytes decide, not the
+    label), within the size limit, at most MAX_PICTURES. Each as (bytes, ext)."""
+    accepted: list[tuple[bytes, str]] = []
+    for image in images[:MAX_PICTURES]:
+        for prefix, (magic, ext, _) in _PICTURE_TYPES.items():
+            if isinstance(image, str) and image.startswith(prefix):
+                try:
+                    raw = base64.b64decode(image[len(prefix):], validate=True)
+                except ValueError:
+                    break
+                if raw.startswith(magic) and len(raw) <= MAX_PICTURE_BYTES:
+                    accepted.append((raw, ext))
+                break
+    return accepted
+
+
+def _write_pictures(quote_id: str, accepted: list[tuple[bytes, str]]) -> None:
+    """Replaces a quote's stored pictures with [accepted]."""
+    os.makedirs(PICTURE_DIR, exist_ok=True)
+    for _, old_ext, _ in _PICTURE_TYPES.values():
+        for n in range(1, MAX_PICTURES + 1):
+            try:
+                os.remove(os.path.join(PICTURE_DIR, f"{quote_id}-{n}{old_ext}"))
+            except FileNotFoundError:
+                pass
+    for n, (raw, ext) in enumerate(accepted, start=1):
+        with open(os.path.join(PICTURE_DIR, f"{quote_id}-{n}{ext}"), "wb") as f:
+            f.write(raw)
+
+
+def _store_pictures(quote_id: str, images: list[str]) -> list[tuple[str, str]]:
+    """Saves the design pictures a quote came with and returns every picture
+    the quote now has. Nothing that is not a usable picture is kept; with no
+    usable new pictures the quote keeps the ones it had."""
+    if not _QUOTE_ID.match(quote_id):
+        return []
+    accepted = _accept_pictures(images)
+    if accepted:
+        _write_pictures(quote_id, accepted)
+    return _picture_files(quote_id)
 
 
 def _load_projects_db() -> dict[str, Any]:
@@ -285,50 +423,63 @@ def _normalize_project(project: dict[str, Any]) -> dict[str, Any]:
     p["style"] = style
     p["style_archetype"] = style
 
-    # Normalize cabinets list
+    # Normalize cabinets list. Every stored field is kept (kind, run,
+    # offset_mm, mount_mm, generated…), so both apps can redraw exactly what
+    # was designed; the missing ones are filled in.
     raw_cabs = p.get("placed_cabinets") or p.get("cabinets") or []
+    wall = p.get("wall") or {}
+    wall_w_m = float(wall.get("width_mm") or 3600.0) / 1000.0
     normalized_cabs = []
     normalized_placed = []
-    
+
     for idx, c in enumerate(raw_cabs):
         cab_type = c.get("type") or c.get("cabinet_type") or "base_600"
         cab_id = c.get("id") or f"cab-{idx + 1}"
-        
+
         width_m = c.get("width")
         if width_m is None and "width_mm" in c:
             width_m = float(c["width_mm"]) / 1000.0
         if width_m is None:
             width_m = 0.8 if cab_type == "base_800" else 0.6
-            
+
         height_m = c.get("height")
         if height_m is None and "height_mm" in c:
             height_m = float(c["height_mm"]) / 1000.0
         if height_m is None:
-            height_m = 2.1 if cab_type == "tall_600" else (0.72 if cab_type == "wall_600" else 0.85)
+            height_m = 2.1 if cab_type == "tall_600" else (0.7 if cab_type == "wall_600" else 0.85)
 
         depth_m = c.get("depth")
         if depth_m is None and "depth_mm" in c:
             depth_m = float(c["depth_mm"]) / 1000.0
         if depth_m is None:
-            depth_m = 0.35 if cab_type == "wall_600" else 0.6
+            depth_m = 0.32 if cab_type == "wall_600" else 0.6
 
-        # Coordinate x in meters
+        # `x` (studio): left edge in metres from the left end of the wall.
+        # `x_mm` (sales app, DXF): centre in mm from the centre of the wall.
         x_m = c.get("x")
         raw_x_mm = c.get("x_mm")
         if x_m is None:
             if raw_x_mm is not None:
-                val = float(raw_x_mm)
-                # If negative (e.g. Flutter relative to wall center), translate to left offset
-                x_m = (val + 1800.0) / 1000.0 if val < 0 else val / 1000.0
+                x_m = float(raw_x_mm) / 1000.0 + wall_w_m / 2.0 - width_m / 2.0
             elif "distance_from_left_mm" in c:
                 x_m = float(c["distance_from_left_mm"]) / 1000.0
             else:
-                x_m = 0.2 + idx * 0.7
-
-        x_m = max(0.05, round(x_m, 3))
-        x_mm = round(x_m * 1000.0)
+                x_m = 0.05 + idx * 0.65
+        x_m = max(0.0, round(float(x_m), 3))
+        centre_x_mm = (
+            raw_x_mm
+            if raw_x_mm is not None
+            else round((x_m + width_m / 2.0 - wall_w_m / 2.0) * 1000.0)
+        )
+        kind = c.get("kind")
+        is_wall_mounted = (
+            (c.get("mount_mm") or 0) > 0
+            or kind in ("wall", "hood")
+            or cab_type.startswith(("wall", "rangehood"))
+        )
 
         normalized_cabs.append({
+            **c,
             "id": cab_id,
             "type": cab_type,
             "cabinet_type": cab_type,
@@ -339,22 +490,23 @@ def _normalize_project(project: dict[str, Any]) -> dict[str, Any]:
             "height_mm": round(height_m * 1000.0),
             "depth_mm": round(depth_m * 1000.0),
             "x": x_m,
-            "x_mm": raw_x_mm if raw_x_mm is not None else x_mm,
-            "distance_from_left_mm": x_mm,
-            "isWallMounted": cab_type == "wall_600",
+            "x_mm": centre_x_mm,
+            "distance_from_left_mm": round(x_m * 1000.0),
+            "isWallMounted": is_wall_mounted,
         })
 
         normalized_placed.append({
+            **c,
             "id": cab_id,
             "cabinet_type": cab_type,
             "label": c.get("label") or f"{cab_type.replace('_', ' ').title()}",
             "width_mm": round(width_m * 1000.0),
             "height_mm": round(height_m * 1000.0),
             "depth_mm": round(depth_m * 1000.0),
-            "x_mm": raw_x_mm if raw_x_mm is not None else x_mm,
+            "x_mm": centre_x_mm,
             "y_mm": c.get("y_mm", 0.0),
             "z_mm": c.get("z_mm", 0.0),
-            "wall_index": c.get("wall_index", 0),
+            "wall_index": c.get("wall_index", 1 if c.get("run") == "return" else 0),
         })
 
     p["cabinets"] = normalized_cabs
@@ -383,6 +535,80 @@ def get_project(quote_id: str):
     return _normalize_project(project)
 
 
+@app.get("/api/projects/{quote_id}/plan.png")
+def get_project_plan(quote_id: str):
+    """The floor plan picture a project's room was read from."""
+    path = os.path.join(PLAN_DIR, f"{quote_id}.png")
+    if not _QUOTE_ID.match(quote_id) or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No floor plan for this project")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/projects/{quote_id}/picture/{n}")
+def get_project_picture(quote_id: str, n: int):
+    """One picture of a project's design (1 is the first)."""
+    files = _picture_files(quote_id)
+    if n < 1 or n > len(files):
+        raise HTTPException(status_code=404, detail="No such picture for this project")
+    path, media = files[n - 1]
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "no-cache"})
+
+
+class PicturesUpload(BaseModel):
+    images: list[str]
+
+
+@app.post("/api/projects/{quote_id}/pictures")
+def upload_pictures(quote_id: str, body: PicturesUpload):
+    """Pictures of a design taken before the quote is sent (the app's
+    "Pictures" button), stored so the client can open them from a link. A
+    quote sent later brings its own and replaces these."""
+    if not _QUOTE_ID.match(quote_id):
+        raise HTTPException(status_code=404, detail="Unknown quote")
+    accepted = _accept_pictures(body.images)
+    if not accepted:
+        raise HTTPException(status_code=422, detail="No usable pictures (JPEG or PNG, within the size limit)")
+    _write_pictures(quote_id, accepted)
+    urls = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(accepted) + 1)]
+    db = _load_projects_db()
+    if quote_id in db:
+        db[quote_id]["pictures"] = urls
+        _save_projects_db(db)
+    return {"count": len(urls), "urls": urls, "page_url": f"/pictures/{quote_id}"}
+
+
+@app.get("/pictures/{quote_id}", response_class=HTMLResponse)
+def pictures_page(quote_id: str):
+    """What the client opens from the message: the pictures of their design,
+    big on a phone, each with a Save link. The quote id is checked, so the
+    page only ever holds file addresses the server made."""
+    files = _picture_files(quote_id)
+    if not files:
+        raise HTTPException(status_code=404, detail="No pictures for this project")
+    db = _load_projects_db()
+    name = (db.get(quote_id) or {}).get("client_name") or ""
+    heading = f"Your kitchen design" + (f", {name}" if name else "")
+    note = _scene_note((db.get(quote_id) or {}).get("scene"))
+    figures = "".join(
+        f'<figure><img src="/api/projects/{quote_id}/picture/{n}" alt="Picture {n} of your kitchen design">'
+        f'<figcaption><a href="/api/projects/{quote_id}/picture/{n}" download="kitchen-{quote_id}-{n}.jpg">Save picture {n}</a></figcaption></figure>'
+        for n in range(1, len(files) + 1)
+    )
+    return HTMLResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<title>{html.escape(heading)}</title>"
+        "<style>body{margin:0;font-family:system-ui,sans-serif;background:#faf7f2;color:#241f1b}"
+        "main{max-width:60rem;margin:0 auto;padding:1rem}h1{font-size:1.25rem}"
+        "figure{margin:0 0 1.5rem}img{width:100%;height:auto;border-radius:.75rem;display:block}"
+        "figcaption{padding:.5rem 0}a{color:#8f5238;font-weight:600}p{color:#574a3e;font-size:.9rem}</style></head><body><main>"
+        f"<h1>{html.escape(heading)}</h1>{figures}"
+        "<p>These pictures show the design. Colours and finishes may look slightly different from the real materials. "
+        f"{html.escape(note)}</p>"
+        "</main></body></html>"
+    )
+
+
 @app.put("/api/projects/{quote_id}")
 def update_project(quote_id: str, updated: dict[str, Any]):
     """Saves studio modifications (repositioned cabinets, style changes)."""
@@ -402,6 +628,10 @@ def update_project(quote_id: str, updated: dict[str, Any]):
         style = updated.get("style") or updated.get("style_archetype")
         project["style"] = style
         project["style_archetype"] = style
+
+    # Explicit `in` check so the studio can clear the benchtop with null.
+    if "benchtop_material" in updated:
+        project["benchtop_material"] = updated["benchtop_material"]
 
     if "wall" in updated:
         project["wall"] = updated["wall"]
@@ -424,7 +654,7 @@ def update_project(quote_id: str, updated: dict[str, Any]):
 
 @app.post("/api/projects/{quote_id}/deposit")
 def pay_project_deposit(quote_id: str):
-    """Processes customer online slot deposit reservation ($250)."""
+    """Processes customer online slot deposit reservation (RM250)."""
     db = _load_projects_db()
     if quote_id not in db:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -437,33 +667,63 @@ def pay_project_deposit(quote_id: str):
     return {"status": "success", "deposit_paid": 250.0, "message": "Manufacturing queue reserved"}
 
 
+def _require_admin(supplied: str | None) -> None:
+    if not catalog_lib.admin_key_ok(supplied):
+        raise HTTPException(
+            status_code=401,
+            detail="Changing the catalogue needs the admin key.",
+        )
+
+
 @app.get("/api/catalog")
-def get_catalog():
-    """Returns master cabinet pricing table, style multipliers, and labor rates."""
-    return {
-        "cabinets": CABINET_PRICES,
-        "styles": STYLE_MULTIPLIERS,
-        "style_names": STYLE_NAMES,
-        "labour_rate_per_cabinet": LABOUR_RATE_PER_CABINET,
-        "gst_rate": GST_RATE,
-    }
+def get_catalog(version: int | None = None):
+    """The catalogue: modules and prices, pricing rules, finishes, benchtops,
+    labour, tax and the layout generator's sizes. ``?version=N`` returns an
+    earlier version (the one a quote was priced with)."""
+    found = catalogs.current() if version is None else catalogs.get_version(version)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Catalogue version {version} not found")
+    doc = found.api_dict()
+    doc["requires_admin_key"] = bool(os.environ.get("CATALOG_ADMIN_KEY"))
+    return doc
+
+
+@app.get("/api/catalog/versions")
+def list_catalog_versions():
+    return {"current": catalogs.current().version, "versions": catalogs.versions()}
 
 
 @app.put("/api/catalog")
-def update_catalog(payload: dict[str, Any]):
-    """Updates pricing matrix rules and material multipliers."""
-    global LABOUR_RATE_PER_CABINET
-    if "cabinets" in payload and isinstance(payload["cabinets"], dict):
-        for k, v in payload["cabinets"].items():
-            if k in CABINET_PRICES:
-                CABINET_PRICES[k] = float(v)
-    if "styles" in payload and isinstance(payload["styles"], dict):
-        for k, v in payload["styles"].items():
-            if k in STYLE_MULTIPLIERS:
-                STYLE_MULTIPLIERS[k] = float(v)
-    if "labour_rate_per_cabinet" in payload:
-        LABOUR_RATE_PER_CABINET = float(payload["labour_rate_per_cabinet"])
-    return {"status": "catalog_updated", "catalog": get_catalog()}
+def update_catalog(
+    payload: dict[str, Any],
+    x_admin_key: str | None = Header(default=None),
+):
+    """Saves a new catalogue version.
+
+    Send the whole catalogue document (as GET returns it, without the derived
+    flat maps) plus ``base_version``, the version you started from: a 409 says
+    someone else saved in between. The older partial form
+    (``{"cabinets": {type: price}, "styles": {...}, "labour_rate_per_cabinet": n}``)
+    still works.
+    """
+    _require_admin(x_admin_key)
+    try:
+        if "modules" in payload or "families" in payload:
+            document = {k: v for k, v in payload.items() if k != "base_version"}
+            new = catalogs.save(document, payload.get("base_version"))
+        else:
+            new = catalogs.update_legacy(payload)
+    except catalog_lib.CatalogConflict as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    except catalog_lib.ValidationError as err:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {"where": ".".join(str(p) for p in e["loc"]), "message": e["msg"]}
+                for e in err.errors()
+            ],
+        )
+    return {"status": "catalog_updated", "catalog": new.api_dict()}
 
 
 @app.get("/api/export/{quote_id}/dxf")
@@ -506,10 +766,17 @@ def export_cutlist(quote_id: str):
 def get_pdf(quote_id: str):
     path = _pdf_store.get(quote_id)
     if not path or not os.path.exists(path):
+        # _pdf_store is in-memory, so after a restart fall back to the stored
+        # path and then to the on-disk proposal folder.
         db = _load_projects_db()
-        project = db.get(quote_id)
-        if project and "pdf_path" in project and os.path.exists(project["pdf_path"]):
-            path = project["pdf_path"]
+        project = db.get(quote_id) or {}
+        stored = project.get("pdf_path")
+        on_disk = os.path.join(PDF_DIR, f"{quote_id}.pdf")
+
+        if stored and os.path.exists(stored):
+            path = stored
+        elif os.path.exists(on_disk):
+            path = on_disk
         else:
             raise HTTPException(status_code=404, detail="PDF not found")
     return FileResponse(
@@ -521,6 +788,67 @@ def get_pdf(quote_id: str):
 
 # ─── PDF Generation ──────────────────────────────────────────────────────────
 
+_SCENE_OPTIONS = {
+    "doors": {"slab", "shaker", "raised"},
+    "backsplash": {"none", "subway", "hex"},
+    "mood": {"day", "evening"},
+}
+
+
+def _clean_scene(scene: dict[str, Any] | None) -> dict[str, Any]:
+    """The parts of a design's look the server knows, with nothing else kept."""
+    if not isinstance(scene, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, allowed in _SCENE_OPTIONS.items():
+        if scene.get(key) in allowed:
+            out[key] = scene[key]
+    for key in ("decor", "room"):
+        if isinstance(scene.get(key), bool):
+            out[key] = scene[key]
+    return out
+
+
+def _scene_note(scene: dict[str, Any] | None) -> str:
+    """What in the pictures is not part of the quote (printed under them)."""
+    scene = _clean_scene(scene)
+    shown = []
+    if scene.get("decor", False):
+        shown.append("The decor (plates, plants, jars and similar)")
+    if scene.get("backsplash", "none") != "none":
+        shown.append("the backsplash tile" if shown else "The backsplash tile")
+    note = ""
+    if shown:
+        note = (" and ".join(shown) + (" shown are" if len(shown) > 1 else " shown is")
+                + " not part of this quote.")
+    if scene.get("doors", "slab") != "slab":
+        note += " The door style shown is for illustration."
+    if scene.get("room", False):
+        note += " The room around the kitchen shown is for illustration."
+    return note.strip()
+
+
+def _pdf_pictures(paths: list[str]) -> list[RLImage]:
+    """The design pictures sized to share one row of the page (170 mm wide):
+    one fills it, two sit side by side. A file that can't be read is skipped."""
+    paths = paths[:2]
+    width = 170 * mm / max(len(paths), 1) - 2 * mm
+    cells = []
+    for path in paths:
+        try:
+            w, h = ImageReader(path).getSize()
+        except Exception:
+            continue
+        height = width * h / w
+        if height > 95 * mm:  # a very tall picture: fit the height instead
+            height = 95 * mm
+            width_here = height * w / h
+        else:
+            width_here = width
+        cells.append(RLImage(path, width=width_here, height=height))
+    return cells
+
+
 def _generate_pdf(
     quote_id: str,
     request: QuoteRequest,
@@ -528,12 +856,16 @@ def _generate_pdf(
     subtotal: float,
     gst: float,
     total_price: float,
+    catalog: "catalog_lib.Catalog | None" = None,
+    pictures: list[str] | None = None,
+    scene: dict[str, Any] | None = None,
 ) -> str:
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".pdf", delete=False, prefix=f"{quote_id}_"
-    )
-    path = tmp.name
-    tmp.close()
+    catalog = catalog or _catalog_for(request)
+    # Proposals used to land in the OS temp directory, so every signed PDF was
+    # gone after a cleanup or reboot and /pdf/<id> answered 404 forever. Keep
+    # them beside the project database instead.
+    os.makedirs(PDF_DIR, exist_ok=True)
+    path = os.path.join(PDF_DIR, f"{quote_id}.pdf")
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
@@ -573,8 +905,9 @@ def _generate_pdf(
     # Client & Project Metadata Box
     client_name_str = request.client_name or "Client Walk-in"
     client_contact = f"{request.client_phone or ''} {request.client_email or ''}".strip() or "On-site Consultation"
-    style_label = STYLE_NAMES.get(request.style_archetype, "Japandi Natural")
-    deposit_str = f"Deposit: ${request.deposit_paid:.2f} (Slot Locked)" if request.deposit_paid > 0 else "Quotation Only"
+    style_option = catalog.style_options.get(request.style_archetype)
+    style_label = style_option.name if style_option else "Japandi Natural"
+    deposit_str = f"Deposit: RM{request.deposit_paid:,.2f} (Slot Locked)" if request.deposit_paid > 0 else "Quotation Only"
 
     w = request.wall
     meta_info = [
@@ -597,7 +930,28 @@ def _generate_pdf(
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
+
+    # The design, as pictures: one or two side by side, each as wide as fits.
+    picture_cells = _pdf_pictures(pictures or [])
+    if picture_cells:
+        story.append(Paragraph("<b>Your design</b>", styles["Normal"]))
+        story.append(Spacer(1, 2 * mm))
+        gallery = Table([picture_cells], colWidths=[170 * mm / len(picture_cells)] * len(picture_cells))
+        gallery.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(gallery)
+        story.append(Paragraph(
+            "<font size=8 color='#555577'>Pictures show the design. Colours and finishes may look slightly "
+            f"different from the real materials. {html.escape(_scene_note(scene))}</font>",
+            styles["Normal"],
+        ))
+    story.append(Spacer(1, 6 * mm))
 
     # Line items table
     table_data = [["Description", "Qty", "Unit Price", "Total"]]
@@ -606,15 +960,15 @@ def _generate_pdf(
         table_data.append([
             li.description,
             str(li.qty),
-            f"${abs(li.unit_price):.2f}",
-            f"{sign}${abs(li.total):.2f}",
+            f"RM{abs(li.unit_price):,.2f}",
+            f"{sign}RM{abs(li.total):,.2f}",
         ])
 
-    # Subtotal / GST / Total rows
+    # Subtotal / SST / Total rows
     table_data += [
-        ["", "", "Subtotal", f"${subtotal:.2f}"],
-        ["", "", f"GST ({int(GST_RATE*100)}%)", f"${gst:.2f}"],
-        ["", "", "TOTAL (incl. GST)", f"${total_price:.2f}"],
+        ["", "", "Subtotal", f"RM{subtotal:,.2f}"],
+        ["", "", f"{catalog.tax.label} ({catalog.tax.rate * 100:g}%)", f"RM{gst:,.2f}"],
+        ["", "", "TOTAL (incl. SST)", f"RM{total_price:,.2f}"],
     ]
 
     col_widths = [95 * mm, 20 * mm, 40 * mm, 35 * mm]
@@ -677,7 +1031,7 @@ def _generate_pdf(
 
     story.append(Spacer(1, 6 * mm))
     story.append(Paragraph(
-        "This proposal locks in material pricing and reserves manufacturing queue priority for 30 days. All prices in AUD including GST.",
+        "This proposal locks in material pricing and reserves manufacturing queue priority for 30 days. All prices in MYR including SST.",
         styles["Normal"],
     ))
 
@@ -693,6 +1047,45 @@ app.mount("/studio", StaticFiles(directory=STUDIO_DIR, html=True), name="studio"
 PORTAL_DIR = os.path.join(os.path.dirname(__file__), "static", "portal")
 os.makedirs(PORTAL_DIR, exist_ok=True)
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
+
+# The sales app in a browser (Flutter web build): tool/build_web.sh or
+# tool/build_web.ps1 writes it here. Same server, so no CORS or address setup.
+SALES_DIR = os.path.join(os.path.dirname(__file__), "static", "sales")
+os.makedirs(SALES_DIR, exist_ok=True)
+app.mount("/sales", StaticFiles(directory=SALES_DIR, html=True), name="sales")
+
+# ─── Device setup (trust the office server, once per tablet) ────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+def device_setup(request: Request):
+    """Page a tablet opens once (over http) to trust the https server."""
+    if office_https is None:
+        return HTMLResponse(
+            "<p>HTTPS isn't available: run <code>pip install -r requirements.txt</code> "
+            "on the office computer and restart the server.</p>",
+            status_code=503,
+        )
+    certs = office_https.ensure_certificates()
+    return office_https.setup_page(
+        host=request.url.hostname or "localhost",
+        http_port=request.url.port or 80,
+        https_port=app.state.https_port,
+        fingerprint=certs.ca_fingerprint,
+    )
+
+
+@app.get("/setup/{filename}")
+def device_setup_certificate(filename: str):
+    """The office CA certificate (public part only) for tablets to install."""
+    if office_https is None or filename != office_https.CA_DOWNLOAD_NAME:
+        raise HTTPException(status_code=404, detail="Not found")
+    certs = office_https.ensure_certificates()
+    return Response(
+        content=certs.ca_der,
+        media_type="application/x-x509-ca-cert",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @app.get("/view/{quote_id}")
 def view_customer_proposal(quote_id: str):
@@ -717,5 +1110,73 @@ def root_redirect():
 
 # ─── Dev runner ──────────────────────────────────────────────────────────────
 
+HTTP_PORT = 8000
+HTTPS_PORT = 8443
+
+
+async def _serve_all(servers: list[uvicorn.Server]) -> None:
+    import asyncio
+
+    await asyncio.gather(*(server.serve() for server in servers))
+
+
+def _print_addresses(https_running: bool) -> None:
+    ip = office_https.primary_lan_ip() if office_https else None
+    host = ip or "localhost"
+    print("\nSS Love office server")
+    if https_running:
+        print(f"  Sales app (browser):    https://{host}:{HTTPS_PORT}/sales/")
+        print(f"  Set up a tablet once:   http://{host}:{HTTP_PORT}/setup")
+    print(f"  Android app, Studio:    http://{host}:{HTTP_PORT}")
+    if not ip:
+        print("  (No Wi-Fi/LAN address found: only this computer can connect.)")
+    print()
+
+
+def serve(https: bool = True) -> None:
+    """http on 8000 (Android app, Studio, setup page) and, when possible,
+    https on 8443 (the sales app in a browser, so the camera works)."""
+    import asyncio
+
+    servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=HTTP_PORT))]
+    if https and office_https is None:
+        print("HTTPS is off: run `pip install -r requirements.txt` to turn it on.")
+        https = False
+    if https:
+        certs = office_https.ensure_certificates()
+        app.state.https_port = HTTPS_PORT
+        servers.append(
+            uvicorn.Server(
+                uvicorn.Config(
+                    app,
+                    host="0.0.0.0",
+                    port=HTTPS_PORT,
+                    ssl_certfile=str(certs.server_cert),
+                    ssl_keyfile=str(certs.server_key),
+                )
+            )
+        )
+    _print_addresses(https_running=https)
+    try:
+        asyncio.run(_serve_all(servers))
+    except KeyboardInterrupt:
+        # Ctrl+C: both servers have already shut down cleanly.
+        pass
+    print("Server stopped.")
+
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SS Love office server")
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="reload on code changes (http only, port 8000)",
+    )
+    parser.add_argument("--no-https", action="store_true", help="http only")
+    args = parser.parse_args()
+    if args.dev:
+        uvicorn.run("main:app", host="0.0.0.0", port=HTTP_PORT, reload=True)
+    else:
+        serve(https=not args.no_https)

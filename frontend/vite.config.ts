@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import path from 'path'
+import { fileURLToPath } from 'node:url'
+
+// The backend serves the built studio, so every backend route the studio links
+// to has to be proxied in dev as well — otherwise the dev server answers with
+// index.html and the link silently does nothing.
+const backend = 'http://127.0.0.1:8000'
+const proxied = ['/api', '/quote', '/pdf', '/portal', '/studio', '/view', '/download']
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -11,7 +17,8 @@ export default defineConfig({
   ],
   base: './',
   build: {
-    outDir: path.resolve('c:/Users/User/Documents/3dmodel/backend/static/studio'),
+    // FastAPI mounts this directory at /studio.
+    outDir: fileURLToPath(new URL('../backend/static/studio', import.meta.url)),
     emptyOutDir: false,
     rollupOptions: {
       output: {
@@ -23,15 +30,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
-      '/quote': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
-    },
+    proxy: Object.fromEntries(
+      proxied.map((route) => [route, { target: backend, changeOrigin: true }]),
+    ),
   },
 })

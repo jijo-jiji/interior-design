@@ -1,185 +1,180 @@
 import React from 'react';
-import { Sun, Moon, Box, Compass, ExternalLink, RefreshCw, ChevronDown, FolderKanban } from 'lucide-react';
+import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff, Tags, Camera } from 'lucide-react';
 import type { CameraView } from '../canvas/SceneCanvas';
+import type { RoomView } from '../canvas/floorPlan';
+import { SegmentedControl } from './ui';
 
 interface HeaderProps {
-  roomShape: string;
-  onSelectShape: (shape: string) => void;
   cameraView: CameraView;
   onSelectCameraView: (view: CameraView) => void;
+  /** Only for a room read off a floor plan. */
+  hasFloorPlan: boolean;
+  roomView: RoomView;
+  onSelectRoomView: (view: RoomView) => void;
   lightingMood: 'day' | 'evening';
   onToggleMood: () => void;
   quoteId: string;
   clientName: string;
   onSync: () => void;
+  isSyncing: boolean;
+  isOffline: boolean;
   onOpenPipeline: () => void;
+  onOpenPriceList: () => void;
+  /** Saves a picture of the 3D view; off in Plan and Elevation. */
+  onSavePicture: () => void;
+  canSavePicture: boolean;
 }
 
+const VIEW_OPTIONS: { value: CameraView; label: string; title: string }[] = [
+  { value: 'orbit', label: '3D', title: '3D view (drag to look around)' },
+  { value: 'top', label: 'Plan', title: 'Plan: from above, with sizes' },
+  { value: 'front', label: 'Elevation', title: 'Elevation: the main wall straight on, with heights' },
+];
+
+const ROOM_OPTIONS: { value: RoomView; label: string; title: string }[] = [
+  { value: 'kitchen', label: 'Kitchen', title: 'The kitchen alone' },
+  { value: 'room', label: 'Room', title: 'The kitchen and the walls around it, from the floor plan' },
+  { value: 'house', label: 'House', title: 'The whole floor plan, with its walls raised' },
+];
+
+/** Secondary actions show their words from 1440px; below that, icon only
+ *  (named for screen readers and in a tooltip). */
+const actionClass =
+  'flex min-h-10 items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-surface-muted';
+const wideLabel = 'hidden min-[1440px]:inline';
+
 export const Header: React.FC<HeaderProps> = ({
-  roomShape,
-  onSelectShape,
   cameraView,
   onSelectCameraView,
+  hasFloorPlan,
+  roomView,
+  onSelectRoomView,
   lightingMood,
   onToggleMood,
   quoteId,
   clientName,
   onSync,
+  isSyncing,
+  isOffline,
   onOpenPipeline,
+  onOpenPriceList,
+  onSavePicture,
+  canSavePicture,
 }) => {
   return (
-    <header className="h-16 px-6 glass-panel flex items-center justify-between z-30 border-b border-[#E5DDD3] bg-[#FAF7F2]/90 backdrop-blur-xl">
-      {/* ── Left: Atelier Branding & Project Selector Pill ───────────── */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#E6BEAE] flex items-center justify-center text-[#2C2724] shadow-xs">
-            <Box className="w-5 h-5 stroke-[1.8]" />
-          </div>
-          <div>
-            <span className="font-bold text-xs tracking-wider uppercase text-[#2C2724] block">
-              Atelier Architekt
-            </span>
-            <span className="text-[10px] text-[#8C725C] tracking-wide font-mono">
-              3D JOINERY WORKBENCH
-            </span>
-          </div>
+    <header className="z-30 flex items-center gap-3 border-b border-line bg-surface-muted px-4 py-2">
+      {/* ── Brand and client ──────────────────────────────────────────── */}
+      <div className="flex min-w-0 shrink items-center gap-3">
+        <div className="flex shrink-0 items-baseline gap-1.5 leading-none">
+          <span className="text-[15px] font-bold tracking-tight text-ink">SS Love</span>
+          <span className="text-[13px] font-medium text-ink-muted">Studio</span>
         </div>
 
-        {/* Project Selector Trigger */}
         <button
+          type="button"
           onClick={onOpenPipeline}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-[#DDD5CA] hover:border-[#B2967D] hover:bg-[#FAF7F2] text-xs font-semibold text-[#2C2724] shadow-xs transition-all"
-          title="Switch Project"
+          aria-label={`Client: ${clientName || 'none chosen'}. Open another client`}
+          title="Open another client"
+          className="flex min-h-10 min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-line bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-surface-muted"
         >
-          <FolderKanban className="w-3.5 h-3.5 text-[#B2967D]" />
-          <span>{clientName || 'Select Project'}</span>
-          {quoteId && <span className="text-[11px] font-mono text-[#8C725C]">({quoteId})</span>}
-          <ChevronDown className="w-3.5 h-3.5 text-[#8C725C] ml-0.5 opacity-70" />
+          <Users className="h-4 w-4 shrink-0 text-clay" aria-hidden />
+          <span className="max-w-[12rem] truncate">{clientName || 'Choose a client'}</span>
+          {quoteId && (
+            <span className="hidden shrink-0 font-mono text-xs text-ink-muted min-[1440px]:inline">
+              {quoteId}
+            </span>
+          )}
+          <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
         </button>
+
+        {isOffline && (
+          <span
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-clay-tint px-2 py-1 text-xs font-medium text-clay-ink"
+            title="Can't reach the office server. Showing sample data; saving is off."
+          >
+            <CloudOff className="h-3.5 w-3.5" aria-hidden />
+            Offline
+          </span>
+        )}
       </div>
 
-      {/* ── Center: Architectural Layout & Camera View Independent Pill Controls ── */}
-      <div className="flex items-center gap-4">
-        {/* Layout Shape Selector */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => onSelectShape('singleWall')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              roomShape === 'singleWall'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            Single Wall
-          </button>
-          <button
-            onClick={() => onSelectShape('lShape')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              roomShape === 'lShape'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            L-Shape Corner
-          </button>
-          <button
-            onClick={() => onSelectShape('galley')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              roomShape === 'galley'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            Galley Suite
-          </button>
-        </div>
-
-        {/* Divider */}
-        <div className="h-5 w-[1px] bg-[#DDD5CA]" />
-
-        {/* Camera Views Selector */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => onSelectCameraView('orbit')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              cameraView === 'orbit'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            3D Orbit
-          </button>
-          <button
-            onClick={() => onSelectCameraView('top')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              cameraView === 'top'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            Plan View
-          </button>
-          <button
-            onClick={() => onSelectCameraView('front')}
-            className={`px-3.5 py-1.5 text-xs rounded-xl transition-all font-semibold whitespace-nowrap border cursor-pointer ${
-              cameraView === 'front'
-                ? 'bg-[#2C2724] text-[#FAF7F2] border-[#2C2724] shadow-xs'
-                : 'bg-white text-[#7A6A5C] border-[#DDD5CA] hover:border-[#B2967D] hover:text-[#2C2724] shadow-2xs'
-            }`}
-          >
-            Elevation
-          </button>
-        </div>
-
-        {/* Ambient Mood Toggle */}
+      {/* ── View ──────────────────────────────────────────────────────── */}
+      <div className="mx-auto flex shrink-0 items-center gap-2">
+        <SegmentedControl label="View" options={VIEW_OPTIONS} value={cameraView} onChange={onSelectCameraView} />
+        {hasFloorPlan && (
+          <SegmentedControl label="Show" options={ROOM_OPTIONS} value={roomView} onChange={onSelectRoomView} />
+        )}
         <button
+          type="button"
           onClick={onToggleMood}
-          className="px-3.5 py-1.5 rounded-xl bg-white border border-[#DDD5CA] text-[#7A6A5C] hover:text-[#2C2724] hover:border-[#B2967D] shadow-2xs transition-all flex items-center gap-2 text-xs font-semibold cursor-pointer"
-          title="Toggle Daylight / Evening Mood"
+          aria-pressed={lightingMood === 'evening'}
+          aria-label={lightingMood === 'day' ? 'Switch to evening light' : 'Switch to daylight'}
+          title={lightingMood === 'day' ? 'Switch to evening light' : 'Switch to daylight'}
+          className={actionClass}
         >
           {lightingMood === 'day' ? (
-            <>
-              <Sun className="w-4 h-4 text-[#C5A059]" />
-              <span className="text-[#2C2724]">Daylight</span>
-            </>
+            <Sun className="h-4 w-4 text-clay" aria-hidden />
           ) : (
-            <>
-              <Moon className="w-4 h-4 text-[#8C725C]" />
-              <span className="text-[#2C2724]">Evening</span>
-            </>
+            <Moon className="h-4 w-4 text-ink-soft" aria-hidden />
           )}
+          <span className={wideLabel}>{lightingMood === 'day' ? 'Daylight' : 'Evening'}</span>
         </button>
       </div>
 
-      {/* ── Right: Shareable Client Portal & Factory Handover ─────────── */}
-      <div className="flex items-center gap-3">
+      {/* ── Handover ──────────────────────────────────────────────────── */}
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onSavePicture}
+          disabled={!canSavePicture}
+          aria-label={canSavePicture ? 'Save a picture of this view' : 'Save a picture (switch to the 3D view first)'}
+          title={canSavePicture ? 'Save a picture of this view' : 'Switch to the 3D view to save a picture'}
+          className={`${actionClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-45`}
+        >
+          <Camera className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Picture</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenPriceList}
+          aria-label="Price list: prices, sizes and rules"
+          title="Price list: prices, sizes and rules"
+          className={`${actionClass} cursor-pointer`}
+        >
+          <Tags className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Price list</span>
+        </button>
         <a
           href={`/portal/?id=${quoteId}`}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-[#E5DDD3] hover:border-[#B2967D] text-xs font-semibold text-[#2C2724] shadow-2xs transition-all"
+          aria-label="Client's 3D page (opens in a new tab)"
+          title="Client's 3D page (opens in a new tab)"
+          className={actionClass}
         >
-          <Compass className="w-3.5 h-3.5 text-[#B2967D]" />
-          <span>Client 3D Portal</span>
-          <ExternalLink className="w-3 h-3 opacity-50 ml-0.5" />
+          <Compass className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Client page</span>
         </a>
-
         <a
           href={`/studio/factory.html?id=${quoteId}`}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-[#DDD5CA] hover:border-[#B2967D] text-xs font-semibold text-[#2C2724] shadow-2xs transition-all"
+          aria-label="Factory sheet (opens in a new tab)"
+          title="Factory sheet (opens in a new tab)"
+          className={actionClass}
         >
-          <span>Factory CNC</span>
-          <ExternalLink className="w-3 h-3 opacity-50 ml-0.5" />
+          <Factory className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Factory sheet</span>
         </a>
-
         <button
+          type="button"
           onClick={onSync}
-          className="p-2 rounded-xl bg-white border border-[#E5DDD3] text-[#8C725C] hover:text-[#2C2724] hover:border-[#B2967D] shadow-2xs transition-all"
-          title="Sync Pipeline"
+          disabled={isSyncing}
+          aria-label="Refresh clients from the office"
+          title="Refresh clients from the office"
+          className={`${actionClass} cursor-pointer text-ink-muted disabled:opacity-50`}
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} aria-hidden />
         </button>
       </div>
     </header>

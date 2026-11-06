@@ -1,26 +1,24 @@
 import 'dart:convert';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 
-/// True local offline storage for customer proposals & digital signatures.
-/// Ensures on-site field quotes are preserved across app closures or lost connectivity.
+import '../../../shared/platform/api_client.dart';
+import '../../../shared/platform/local_store.dart';
+import '../../../shared/project_status.dart';
+
+/// Designs and quotes kept on the device (the phone's documents folder, or
+/// the browser's storage), so nothing is lost when the app closes or the
+/// network drops.
 class OfflineStore {
-  static const String _fileName = 'static_trace_offline_drafts.json';
+  /// Also the file name on Android, so existing designs carry over.
+  static const String _storeKey = 'static_trace_offline_drafts.json';
   static List<Map<String, dynamic>> _memoryCache = [];
 
-  static Future<File?> _getLocalFile() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      return File('${dir.path}/$_fileName');
-    } catch (_) {
-      // In test environments where path_provider is not mocked
-      return null;
-    }
-  }
+  static Future<void> _persist(List<Map<String, dynamic>> drafts) =>
+      writeLocal(_storeKey, jsonEncode(drafts));
 
   /// Saves or updates a quote in local storage
   static Future<void> saveDraft(Map<String, dynamic> draft) async {
-    final quoteId = draft['quote_id'] ?? 'QT-OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
+    final quoteId = draft['quote_id'] ??
+        'QT-OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
     final toSave = Map<String, dynamic>.from(draft);
     toSave['quote_id'] = quoteId;
     toSave['is_offline_draft'] = true;
@@ -30,24 +28,18 @@ class OfflineStore {
     drafts.removeWhere((d) => d['quote_id'] == quoteId);
     drafts.insert(0, toSave);
     _memoryCache = drafts;
-
-    final file = await _getLocalFile();
-    if (file != null) {
-      await file.writeAsString(jsonEncode(drafts));
-    }
+    await _persist(drafts);
   }
 
   /// Retrieves all local offline drafts
   static Future<List<Map<String, dynamic>>> getDrafts() async {
-    final file = await _getLocalFile();
-    if (file != null && await file.exists()) {
+    final content = await readLocal(_storeKey);
+    if (content != null) {
       try {
-        final content = await file.readAsString();
         final list = jsonDecode(content) as List<dynamic>;
         _memoryCache = list.cast<Map<String, dynamic>>();
-        return _memoryCache;
       } catch (_) {
-        return _memoryCache;
+        // Unreadable: keep what's in memory.
       }
     }
     return _memoryCache;
@@ -58,37 +50,33 @@ class OfflineStore {
     final drafts = await getDrafts();
     drafts.removeWhere((d) => d['quote_id'] == quoteId);
     _memoryCache = drafts;
-
-    final file = await _getLocalFile();
-    if (file != null) {
-      await file.writeAsString(jsonEncode(drafts));
-    }
+    await _persist(drafts);
   }
 
-  /// Synchronizes all queued offline drafts with the FastAPI backend
-  static Future<int> syncQueue(String quoteEndpoint) async {
+  /// Saved records waiting to be sent: everything except work-in-progress
+  /// drafts, which stay on the phone until the salesperson sends the quote.
+  static Future<List<Map<String, dynamic>>> pendingSync() async {
     final drafts = await getDrafts();
-    if (drafts.isEmpty) return 0;
+    return drafts
+        .where((d) => ProjectStatus.of(d) != ProjectStatus.draft)
+        .toList();
+  }
+
+  /// Synchronizes all queued offline quotes with the FastAPI backend.
+  static Future<int> syncQueue(String quoteEndpoint) async {
+    final pending = await pendingSync();
+    if (pending.isEmpty) return 0;
 
     int synced = 0;
-    final client = HttpClient();
-
-    for (final draft in List<Map<String, dynamic>>.from(drafts)) {
-      try {
-        final req = await client.postUrl(Uri.parse(quoteEndpoint));
-        req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-        req.write(jsonEncode(draft));
-        final resp = await req.close();
-        if (resp.statusCode == 200 || resp.statusCode == 201) {
-          await removeDraft(draft['quote_id']);
-          synced++;
-        }
-      } catch (_) {
-        // Stop on first network failure; preserve remaining drafts
-        break;
+    for (final draft in pending) {
+      final reply = await ApiClient.postJson(Uri.parse(quoteEndpoint), draft);
+      // Unreachable: stop and keep the rest for next time.
+      if (reply == null) break;
+      if (reply.ok) {
+        await removeDraft(draft['quote_id'] as String);
+        synced++;
       }
     }
-    client.close();
     return synced;
   }
 }
