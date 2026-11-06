@@ -103,3 +103,23 @@ the Studio (**Price list** in the header).
   price a layout. They are checked against the same cases in
   `test/fixtures/pricing_cases.json` (`backend/test_pricing_contract.py`,
   `test/pricing_contract_test.dart`, `frontend/src/pricing.contract.test.ts`).
+
+## Pictures of the design
+
+- **Sales app:** the **camera icon** on the 3D screen takes two pictures of
+  the design (front, and from an angle) to show the client on the spot. From
+  there: *Send on WhatsApp* (a message with a link) or *Open to save* (the
+  page in the browser, where the picture can be saved or shared). Both go
+  through the office server, so the tablet needs to be online.
+- **A realistic render:** *Make a realistic render* in the same sheet makes
+  the two pictures again with soft shadows and darker corners (many frames of
+  the view, each lit from a different part of the sky, averaged). It takes
+  longer, with a progress bar and *Cancel*. The quote uses the render if the
+  design hasn't changed since; otherwise it takes the quick pictures.
+- **The quote:** sending a quote carries the pictures. The signed PDF shows
+  them under "Your design", and the client's message links a page with them
+  (`/pictures/<quote id>`). Pictures are stored in `backend/design_pictures/`
+  (not committed). Like the 3D link, the page is reachable from the office
+  network.
+- **Studio:** *Picture* in the header saves the 3D view as a 2000 px PNG
+  (not in Plan and Elevation).

@@ -383,3 +383,34 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - The real catalogue and prices from SS Love's designer: every number in the sample is a stand-in, including SST at 8%, RM 120 installation and the RM 40 per 100 mm rule. This replaces the RM 300 fallback flagged in §16.
 - Who may edit prices: the server's key is a stop-gap until the Accounts module (logins, roles).
 - Not covered: appliance kinds beyond the six the 3D page draws; finishes can be renamed and re-priced but not added (their 3D look is in the app).
+
+## 18. Session 2026-11-06 — pictures of the design, and a realistic render
+
+**Why:** the apps showed a live 3D view but had no way to turn the design into a picture: nothing for the client to keep, nothing in the quote PDF. Asked for first: a "save picture" function, then a more realistic render.
+
+**Quick pictures (the live look)**
+- `assets/3d/index.html` `capturePictures(id)`: two pictures, front and angled (from the right, so an L-shape's return wall on the left is seen into), 1600×1000 JPEG. They use their own cameras, fitted to the walls and cabinets, so the viewer's view isn't moved, and leave out the editing aids (selection box, snap guide, the plan around the room). The page answers with a `pictures` event.
+- **Sales app:** a camera icon on the 3D screen shows the pictures in a sheet (*Send on WhatsApp*, *Open to save*). Sending a quote takes them first and posts them as `design_images`. A quote waiting on the phone keeps them if they fit (about 1.5 MB); autosaved drafts never carry pictures (they are large and saved often).
+- **Office server:** `design_images` are stored as files in `backend/design_pictures/` (gitignored). The first bytes decide JPEG or PNG, not the label; limits of 6 pictures and 6 MB each; a quote with bad pictures still works. They are printed in the PDF under "Your design" with a note that colours and finishes may differ, served at `/api/projects/<id>/picture/<n>`, and shown on `/pictures/<id>`, the page the client opens from the message (client name escaped). `POST /api/projects/<id>/pictures` takes pictures made before a quote exists. A quote sent again keeps its pictures unless new ones come.
+- **Studio:** *Picture* in the header saves the 3D view as a 2000 px PNG in the view's shape, without the selection outline. Off in Plan and Elevation, whose dimension labels are page elements, not part of the canvas.
+- **WhatsApp:** `wa.me` links can't carry an image, so the message carries a link; like the 3D link, it only opens on the office network. There is no save-to-gallery on Android (it needs a plugin, which would change `pubspec.lock`); *Open to save* opens the page in the browser instead.
+
+**Realistic render**
+- `renderPictures(id, {samples})`: the same two views, each the average of N frames (40 by default). Each frame is lit from a different part of the sky (a shadow-casting light moved over the hemisphere), with the sun nudged a little and the view moved by less than a pixel. The average gives soft shadows, darker corners and under the wall cabinets, smooth edges. No post-processing add-ons: plain three.js, so it works offline in the WebView and the browser.
+- Progress and *Cancel*; while it runs the page refuses other captures and the app disables Quote and Picture. A cancelled or abandoned render puts the live view back exactly (size, lights, exposure, fog, camera). `--dart-define=RENDER_SAMPLES=n` changes the frame count (used to test).
+- The quote uses the render only while the design is unchanged since it was made (a revision counter goes up with every change); otherwise it takes quick pictures.
+- **What it is not:** not path tracing. No light bouncing between surfaces (colour bleeding), no photo textures (wood and stone are drawn in code), faint floor reflections. It looks like a clean architectural model render, clearly better than the live view, not a showroom photograph. Real finish photos from the designer would help most.
+- **Speed:** measured only in headless Chromium with software rendering (no GPU): about 0.6 s per frame at 1600×1000, so about 25–50 s for both pictures at 40 frames. A tablet GPU should be several times faster; not measured on a device. If it is too slow, lower `_renderSamples`.
+- Tuned by eye in `RENDER_LOOK` (sky strength, sun, ambient, exposure).
+
+**Verified**
+- **Tests:** Flutter 236, backend 86 (19 for pictures), Studio 87.
+- **3D page in Chromium:** quick capture 12 checks (two JPEGs of 1600×1000, the app is told, the viewer's camera/size/selection untouched, both layouts, empty scene); render guard 7 checks (a quick capture during a render is refused, progress rises to 1, everything is put back exactly, Cancel works, quick capture works again).
+- **Studio in Chromium:** 9 checks (PNG 2000 px wide, not blank, canvas restored, off in Plan, axe 0 violations).
+- **Whole chain in Chromium:** 14 checks for quick pictures (sheet, Open to save → client page with two pictures, quote carries them, PDF has them) and 10 for the render (sheet, finishes, the quote reuses it without a new capture, server and PDF carry it).
+- **Not tested:** a real tablet's speed and memory (the render holds about 26 MB of floats plus the pictures), WhatsApp with a real contact.
+
+**Open**
+- A render in the Studio (only quick pictures there).
+- Real finish textures, and floor reflections, for a more photographic look.
+- Android save-to-gallery / share sheet (a plugin).

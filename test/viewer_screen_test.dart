@@ -423,6 +423,196 @@ void main() {
       await finish(tester);
     });
 
+    // Opens the sheet with quick pictures, ready to render.
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture, picture],
+      });
+      await tester.pumpAndSettle();
+    }
+
+    const rendered = 'data:image/jpeg;base64,$png';
+
+    testWidgets('a realistic render can be asked for, with progress',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      expect(find.text('Realistic render'), findsNothing);
+
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      expect(
+          page().javaScript.any((c) => c.startsWith("renderPictures('render'")),
+          isTrue,
+          reason:
+              'last calls: ${page().javaScript.reversed.take(3).map((c) => c.length > 50 ? c.substring(0, 50) : c).toList()}');
+      expect(find.text('Rendering… 0%'), findsOneWidget);
+      // While it runs: no sending, and Quote and Picture are off.
+      expect(find.text('Send on WhatsApp'), findsNothing);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      fromPage({
+        'event': 'render_progress',
+        'request_id': 'render',
+        'fraction': 0.5
+      });
+      await tester.pump();
+      expect(find.text('Rendering… 50%'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Realistic render'), findsOneWidget);
+      expect(find.text('Make a realistic render'), findsNothing);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Cancel stops the render and the quick pictures stay',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Cancel'));
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(page().javaScript, contains('cancelRender()'));
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'cancelled': true,
+        'images': <String>[],
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Rendering…'), findsNothing);
+      expect(find.text('Realistic render'), findsNothing);
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('the quote uses the render while the design is unchanged',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      // Close the sheet (back).
+      Navigator.of(tester.element(find.text('Realistic render'))).pop();
+      await tester.pumpAndSettle();
+      final captures = () => page()
+          .javaScript
+          .where((c) =>
+              c.startsWith('capturePictures(') ||
+              c.startsWith('renderPictures('))
+          .length;
+      final before = captures();
+
+      await tester.tap(find.text('Quote'));
+      await tester.pumpAndSettle();
+      final send = find.text('Save & send quote');
+      await tester.ensureVisible(send);
+      await tester.tap(send);
+      await tester.pump();
+      // No new capture: the render is of this very design.
+      expect(captures(), before);
+
+      Map<String, dynamic>? saved;
+      for (var i = 0; i < 40 && saved?['design_images'] == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final drafts = await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return OfflineStore.getDrafts();
+        });
+        saved =
+            drafts!.where((d) => d['quote_id'] == 'QT-TEST-VIEWER').firstOrNull;
+      }
+      expect(saved?['design_images'], [rendered, rendered]);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await finish(tester);
+    });
+
+    testWidgets('after the design changes the old render is not used',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('Realistic render'))).pop();
+      await tester.pumpAndSettle();
+
+      // A cabinet is moved: the render no longer shows this design.
+      fromPage({'event': 'cabinet_moved', 'id': 'B-01', 'x_mm': -1500});
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      // Quick pictures are taken again, and the sheet offers to render again.
+      expect(page().javaScript.last, "capturePictures('app')");
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture]
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      expect(find.text('Realistic render'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Quote and Picture are off while a render runs',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+
+      final quote = tester.widget<ElevatedButton>(find.ancestor(
+          of: find.text('Quote'), matching: find.byType(ElevatedButton)));
+      expect(quote.onPressed, isNull);
+      final camera = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.photo_camera_outlined));
+      expect(camera.onPressed, isNull);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'cancelled': true,
+        'images': <String>[]
+      });
+      await tester.pumpAndSettle();
+      await finish(tester);
+    });
+
     testWidgets('autosaved drafts never carry pictures', (tester) async {
       await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
       await pumpViewer(tester);

@@ -298,6 +298,7 @@ window._OrbitControls = OrbitControls;
 const MM = 0.001; // 1mm in Three.js scene units (1 unit = 1 metre)
 
 let scene, camera, renderer, controls;
+let keyLight = null, fillLight = null; // the lights a rendered picture adjusts
 let placedCabinets = [];
 let cabinetCount = 0;
 let currentWallDepth = 0.15; // default 150mm depth
@@ -337,7 +338,8 @@ function initScene() {
 
   // ── Daylight: soft sky fill + one warm key light (window side) with shadows.
   // Most of the soft light and all reflections come from buildEnvironment().
-  scene.add(new THREE.HemisphereLight(0xfffaf2, 0xc9b8a4, 0.35));
+  fillLight = new THREE.HemisphereLight(0xfffaf2, 0xc9b8a4, 0.35);
+  scene.add(fillLight);
 
   const dir = new THREE.DirectionalLight(0xfff0dc, 1.5);
   dir.position.set(3.5, 6.5, 5);
@@ -348,6 +350,7 @@ function initScene() {
   dir.shadow.radius = 3;
   Object.assign(dir.shadow.camera, { near: 0.1, far: 30, left: -8, right: 8, top: 6, bottom: -2 });
   scene.add(dir);
+  keyLight = dir;
 
   // ── Wide-plank oak floor: per-plank tone and grain
   const oakTexture = canvasTexture(1024, (g, n) => {
@@ -2066,11 +2069,19 @@ function pictureDistance(cam, target, dir, corners) {
   return hi;
 }
 
+// A rendered picture takes the canvas for a while; nothing else may use it then.
+let renderBusy = false, renderCancelled = false;
+window.cancelRender = function() { renderCancelled = true; };
+
 // Takes the pictures. Returns [{ name, data }] (data: a JPEG data URL) and
 // tells the app, which waits for the pictures when a quote is sent.
 window.capturePictures = function(requestId) {
   const images = [];
   const box = designBox();
+  if (renderBusy) {
+    notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
+    return images;
+  }
   if (!box.isEmpty() && renderer && scene) {
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
@@ -2105,6 +2116,193 @@ window.capturePictures = function(requestId) {
     }
   }
   notifyFlutter({ event: 'pictures', request_id: requestId || null, images: images.map(i => i.data), names: images.map(i => i.name) });
+  return images;
+};
+
+// ── Rendered pictures ───────────────────────────────────────────────────────
+// The live view is lit by one shadow-casting light and a flat fill, so it
+// looks like a model. A rendered picture is built from many frames of the
+// same view, each lit from a different part of the sky and with the sun
+// nudged a little, then averaged: shadows go soft, corners and the underside
+// of wall cabinets darken the way they do in a real room, and edges are
+// smoothed. Slower (a few seconds), so it is asked for, not automatic.
+const halton = (i, base) => {
+  let f = 1, r = 0;
+  while (i > 0) { f /= base; r += f * (i % base); i = Math.floor(i / base); }
+  return r;
+};
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+
+// How the rendered look is balanced; tuned by eye against the live view.
+const RENDER_LOOK = {
+  sky: 2.4,            // each frame's sky light (the average is what's seen)
+  skyColor: 0xe8f0ff,
+  sun: 0.9,            // the key light, as a share of its live strength
+  fill: 0.04,          // the flat hemisphere fill, as a share
+  env: 0.2,            // reflections and ambient from the environment map
+  sunSpread: 0.7,      // metres the sun moves about its place (softens its shadow)
+  skyMinHeight: 0.16,  // lowest sky direction used (0 is the horizon)
+  exposure: 1.3,       // brightness, as a multiple of the live view's
+};
+
+window.RENDER_LOOK = RENDER_LOOK; // adjustable while tuning
+
+function showRenderProgress(text) {
+  let el = document.getElementById('render-overlay');
+  if (!text) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'render-overlay';
+    el.setAttribute('role', 'status');
+    Object.assign(el.style, {
+      position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
+      padding: '10px 18px', borderRadius: '12px', background: 'rgba(36,31,27,.86)', color: '#fff',
+      font: '600 14px system-ui, sans-serif', zIndex: 50, pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+}
+
+// One rendered picture from [cam]: [samples] frames averaged.
+async function renderStill(cam, W, H, samples, label, onProgress) {
+  const gl = renderer.getContext();
+  const acc = new Float32Array(W * H * 4);
+  const px = new Uint8Array(W * H * 4);
+  const box = designBox();
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const center = sphere.center, radius = sphere.radius * 1.15;
+
+  // A sky light that moves to a new place in the sky every frame.
+  const sky = new THREE.DirectionalLight(RENDER_LOOK.skyColor, RENDER_LOOK.sky);
+  sky.castShadow = true;
+  sky.shadow.mapSize.set(2048, 2048);
+  sky.shadow.bias = -0.0005;
+  sky.shadow.normalBias = 0.02;
+  Object.assign(sky.shadow.camera, { left: -radius, right: radius, top: radius, bottom: -radius, near: 0.1, far: radius * 5 });
+  sky.target.position.copy(center);
+  scene.add(sky, sky.target);
+
+  // The live lighting, turned down so the sky shapes the picture.
+  const keyBase = keyLight.position.clone(), keyStrength = keyLight.intensity, fillStrength = fillLight.intensity;
+  keyLight.intensity = keyStrength * RENDER_LOOK.sun;
+  fillLight.intensity = fillStrength * RENDER_LOOK.fill;
+  const envScaled = [];
+  const seen = new Set();
+  scene.traverse(o => {
+    for (const m of [].concat(o.material || [])) {
+      if (m && !seen.has(m) && 'envMapIntensity' in m) { seen.add(m); envScaled.push([m, m.envMapIntensity]); m.envMapIntensity *= RENDER_LOOK.env; }
+    }
+  });
+  const fog = scene.fog; scene.fog = null;
+  const exposureBefore = renderer.toneMappingExposure;
+  renderer.toneMappingExposure = exposureBefore * RENDER_LOOK.exposure;
+
+  try {
+    for (let i = 0; i < samples; i++) {
+      // Sky: a cosine-weighted direction over the hemisphere.
+      const u = halton(i + 1, 2), v = halton(i + 1, 3);
+      const r = Math.sqrt(u), phi = 2 * Math.PI * v;
+      const dir = new THREE.Vector3(r * Math.cos(phi), Math.max(Math.sqrt(1 - u), RENDER_LOOK.skyMinHeight), r * Math.sin(phi)).normalize();
+      sky.position.copy(center).addScaledVector(dir, radius * 2.5);
+      // The sun moves a little about its place.
+      keyLight.position.copy(keyBase).add(new THREE.Vector3(
+        (halton(i + 1, 5) - 0.5) * 2 * RENDER_LOOK.sunSpread,
+        (halton(i + 1, 7) - 0.5) * RENDER_LOOK.sunSpread,
+        (halton(i + 1, 11) - 0.5) * 2 * RENDER_LOOK.sunSpread));
+      // The view moves less than a pixel, so edges average out.
+      cam.setViewOffset(W, H, halton(i + 1, 13) - 0.5, halton(i + 1, 17) - 0.5, W, H);
+      renderer.render(scene, cam);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      for (let k = 0; k < px.length; k++) acc[k] += px[k];
+      if (i % 3 === 2) {
+        showRenderProgress(`${label} ${Math.round(100 * (i + 1) / samples)}%`);
+        if (onProgress) onProgress((i + 1) / samples);
+        await nextFrame();
+        if (renderCancelled) throw new Error('cancelled');
+      }
+    }
+  } finally {
+    cam.clearViewOffset();
+    scene.remove(sky, sky.target);
+    sky.dispose();
+    keyLight.position.copy(keyBase);
+    keyLight.intensity = keyStrength;
+    fillLight.intensity = fillStrength;
+    envScaled.forEach(([m, v]) => { m.envMapIntensity = v; });
+    scene.fog = fog;
+    renderer.toneMappingExposure = exposureBefore;
+  }
+
+  // The average, top row first (readPixels is bottom-up).
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const from = (H - 1 - y) * W * 4, to = y * W * 4;
+    for (let x = 0; x < W * 4; x++) image.data[to + x] = Math.round(acc[from + x] / samples);
+  }
+  g.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// Rendered pictures of the design (front and angled), one after the other.
+// Resolves with [{ name, data }] and tells the app, as capturePictures does.
+window.renderPictures = async function(requestId, options) {
+  const samples = Math.max(4, Math.min(200, (options && options.samples) || 40));
+  const images = [];
+  let cancelled = false;
+  if (renderBusy) {
+    notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
+    return images;
+  }
+  const box = designBox();
+  if (!box.isEmpty() && renderer && scene && keyLight) {
+    renderBusy = true;
+    renderCancelled = false;
+    const prevRatio = renderer.getPixelRatio();
+    const prevSize = renderer.getSize(new THREE.Vector2());
+    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    const canvasEl = renderer.domElement;
+    const wasHidden = canvasEl.style.visibility;
+    try {
+      hidden.forEach(o => { o.visible = false; });
+      canvasEl.style.visibility = 'hidden';
+      renderer.setPixelRatio(1);
+      renderer.setSize(PICTURE_W, PICTURE_H, false);
+      const cam = new THREE.PerspectiveCamera(38, PICTURE_W / PICTURE_H, 0.05, 200);
+      const target = box.getCenter(new THREE.Vector3());
+      const corners = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        corners.push(new THREE.Vector3(x, y, z));
+      }
+      const views = pictureViews().filter(v => !(options && options.only) || options.only === v.name);
+      for (let n = 0; n < views.length; n++) {
+        const view = views[n];
+        const distance = pictureDistance(cam, target, view.dir, corners);
+        cam.position.copy(target).addScaledVector(view.dir, distance);
+        cam.lookAt(target);
+        cam.updateMatrixWorld(true);
+        const data = await renderStill(cam, PICTURE_W, PICTURE_H, samples, `Rendering picture ${n + 1} of ${views.length}`,
+          fraction => notifyFlutter({ event: 'render_progress', request_id: requestId || null, fraction: (n + fraction) / views.length }));
+        images.push({ name: view.name, data });
+      }
+    } catch (e) {
+      if (e && e.message === 'cancelled') { cancelled = true; images.length = 0; }
+      else console.error('renderPictures error:', e);
+    } finally {
+      renderBusy = false;
+      showRenderProgress(null);
+      canvasEl.style.visibility = wasHidden;
+      hidden.forEach(o => { o.visible = true; });
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(prevSize.x, prevSize.y, false);
+      onResize();
+      invalidate();
+    }
+  }
+  notifyFlutter({ event: 'pictures', request_id: requestId || null, rendered: true, cancelled, images: images.map(i => i.data), names: images.map(i => i.name) });
   return images;
 };
 

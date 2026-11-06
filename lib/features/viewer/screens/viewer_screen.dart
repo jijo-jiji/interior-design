@@ -63,8 +63,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Timer? _saveTimer;
 
-  /// Waiting for the 3D page to answer `capturePictures`.
-  Completer<List<String>>? _picturesRequest;
+  /// Calls waiting for the 3D page to send pictures, by request id: 'app' is
+  /// a quick capture, 'render' a realistic render.
+  final Map<String, Completer<List<String>>> _pictureRequests = {};
+
+  /// How far a render has got (0 to 1); null when none is running.
+  final ValueNotifier<double?> _renderProgress = ValueNotifier(null);
+  bool _rendering = false;
+
+  /// Goes up with every change to the design, so a render made earlier can
+  /// be told from one of the design as it is now.
+  int _designRevision = 0;
+  ({int revision, List<String> images})? _rendered;
+
+  /// How many frames a render averages: more is smoother and slower.
+  /// (`--dart-define=RENDER_SAMPLES=n` changes it, for testing.)
+  static const _renderSamples =
+      int.fromEnvironment('RENDER_SAMPLES', defaultValue: 40);
 
   /// The office has pictures of this design (sent with the quote), so the
   /// message to the client can link to them.
@@ -266,6 +281,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void dispose() {
     if (_saveTimer != null) _saveNow(); // don't lose the last change
     _scene.dispose();
+    _renderProgress.dispose();
     super.dispose();
   }
 
@@ -274,6 +290,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// Saves the design on the phone shortly after every change, so nothing is
   /// lost if the meeting ends without a quote.
   void _scheduleSave() {
+    _designRevision++;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 800), _saveNow);
   }
@@ -426,11 +443,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       final data = jsonDecode(message) as Map<String, dynamic>;
       switch (data['event'] as String?) {
         case 'pictures':
-          _picturesRequest?.complete([
+          _pictureRequests
+              .remove(data['request_id'] as String? ?? 'app')
+              ?.complete([
             for (final image in (data['images'] as List? ?? const []))
               if (image is String) image,
           ]);
-          _picturesRequest = null;
+        case 'render_progress':
+          _renderProgress.value = (data['fraction'] as num?)?.toDouble();
         case 'cabinet_placed':
           setState(() {
             _placedCabinets.add(data);
@@ -713,35 +733,74 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     messenger.showSnackBar(SnackBar(content: Text(text)));
   }
 
-  /// Takes the front and angled pictures of the design in the 3D view. Empty
-  /// if the view isn't ready or doesn't answer in time.
+  /// Asks the 3D page for pictures and waits for its answer. Empty if the
+  /// page doesn't answer in time (or is busy with a render).
+  Future<List<String>> _pictureCall(
+      String id, String javaScript, Duration timeout) {
+    final request = _pictureRequests[id] = Completer<List<String>>();
+    unawaited(_scene.runJavaScript(javaScript));
+    return request.future.timeout(timeout, onTimeout: () {
+      _pictureRequests.remove(id);
+      return const [];
+    });
+  }
+
+  /// Takes the front and angled pictures of the design in the 3D view.
   Future<List<String>> _capturePictures() async {
     if (!_sceneLoaded) return const [];
-    final request = _picturesRequest = Completer<List<String>>();
-    unawaited(_scene.runJavaScript("capturePictures('app')"));
-    return request.future.timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => const [],
-    );
+    return _pictureCall(
+        'app', "capturePictures('app')", const Duration(seconds: 20));
   }
+
+  /// The slower, softer-lit version of the same two pictures. Null if it was
+  /// cancelled or the view couldn't make it.
+  Future<List<String>?> _renderPictures() async {
+    if (!_sceneLoaded || _rendering) return null;
+    setState(() => _rendering = true);
+    _renderProgress.value = 0;
+    final images = await _pictureCall(
+      'render',
+      "renderPictures('render', {samples: $_renderSamples})",
+      const Duration(minutes: 10),
+    );
+    if (images.isEmpty) {
+      // Gave up waiting: tell the page to stop too.
+      unawaited(_scene.runJavaScript('cancelRender()'));
+    }
+    _renderProgress.value = null;
+    if (mounted) setState(() => _rendering = false);
+    if (images.isEmpty) return null;
+    _rendered = (revision: _designRevision, images: images);
+    return images;
+  }
+
+  /// The render of the design as it is now, if there is one.
+  List<String>? get _currentRender =>
+      _rendered != null && _rendered!.revision == _designRevision
+          ? _rendered!.images
+          : null;
 
   /// The Pictures button: pictures to show the client, and to send on.
   Future<void> _takePictures() async {
     final messenger = ScaffoldMessenger.of(context);
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(
-        content: Text('Taking pictures…'),
-        duration: Duration(seconds: 2),
-      ));
-    final images = await _capturePictures();
-    if (!mounted) return;
-    messenger.hideCurrentSnackBar();
-    final bytes = [
+    var images = _currentRender;
+    final alreadyRendered = images != null;
+    if (images == null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Taking pictures…'),
+          duration: Duration(seconds: 2),
+        ));
+      images = await _capturePictures();
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+    }
+    final usable = [
       for (final image in images)
-        if (DesignPictures.decode(image) case final picture?) picture,
+        if (DesignPictures.decode(image) != null) image,
     ];
-    if (bytes.isEmpty) {
+    if (usable.isEmpty) {
       messenger.showSnackBar(const SnackBar(
         content: Text("Couldn't take the pictures. Try again."),
       ));
@@ -750,8 +809,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     // Both ways of sending go through the office, which keeps the pictures
     // and gives the client a page to open.
-    Future<String?> pageUrl() async {
-      final url = await DesignPictures.upload(_quoteId, images);
+    Future<String?> pageUrl(List<String> shown) async {
+      final url = await DesignPictures.upload(_quoteId, shown);
       if (url == null && mounted) {
         messenger.showSnackBar(const SnackBar(
           content: Text("Couldn't reach the office. Try again when you're "
@@ -761,23 +820,35 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return url;
     }
 
-    await PicturesSheet.show(
-      context,
-      pictures: bytes,
-      onSendWhatsApp: () async {
-        final url = await pageUrl();
-        if (url == null) return;
-        final name = _clientName.trim();
-        await ProposalDelivery.sendViaWhatsApp(
-          phone: _clientPhone,
-          message: '${name.isEmpty ? 'Hi!' : 'Hi $name!'} Here are pictures '
-              'of your kitchen design: $url',
-        );
-      },
-      onOpenToSave: () async {
-        final url = await pageUrl();
-        if (url != null) await ProposalDelivery.openPage(url);
-      },
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => PicturesSheet(
+        initial: usable,
+        initiallyRendered: alreadyRendered,
+        progress: _renderProgress,
+        onRender: _renderPictures,
+        onCancelRender: () => _scene.runJavaScript('cancelRender()'),
+        onSendWhatsApp: (shown) async {
+          final url = await pageUrl(shown);
+          if (url == null) return;
+          final name = _clientName.trim();
+          await ProposalDelivery.sendViaWhatsApp(
+            phone: _clientPhone,
+            message: '${name.isEmpty ? 'Hi!' : 'Hi $name!'} Here are pictures '
+                'of your kitchen design: $url',
+          );
+        },
+        onOpenToSave: (shown) async {
+          final url = await pageUrl(shown);
+          if (url != null) await ProposalDelivery.openPage(url);
+        },
+      ),
     );
   }
 
@@ -812,7 +883,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final summary = _cpqSummary;
     final record = _projectRecord(signatureBase64: signatureBase64);
     // The quote PDF and the client's page show the design as pictures.
-    final pictures = await _capturePictures();
+    final pictures = _currentRender ?? await _capturePictures();
     final toSend = {
       ...record,
       if (pictures.isNotEmpty) 'design_images': pictures,
@@ -1105,7 +1176,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
           const SizedBox(width: 4),
           ElevatedButton.icon(
-            onPressed: _sceneLoaded ? _openClosingModal : null,
+            onPressed: _sceneLoaded && !_rendering ? _openClosingModal : null,
             icon: const Icon(Icons.send_rounded, size: 16),
             label: const Text('Quote'),
             style: ElevatedButton.styleFrom(
@@ -1128,7 +1199,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         actions: [
           IconButton(
             tooltip: 'Take pictures of this design',
-            onPressed: _sceneLoaded ? _takePictures : null,
+            onPressed: _sceneLoaded && !_rendering ? _takePictures : null,
             icon: const Icon(Icons.photo_camera_outlined),
           ),
           IconButton(
