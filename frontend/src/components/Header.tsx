@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff } from 'lucide-react';
+import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff, Tags } from 'lucide-react';
 import type { CameraView } from '../canvas/SceneCanvas';
 import type { RoomView } from '../canvas/floorPlan';
 import { SegmentedControl } from './ui';
@@ -19,6 +19,7 @@ interface HeaderProps {
   isSyncing: boolean;
   isOffline: boolean;
   onOpenPipeline: () => void;
+  onOpenPriceList: () => void;
 }
 
 const VIEW_OPTIONS: { value: CameraView; label: string; title: string }[] = [
@@ -53,6 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing,
   isOffline,
   onOpenPipeline,
+  onOpenPriceList,
 }) => {
   return (
     <header className="z-30 flex items-center gap-3 border-b border-line bg-surface-muted px-4 py-2">
@@ -116,6 +118,16 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* ── Handover ──────────────────────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onOpenPriceList}
+          aria-label="Price list: prices, sizes and rules"
+          title="Price list: prices, sizes and rules"
+          className={`${actionClass} cursor-pointer`}
+        >
+          <Tags className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Price list</span>
+        </button>
         <a
           href={`/portal/?id=${quoteId}`}
           target="_blank"

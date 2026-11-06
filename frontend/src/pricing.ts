@@ -149,15 +149,18 @@ export function familyFor(catalog: Catalog, type: string): Family | undefined {
   return best;
 }
 
+/** What a family's rule charges for a module [widthMm] wide (never below 0). */
+export function rulePrice(rule: PriceRule, widthMm?: number): number {
+  const width = widthMm ? widthMm : rule.ref_width_mm;
+  return Math.max(0, rule.at_ref + ((width - rule.ref_width_mm) / 100) * rule.per_100mm);
+}
+
 /** The list price of one module, before the finish multiplier. */
 export function unitPrice(catalog: Catalog, type: string, widthMm?: number): number {
   const fixed = catalog.modules.find((m) => m.type === type);
   if (fixed) return fixed.price;
   const rule = familyFor(catalog, type)?.price;
-  if (rule) {
-    const width = widthMm ? widthMm : rule.ref_width_mm;
-    return Math.max(0, rule.at_ref + ((width - rule.ref_width_mm) / 100) * rule.per_100mm);
-  }
+  if (rule) return rulePrice(rule, widthMm);
   return catalog.unknown_module_price;
 }
 

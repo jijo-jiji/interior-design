@@ -11,10 +11,11 @@ import type { ProjectItem } from './components/ProjectPipelineDrawer';
 import { JoineryInspector } from './components/JoineryInspector';
 import type { InspectorTab, SaveState } from './components/JoineryInspector';
 import { StudioToolbar } from './components/StudioToolbar';
+import { PriceListEditor } from './components/PriceListEditor';
 import type { CabinetData, ModuleType } from './layout/model';
 import { fromEntry, newModule, toEntry } from './layout/model';
 import { benchtopLinearMetres, benchtopNames, benchtopRates, priceLayout, styleMultipliers, styleNames } from './pricing';
-import type { Catalog } from './pricing';
+import type { ServedCatalog } from './pricing';
 import { FALLBACK_CATALOG } from './defaultCatalog';
 
 const DEMO_PROJECT_ID = 'QT-992AC14B';
@@ -81,7 +82,8 @@ export const App: React.FC = () => {
   const [undoStack, setUndoStack] = useState<CabinetData[][]>([]);
 
   // ─── Pricing and saving ────────────────────────────────────────────────────
-  const [catalog, setCatalog] = useState<Catalog>(FALLBACK_CATALOG);
+  const [catalog, setCatalog] = useState<ServedCatalog>(FALLBACK_CATALOG);
+  const [isPriceListOpen, setIsPriceListOpen] = useState<boolean>(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -340,6 +342,7 @@ export const App: React.FC = () => {
         isSyncing={isSyncing}
         isOffline={isOffline}
         onOpenPipeline={() => setIsPipelineOpen(true)}
+        onOpenPriceList={() => setIsPriceListOpen(true)}
       />
 
       <StudioToolbar
@@ -349,11 +352,20 @@ export const App: React.FC = () => {
         onDeleteSelected={() => selectedCabinetId && handleDeleteCabinet(selectedCabinetId)}
         onNudgeSelected={handleNudgeCabinet}
         hasSelected={selectedCabinetId !== null}
-        hotkeysEnabled={!isPipelineOpen}
+        hotkeysEnabled={!isPipelineOpen && !isPriceListOpen}
         onFit={() => setFitKey((k) => k + 1)}
         total={totals.total}
         onShowPrice={showPrice}
       />
+
+      {isPriceListOpen && (
+        <PriceListEditor
+          catalog={catalog}
+          onClose={() => setIsPriceListOpen(false)}
+          // Quotes in the studio use the new prices straight away.
+          onSaved={(saved) => setCatalog((current) => ({ ...saved, requires_admin_key: current.requires_admin_key }))}
+        />
+      )}
 
       <ProjectPipelineDrawer
         isOpen={isPipelineOpen}
