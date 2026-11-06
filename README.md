@@ -74,3 +74,32 @@ Notes for the browser:
   sent.
 - **The 3D view:** runs in an iframe.
 
+
+## The price list (catalogue)
+
+Every price, size, finish multiplier, benchtop rate, tax rate and layout rule
+lives in one place: the **catalogue**, kept by the office server and edited in
+the Studio (**Price list** in the header).
+
+- **Designer:** open the Studio, choose *Price list*, change what needs
+  changing, and *Save as version N*. Older versions are kept. A cabinet that
+  isn't in the list is priced by its width (a price at a reference width,
+  plus so much per 100 mm), not a flat figure.
+- **Sales app:** takes the latest catalogue when the home screen loads, keeps
+  a copy for offline use, and starts on the sample prices shipped inside it.
+  A design stays on the version it was opened with; the version is saved on
+  the quote, and the office prices the quote with that version, so the PDF
+  always matches what the client saw.
+- **Office server:** `GET /api/catalog` (add `?version=N` for an earlier one),
+  `GET /api/catalog/versions`, `PUT /api/catalog`. To require a key for
+  saving, set `CATALOG_ADMIN_KEY` before starting the server; the Studio then
+  asks for it. Versions are files in `backend/catalog_store/` (not committed).
+- **The shipped sample:** `assets/catalog/default_catalog.json`. After editing
+  it, run `python tool/gen_default_catalog.py`; a test fails if the app's
+  embedded copy is out of date. **All figures in it are samples** until SS
+  Love's designer confirms them (the Studio shows "Sample prices" until the
+  box *These are SS Love's confirmed prices* is ticked).
+- **One price, three engines:** the server, the sales app and the Studio each
+  price a layout. They are checked against the same cases in
+  `test/fixtures/pricing_cases.json` (`backend/test_pricing_contract.py`,
+  `test/pricing_contract_test.dart`, `frontend/src/pricing.contract.test.ts`).
