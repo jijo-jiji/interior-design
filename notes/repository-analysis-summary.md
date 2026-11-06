@@ -508,8 +508,25 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - Memory: the library packs the scene's textures into one array texture (about 1024² per texture in use); that has not been measured on a low-memory tablet either.
 - The sun's shadow edge is hard (a directional light), the room has no windows (light enters through the open front), and the walls are a flat colour.
 - The library adds 200 KB to every 3D page load (parsed, not run). It could be loaded on demand if that matters.
-- The Studio's 3D view has none of this (its own finishes, look and render are still to port).
+- The Studio's 3D view has none of this: its finishes were ported later (§23); its look (backsplash, decor, room, evening strips) and renders are still to port.
 
 **Verified:** Flutter 265 tests, backend 101, Studio 87 (unchanged). 3D page in Chromium: path tracer 15 checks (the picture, no fallback, exact samples, the scene and its lights, sky and size as before, no graphics memory left, a time limit, Cancel, the fallback without the library, usable again afterwards) and 7 for the despeckle and denoise (a lone dot goes; a thin line and a hard edge stay), plus the earlier room (23), scene (21), textures (18), pictures (12) and render guard (8). Through the real app in Chromium: true-lighting render 14 (both kinds offered, progress, the badge, the quote uses it, the PDF carries it), and the earlier look (12), pictures (14), render (10) and textures (11) still pass. A rebuilt bundle from `tool/pathtracer/` is byte-identical to the committed one. **Not tested:** any real device; the speed and memory on a tablet.
 
 **Tablet test:** after a true-lighting render the pictures sheet shows what it reached (samples and seconds for each picture, and the graphics chip where the browser says), so a test on a real tablet can be read straight off the screen. The steps, what to watch for and what to send back are in `notes/true-lighting-tablet-test.md`. Until that is done, the sample and time limits (300 / 120 s, Fine 1000 / 300 s) are guesses.
+
+## 23. Session 2026-11-06 — the finish textures in the Studio
+
+**Why:** the Studio's own 3D view (React Three Fiber, three r186) still drew the old procedural wood and stone, so a design looked different there than in the sales app and its pictures. Asked after the true-lighting work, the answer was to bring the Studio up to the sales app, starting with the textures.
+
+**Built** (`frontend/src/canvas/`)
+- **One set of files:** the Studio imports `assets/3d/textures/manifest.json` and every `.jpg` there (Vite `import.meta.glob`, `?url`), so they are built into the Studio bundle and replacing a photograph in the sales app's folder changes both apps after a Studio rebuild. About 3 MB more in `backend/static/studio/assets/` (the build is committed, as before; the files are content-hashed, so they change only when the source does).
+- `finishTextures.ts`: loads a texture set in the background (`finishSet(id)` answers null until its colour has decoded), `microSet()`, `whenTexturesSettled`, `onTexturesChanged`, `useTextureVersion()` for React, and the grain scale per kind from the manifest.
+- `finishes.ts`: the style table (`STYLE_FINISHES`, now with texture ids) and `BENCHTOP_LOOKS`, plain data with no three or DOM, so a test can read it.
+- `cabinetBuilder.ts`: fronts take the real colour, normal and roughness maps; painted and laminate fronts a flat colour with the micro texture; the worktop is a `MeshPhysicalMaterial` with a clear coat, and the benchtop chosen in the Finish tab changes its look (Calacatta, black granite, matte laminate), as in the sales app. Materials are cached by style and benchtop and re-dressed when a texture arrives; until then the old drawn textures stand in. `RoomShell` uses the plank floor set. The Picture button waits for textures still decoding.
+- **Tests:** `finishTextures.test.ts` (5): every file the manifest names exists; every texture id a style uses is in the manifest; **each part of each style uses the same texture as the sales app's page** and the benchtop looks match it (read from `assets/3d/index.html`); one grain scale per kind. Studio vitest 92; `tsc` clean.
+- **In the browser** (real built Studio, real server): each style loads its own textures (oak and quartz and floor and micro; birch and terrazzo; walnut and slate; Calacatta), every texture file answers 200, the picture is taken after they arrived and shows more floor shades than the drawn stand-in, with the files blocked the Studio still draws and takes a picture, and axe finds no WCAG 2.2 AA violation on the Finish tab.
+
+**Not done** (the Studio already has finish styles, flat/shaker/fluted doors, the benchtop choice and a day/evening toggle, so these are what is left)
+- The Look's other parts: **backsplash tile, decor, the room's ceiling and downlights, the evening LED strips**, and the sales app's third door style (*raised*; the Studio has *fluted* instead). The sales app saves its look in the quote's `scene`; the Studio does not read or write it yet, so a design dressed on a tablet opens in the Studio without its look.
+- **Renders:** the Studio's Picture is the quick one only; the realistic and true-lighting renders are not in it. The path tracer package (0.0.23) was built against three r160; the Studio uses r186, so it needs its own check.
+

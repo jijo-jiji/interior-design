@@ -15,6 +15,8 @@ interface CabinetMeshProps {
   isSelected: boolean;
   finish: CabinetFinish;
   doorStyle: DoorStyle;
+  /** The benchtop chosen, if any (changes the worktop's look). */
+  benchtop?: string | null;
   /** Room height in metres (rangehood chimneys run up to it). */
   ceiling: number;
   onSelect: (id: string) => void;
@@ -25,13 +27,14 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
   isSelected,
   finish,
   doorStyle,
+  benchtop = null,
   ceiling,
   onSelect,
 }) => {
   const { kind, width, height, depth, isWallMounted, mount, hood } = cabinet;
   const object = useMemo(
-    () => buildCabinet({ kind, w: width, h: height, d: depth, isWall: isWallMounted, mount, hood }, finish, doorStyle, ceiling),
-    [kind, width, height, depth, isWallMounted, mount, hood, finish, doorStyle, ceiling],
+    () => buildCabinet({ kind, w: width, h: height, d: depth, isWall: isWallMounted, mount, hood }, finish, doorStyle, ceiling, benchtop),
+    [kind, width, height, depth, isWallMounted, mount, hood, finish, doorStyle, ceiling, benchtop],
   );
   useEffect(() => () => disposeCabinet(object), [object]);
 

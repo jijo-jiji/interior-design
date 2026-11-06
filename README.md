@@ -149,6 +149,17 @@ them with real photographs. Choosing a benchtop in the Edit panel now changes
 the worktop in the 3D view (the Calacatta and granite choices have their own
 look; any other benchtop keeps the style's worktop).
 
+**The Studio's 3D view uses the same files.** `frontend/` builds them into the
+Studio bundle (`backend/static/studio/assets/`, committed with the rest of the
+build), so replacing a photograph in `assets/3d/textures/` and running
+`npm run build` in `frontend/` changes both apps. The Studio draws the oak,
+birch and walnut fronts, the quartz, terrazzo, slate, Calacatta and granite
+worktops (the benchtop chosen in the Finish tab) and the plank floor, and falls
+back on its drawn textures while they decode or if they can't be had. Its
+Picture button waits for them. The Studio's cabinet data
+(`frontend/src/canvas/finishes.ts`) is checked against the sales app's page
+by a test, so the two can't drift apart.
+
 ### Look of the design (doors, backsplash, decor, room, light)
 
 The palette icon on the 3D screen changes how the design is dressed, in 3D

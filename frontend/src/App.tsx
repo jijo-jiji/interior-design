@@ -3,6 +3,7 @@ import { SceneCanvas } from './canvas/SceneCanvas';
 import type { CameraView } from './canvas/SceneCanvas';
 import { pictureFileName } from './canvas/picture';
 import type { PictureFn } from './canvas/picture';
+import { whenTexturesSettled } from './canvas/finishTextures';
 import { readFloorPlan } from './canvas/floorPlan';
 import type { FloorPlan, RoomView } from './canvas/floorPlan';
 import type { CabinetFinish, DoorStyle } from './canvas/cabinetBuilder';
@@ -320,12 +321,15 @@ export const App: React.FC = () => {
 
   /** Downloads a picture of the 3D view as it is on screen, at a larger size. */
   const handleSavePicture = useCallback(() => {
-    const picture = pictureRef.current?.();
-    if (!picture) return;
-    const link = document.createElement('a');
-    link.href = picture;
-    link.download = pictureFileName(activeProjectId);
-    link.click();
+    // Finishes still decoding would show as the drawn stand-ins: wait for them.
+    whenTexturesSettled(() => {
+      const picture = pictureRef.current?.();
+      if (!picture) return;
+      const link = document.createElement('a');
+      link.href = picture;
+      link.download = pictureFileName(activeProjectId);
+      link.click();
+    });
   }, [activeProjectId]);
 
   const showPrice = useCallback(() => {
@@ -402,6 +406,7 @@ export const App: React.FC = () => {
             selectedCabinetId={selectedCabinetId}
             finish={finish}
             doorStyle={doorStyle}
+            benchtop={benchtopMaterial}
             mood={lightingMood}
             cameraView={cameraView}
             fitKey={fitKey}

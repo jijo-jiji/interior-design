@@ -23,6 +23,8 @@ interface SceneCanvasProps {
   selectedCabinetId: string | null;
   finish: CabinetFinish;
   doorStyle: DoorStyle;
+  /** The benchtop chosen (changes the worktop's look), if any. */
+  benchtop?: string | null;
   mood: 'day' | 'evening';
   cameraView: CameraView;
   /** Changes whenever the view should be re-framed (e.g. "Fit to screen"). */
@@ -282,6 +284,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   selectedCabinetId,
   finish,
   doorStyle,
+  benchtop = null,
   mood,
   cameraView,
   fitKey,
@@ -352,6 +355,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
             isSelected={cab.id === selectedCabinetId}
             finish={finish}
             doorStyle={doorStyle}
+            benchtop={benchtop}
             ceiling={wallH}
             onSelect={onSelectCabinet}
           />
