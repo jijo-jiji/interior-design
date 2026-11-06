@@ -330,6 +330,113 @@ void main() {
     });
   });
 
+  group('pictures of the design', () {
+    // A real 1x1 PNG.
+    const png =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const picture = 'data:image/png;base64,$png';
+
+    testWidgets('the button asks the 3D page, then shows what it sent',
+        (tester) async {
+      await pumpViewer(tester);
+
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      expect(page().javaScript, contains("capturePictures('app')"));
+      expect(find.text('Taking pictures…'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture, picture],
+        'names': ['front', 'angle'],
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pictures of the design'), findsOneWidget);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      expect(find.text('Open to save'), findsOneWidget);
+      expect(find.bySemanticsLabel('Front view of the design'), findsOneWidget);
+      expect(
+          find.bySemanticsLabel('Angled view of the design'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('an empty answer says so and shows no sheet', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({'event': 'pictures', 'images': <String>[]});
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+          find.text("Couldn't take the pictures. Try again."), findsOneWidget);
+      expect(find.text('Pictures of the design'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a page that never answers does not leave the app waiting',
+        (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump(const Duration(seconds: 21));
+      await tester.pump();
+
+      expect(
+          find.text("Couldn't take the pictures. Try again."), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('sending the quote takes pictures and keeps them with it',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+
+      await tester.tap(find.text('Quote'));
+      await tester.pumpAndSettle();
+      final send = find.text('Save & send quote');
+      await tester.ensureVisible(send);
+      await tester.tap(send);
+      await tester.pump();
+
+      // The app asks the page for pictures before it posts the quote.
+      expect(page().javaScript, contains("capturePictures('app')"));
+      fromPage({
+        'event': 'pictures',
+        'images': [picture, picture],
+      });
+      // The office isn't there (tests have no network): the quote waits on
+      // the phone, with its pictures. Give it a moment to get that far.
+      Map<String, dynamic>? saved;
+      for (var i = 0; i < 40 && saved?['design_images'] == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final drafts = await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return OfflineStore.getDrafts();
+        });
+        saved =
+            drafts!.where((d) => d['quote_id'] == 'QT-TEST-VIEWER').firstOrNull;
+      }
+      expect(saved?['design_images'], [picture, picture]);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await finish(tester);
+    });
+
+    testWidgets('autosaved drafts never carry pictures', (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await finish(tester);
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)));
+      final drafts = await tester.runAsync(OfflineStore.getDrafts);
+      final saved =
+          drafts!.firstWhere((d) => d['quote_id'] == 'QT-TEST-VIEWER');
+      expect(saved.containsKey('design_images'), isFalse);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+    });
+  });
+
   group('Kitchen / Room / House', () {
     testWidgets('only for a room read off a floor plan', (tester) async {
       await pumpViewer(tester);

@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { RoomShell } from './RoomShell';
 import { LightingRig } from './LightingRig';
 import { CabinetMesh } from './CabinetMesh';
+import { PictureTaker } from './PictureTaker';
+import type { PictureFn } from './picture';
 import type { CabinetData, CabinetFinish, DoorStyle } from './CabinetMesh';
 import { viewExtent } from './floorPlan';
 import type { FloorPlan, RoomView } from './floorPlan';
@@ -29,6 +31,8 @@ interface SceneCanvasProps {
   /** The floor plan the room was read from, and how much of it to show. */
   floorPlan?: FloorPlan | null;
   roomView?: RoomView;
+  /** Filled with a function that takes a picture of the current view. */
+  pictureRef?: React.MutableRefObject<PictureFn | null>;
 }
 
 /** The part of the room that has to be on screen. */
@@ -284,6 +288,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   onSelectCabinet,
   floorPlan = null,
   roomView: chosenRoomView = 'kitchen',
+  pictureRef,
 }) => {
   // An elevation draws the kitchen's main wall straight on; the plan's walls
   // in front of the kitchen would stand in the way, so it shows the kitchen
@@ -353,6 +358,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
         ))}
         {dims.length > 0 && <Dimensions dims={dims} />}
         <ViewRig view={cameraView} bounds={bounds} fitKey={fitKey} />
+        {pictureRef && <PictureTaker takeRef={pictureRef} />}
       </Canvas>
     </div>
   );

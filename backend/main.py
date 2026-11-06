@@ -6,6 +6,7 @@ The Flutter app calls POST /quote when the salesperson finalises a layout.
 
 from __future__ import annotations
 
+import html
 import io
 import json
 import uuid
@@ -21,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
@@ -157,6 +159,10 @@ class QuoteRequest(BaseModel):
     # and rooms in mm from the kitchen's corner. The picture is stored as a
     # file; the project keeps its address.
     floor_plan: dict[str, Any] | None = None
+    # Pictures of the design (the 3D page's "Save picture"): data URLs, JPEG
+    # or PNG, up to MAX_PICTURES. The server stores them as files, prints
+    # them in the quote PDF and serves them to the client.
+    design_images: list[str] = []
 
 class LineItem(BaseModel):
     description: str
@@ -219,6 +225,10 @@ def create_quote(request: QuoteRequest):
     catalog = _catalog_for(request)
     line_items, subtotal, gst, total_price = price_quote(request, catalog)
 
+    # Pictures first, so the PDF can print them. A quote sent again without
+    # new pictures keeps the ones it had.
+    pictures = _store_pictures(quote_id, request.design_images)
+
     # Generate PDF
     pdf_path = _generate_pdf(
         quote_id=quote_id,
@@ -228,6 +238,7 @@ def create_quote(request: QuoteRequest):
         gst=gst,
         total_price=total_price,
         catalog=catalog,
+        pictures=[path for path, _ in pictures],
     )
 
     # Store path for /pdf/<id> retrieval
@@ -258,6 +269,8 @@ def create_quote(request: QuoteRequest):
     }
     if request.floor_plan:
         record["floor_plan"] = _store_floor_plan(quote_id, request.floor_plan)
+    if pictures:
+        record["pictures"] = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(pictures) + 1)]
     db = _load_projects_db()
     db[quote_id] = record
     _save_projects_db(db)
@@ -280,6 +293,10 @@ PDF_DIR = os.path.join(os.path.dirname(__file__), "generated_pdfs")
 # Floor plan pictures, one per quote: kept out of projects_db.json, which
 # would grow by hundreds of KB per plan.
 PLAN_DIR = os.path.join(os.path.dirname(__file__), "plan_images")
+# Pictures of the design, a few per quote, kept out of projects_db.json too.
+PICTURE_DIR = os.path.join(os.path.dirname(__file__), "design_pictures")
+MAX_PICTURES = 6
+MAX_PICTURE_BYTES = 6 * 1024 * 1024
 _pdf_store: dict[str, str] = {}
 
 _QUOTE_ID = re.compile(r"^QT-[A-Za-z0-9-]{1,40}$")
@@ -305,6 +322,69 @@ def _store_floor_plan(quote_id: str, plan: dict[str, Any]) -> dict[str, Any]:
         else:
             stored.pop("image", None)
     return stored
+
+
+_PICTURE_TYPES = {
+    "data:image/jpeg;base64,": (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    "data:image/png;base64,": (b"\x89PNG", ".png", "image/png"),
+}
+
+
+def _picture_files(quote_id: str) -> list[tuple[str, str]]:
+    """A quote's stored pictures in order: (file path, media type)."""
+    found = []
+    if not _QUOTE_ID.match(quote_id):
+        return found
+    for n in range(1, MAX_PICTURES + 1):
+        for _, ext, media in _PICTURE_TYPES.values():
+            path = os.path.join(PICTURE_DIR, f"{quote_id}-{n}{ext}")
+            if os.path.exists(path):
+                found.append((path, media))
+                break
+    return found
+
+
+def _accept_pictures(images: list[str]) -> list[tuple[bytes, str]]:
+    """The pictures worth keeping: JPEG or PNG (the first bytes decide, not the
+    label), within the size limit, at most MAX_PICTURES. Each as (bytes, ext)."""
+    accepted: list[tuple[bytes, str]] = []
+    for image in images[:MAX_PICTURES]:
+        for prefix, (magic, ext, _) in _PICTURE_TYPES.items():
+            if isinstance(image, str) and image.startswith(prefix):
+                try:
+                    raw = base64.b64decode(image[len(prefix):], validate=True)
+                except ValueError:
+                    break
+                if raw.startswith(magic) and len(raw) <= MAX_PICTURE_BYTES:
+                    accepted.append((raw, ext))
+                break
+    return accepted
+
+
+def _write_pictures(quote_id: str, accepted: list[tuple[bytes, str]]) -> None:
+    """Replaces a quote's stored pictures with [accepted]."""
+    os.makedirs(PICTURE_DIR, exist_ok=True)
+    for _, old_ext, _ in _PICTURE_TYPES.values():
+        for n in range(1, MAX_PICTURES + 1):
+            try:
+                os.remove(os.path.join(PICTURE_DIR, f"{quote_id}-{n}{old_ext}"))
+            except FileNotFoundError:
+                pass
+    for n, (raw, ext) in enumerate(accepted, start=1):
+        with open(os.path.join(PICTURE_DIR, f"{quote_id}-{n}{ext}"), "wb") as f:
+            f.write(raw)
+
+
+def _store_pictures(quote_id: str, images: list[str]) -> list[tuple[str, str]]:
+    """Saves the design pictures a quote came with and returns every picture
+    the quote now has. Nothing that is not a usable picture is kept; with no
+    usable new pictures the quote keeps the ones it had."""
+    if not _QUOTE_ID.match(quote_id):
+        return []
+    accepted = _accept_pictures(images)
+    if accepted:
+        _write_pictures(quote_id, accepted)
+    return _picture_files(quote_id)
 
 
 def _load_projects_db() -> dict[str, Any]:
@@ -454,6 +534,69 @@ def get_project_plan(quote_id: str):
     if not _QUOTE_ID.match(quote_id) or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="No floor plan for this project")
     return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/projects/{quote_id}/picture/{n}")
+def get_project_picture(quote_id: str, n: int):
+    """One picture of a project's design (1 is the first)."""
+    files = _picture_files(quote_id)
+    if n < 1 or n > len(files):
+        raise HTTPException(status_code=404, detail="No such picture for this project")
+    path, media = files[n - 1]
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "no-cache"})
+
+
+class PicturesUpload(BaseModel):
+    images: list[str]
+
+
+@app.post("/api/projects/{quote_id}/pictures")
+def upload_pictures(quote_id: str, body: PicturesUpload):
+    """Pictures of a design taken before the quote is sent (the app's
+    "Pictures" button), stored so the client can open them from a link. A
+    quote sent later brings its own and replaces these."""
+    if not _QUOTE_ID.match(quote_id):
+        raise HTTPException(status_code=404, detail="Unknown quote")
+    accepted = _accept_pictures(body.images)
+    if not accepted:
+        raise HTTPException(status_code=422, detail="No usable pictures (JPEG or PNG, within the size limit)")
+    _write_pictures(quote_id, accepted)
+    urls = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(accepted) + 1)]
+    db = _load_projects_db()
+    if quote_id in db:
+        db[quote_id]["pictures"] = urls
+        _save_projects_db(db)
+    return {"count": len(urls), "urls": urls, "page_url": f"/pictures/{quote_id}"}
+
+
+@app.get("/pictures/{quote_id}", response_class=HTMLResponse)
+def pictures_page(quote_id: str):
+    """What the client opens from the message: the pictures of their design,
+    big on a phone, each with a Save link. The quote id is checked, so the
+    page only ever holds file addresses the server made."""
+    files = _picture_files(quote_id)
+    if not files:
+        raise HTTPException(status_code=404, detail="No pictures for this project")
+    db = _load_projects_db()
+    name = (db.get(quote_id) or {}).get("client_name") or ""
+    heading = f"Your kitchen design" + (f", {name}" if name else "")
+    figures = "".join(
+        f'<figure><img src="/api/projects/{quote_id}/picture/{n}" alt="Picture {n} of your kitchen design">'
+        f'<figcaption><a href="/api/projects/{quote_id}/picture/{n}" download="kitchen-{quote_id}-{n}.jpg">Save picture {n}</a></figcaption></figure>'
+        for n in range(1, len(files) + 1)
+    )
+    return HTMLResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<title>{html.escape(heading)}</title>"
+        "<style>body{margin:0;font-family:system-ui,sans-serif;background:#faf7f2;color:#241f1b}"
+        "main{max-width:60rem;margin:0 auto;padding:1rem}h1{font-size:1.25rem}"
+        "figure{margin:0 0 1.5rem}img{width:100%;height:auto;border-radius:.75rem;display:block}"
+        "figcaption{padding:.5rem 0}a{color:#8f5238;font-weight:600}p{color:#574a3e;font-size:.9rem}</style></head><body><main>"
+        f"<h1>{html.escape(heading)}</h1>{figures}"
+        "<p>These pictures show the design. Colours and finishes may look slightly different from the real materials.</p>"
+        "</main></body></html>"
+    )
 
 
 @app.put("/api/projects/{quote_id}")
@@ -635,6 +778,27 @@ def get_pdf(quote_id: str):
 
 # ─── PDF Generation ──────────────────────────────────────────────────────────
 
+def _pdf_pictures(paths: list[str]) -> list[RLImage]:
+    """The design pictures sized to share one row of the page (170 mm wide):
+    one fills it, two sit side by side. A file that can't be read is skipped."""
+    paths = paths[:2]
+    width = 170 * mm / max(len(paths), 1) - 2 * mm
+    cells = []
+    for path in paths:
+        try:
+            w, h = ImageReader(path).getSize()
+        except Exception:
+            continue
+        height = width * h / w
+        if height > 95 * mm:  # a very tall picture: fit the height instead
+            height = 95 * mm
+            width_here = height * w / h
+        else:
+            width_here = width
+        cells.append(RLImage(path, width=width_here, height=height))
+    return cells
+
+
 def _generate_pdf(
     quote_id: str,
     request: QuoteRequest,
@@ -643,6 +807,7 @@ def _generate_pdf(
     gst: float,
     total_price: float,
     catalog: "catalog_lib.Catalog | None" = None,
+    pictures: list[str] | None = None,
 ) -> str:
     catalog = catalog or _catalog_for(request)
     # Proposals used to land in the OS temp directory, so every signed PDF was
@@ -714,7 +879,28 @@ def _generate_pdf(
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
+
+    # The design, as pictures: one or two side by side, each as wide as fits.
+    picture_cells = _pdf_pictures(pictures or [])
+    if picture_cells:
+        story.append(Paragraph("<b>Your design</b>", styles["Normal"]))
+        story.append(Spacer(1, 2 * mm))
+        gallery = Table([picture_cells], colWidths=[170 * mm / len(picture_cells)] * len(picture_cells))
+        gallery.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(gallery)
+        story.append(Paragraph(
+            "<font size=8 color='#555577'>Pictures show the design. Colours and finishes may look slightly "
+            "different from the real materials.</font>",
+            styles["Normal"],
+        ))
+    story.append(Spacer(1, 6 * mm))
 
     # Line items table
     table_data = [["Description", "Qty", "Unit Price", "Total"]]

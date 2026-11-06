@@ -2013,6 +2013,101 @@ window.setRoomView = function(view) {
   invalidate();
 };
 
+// ── Pictures of the design ──────────────────────────────────────────────────
+// What goes in the quote PDF and the client's message: the kitchen as a
+// picture, from the front and from an angle, at one size whatever the screen
+// is. They use their own cameras (the viewer's view isn't touched) and leave
+// out the editing aids (selection box, snap guide, the plan around the room).
+const PICTURE_W = 1600, PICTURE_H = 1000;
+
+// Where the pictures are taken from: a direction from the kitchen's centre
+// (x to the right, y up, z toward the viewer). The L-shape's return wall is
+// on the left, so the angled view looks in from the right.
+function pictureViews() {
+  const dirOf = (azimuthDeg, elevationDeg) => {
+    const az = azimuthDeg * Math.PI / 180, el = elevationDeg * Math.PI / 180;
+    return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  };
+  return [
+    { name: 'front', dir: dirOf(0, 4) },
+    { name: 'angle', dir: dirOf(34, 14) },
+  ];
+}
+
+// What the pictures must hold: the walls, every cabinet, doors and windows.
+function designBox() {
+  const box = new THREE.Box3();
+  for (const o of scene.children) {
+    if (o.userData.isWall || o.userData.isObstacleMarker) box.expandByObject(o);
+  }
+  for (const c of placedCabinets) box.expandByObject(c);
+  return box;
+}
+
+// How far back a camera must be, looking along -dir at target, for every
+// corner of the box to be in frame with a margin.
+function pictureDistance(cam, target, dir, corners) {
+  const p = new THREE.Vector3();
+  const fits = d => {
+    cam.position.copy(target).addScaledVector(dir, d);
+    cam.lookAt(target);
+    cam.updateMatrixWorld(true);
+    return corners.every(c => {
+      p.copy(c).project(cam);
+      return Math.abs(p.x) <= 0.92 && Math.abs(p.y) <= 0.92 && p.z < 1;
+    });
+  };
+  let lo = 0.3, hi = 1;
+  while (!fits(hi) && hi < 80) hi *= 1.5;
+  for (let i = 0; i < 16; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid; else lo = mid;
+  }
+  return hi;
+}
+
+// Takes the pictures. Returns [{ name, data }] (data: a JPEG data URL) and
+// tells the app, which waits for the pictures when a quote is sent.
+window.capturePictures = function(requestId) {
+  const images = [];
+  const box = designBox();
+  if (!box.isEmpty() && renderer && scene) {
+    const prevRatio = renderer.getPixelRatio();
+    const prevSize = renderer.getSize(new THREE.Vector2());
+    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    try {
+      hidden.forEach(o => { o.visible = false; });
+      renderer.setPixelRatio(1);
+      renderer.setSize(PICTURE_W, PICTURE_H, false);
+      const cam = new THREE.PerspectiveCamera(38, PICTURE_W / PICTURE_H, 0.05, 200);
+      const target = box.getCenter(new THREE.Vector3());
+      const corners = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        corners.push(new THREE.Vector3(x, y, z));
+      }
+      for (const view of pictureViews()) {
+        // The distance first: finding it moves the camera.
+        const distance = pictureDistance(cam, target, view.dir, corners);
+        cam.position.copy(target).addScaledVector(view.dir, distance);
+        cam.lookAt(target);
+        cam.updateMatrixWorld(true);
+        renderer.render(scene, cam);
+        images.push({ name: view.name, data: renderer.domElement.toDataURL('image/jpeg', 0.9) });
+      }
+    } catch (e) {
+      console.error('capturePictures error:', e);
+    } finally {
+      hidden.forEach(o => { o.visible = true; });
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(prevSize.x, prevSize.y, false);
+      onResize();
+      invalidate();
+    }
+  }
+  notifyFlutter({ event: 'pictures', request_id: requestId || null, images: images.map(i => i.data), names: images.map(i => i.name) });
+  return images;
+};
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 let toastTimer;
 window.showToast = function(msg) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { NO_PICTURE } from './picture';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
 import type { CabinetData } from '../layout/model';
@@ -58,7 +59,7 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
     >
       <primitive object={object} />
       {outline && (
-        <lineSegments geometry={outline.edges} position={[0, outline.y, 0.01]}>
+        <lineSegments geometry={outline.edges} position={[0, outline.y, 0.01]} userData={NO_PICTURE}>
           <lineBasicMaterial color="#A25F41" />
         </lineSegments>
       )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff, Tags } from 'lucide-react';
+import { Sun, Moon, Compass, RefreshCw, ChevronDown, Users, Factory, CloudOff, Tags, Camera } from 'lucide-react';
 import type { CameraView } from '../canvas/SceneCanvas';
 import type { RoomView } from '../canvas/floorPlan';
 import { SegmentedControl } from './ui';
@@ -20,6 +20,9 @@ interface HeaderProps {
   isOffline: boolean;
   onOpenPipeline: () => void;
   onOpenPriceList: () => void;
+  /** Saves a picture of the 3D view; off in Plan and Elevation. */
+  onSavePicture: () => void;
+  canSavePicture: boolean;
 }
 
 const VIEW_OPTIONS: { value: CameraView; label: string; title: string }[] = [
@@ -55,6 +58,8 @@ export const Header: React.FC<HeaderProps> = ({
   isOffline,
   onOpenPipeline,
   onOpenPriceList,
+  onSavePicture,
+  canSavePicture,
 }) => {
   return (
     <header className="z-30 flex items-center gap-3 border-b border-line bg-surface-muted px-4 py-2">
@@ -118,6 +123,17 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* ── Handover ──────────────────────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onSavePicture}
+          disabled={!canSavePicture}
+          aria-label={canSavePicture ? 'Save a picture of this view' : 'Save a picture (switch to the 3D view first)'}
+          title={canSavePicture ? 'Save a picture of this view' : 'Switch to the 3D view to save a picture'}
+          className={`${actionClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-45`}
+        >
+          <Camera className="h-4 w-4 text-clay" aria-hidden />
+          <span className={wideLabel}>Picture</span>
+        </button>
         <button
           type="button"
           onClick={onOpenPriceList}

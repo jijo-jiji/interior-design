@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SceneCanvas } from './canvas/SceneCanvas';
 import type { CameraView } from './canvas/SceneCanvas';
+import { pictureFileName } from './canvas/picture';
+import type { PictureFn } from './canvas/picture';
 import { readFloorPlan } from './canvas/floorPlan';
 import type { FloorPlan, RoomView } from './canvas/floorPlan';
 import type { CabinetFinish, DoorStyle } from './canvas/cabinetBuilder';
@@ -52,6 +54,7 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const hasLoadedInitialProject = useRef(false);
+  const pictureRef = useRef<PictureFn | null>(null);
 
   // ─── Room ──────────────────────────────────────────────────────────────────
   /** The wall as stored, so saving keeps fields the studio doesn't edit
@@ -315,6 +318,16 @@ export const App: React.FC = () => {
     }
   }, [activeProjectId, benchtopMaterial, cabinets, fetchProjects, finish, returnMm, roomShape, totals, wallHeightMm, wallRecord, wallWidthMm]);
 
+  /** Downloads a picture of the 3D view as it is on screen, at a larger size. */
+  const handleSavePicture = useCallback(() => {
+    const picture = pictureRef.current?.();
+    if (!picture) return;
+    const link = document.createElement('a');
+    link.href = picture;
+    link.download = pictureFileName(activeProjectId);
+    link.click();
+  }, [activeProjectId]);
+
   const showPrice = useCallback(() => {
     setInspectorTab('price');
     setIsInspectorCollapsed(false);
@@ -343,6 +356,8 @@ export const App: React.FC = () => {
         isOffline={isOffline}
         onOpenPipeline={() => setIsPipelineOpen(true)}
         onOpenPriceList={() => setIsPriceListOpen(true)}
+        onSavePicture={handleSavePicture}
+        canSavePicture={cameraView === 'orbit'}
       />
 
       <StudioToolbar
@@ -393,6 +408,7 @@ export const App: React.FC = () => {
             onSelectCabinet={selectCabinet}
             floorPlan={floorPlan}
             roomView={roomView}
+            pictureRef={pictureRef}
           />
           {cameraView !== 'orbit' && (
             <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-surface/90 px-2 py-1 text-xs text-ink-soft">

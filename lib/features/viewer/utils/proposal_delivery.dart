@@ -24,6 +24,8 @@ class ProposalDelivery {
     required String styleName,
     required bool depositLocked,
     required bool isOfflineQueued,
+    // The page with the pictures of the design, when the office has them.
+    String? picturesUrl,
   }) {
     final greeting =
         clientName.trim().isEmpty ? 'Hi!' : 'Hi ${clientName.trim()}!';
@@ -43,6 +45,11 @@ class ProposalDelivery {
       buffer
         ..writeln()
         ..writeln('View it in 3D: ${AppConfig.portalUrl(quoteId)}');
+    }
+    if (picturesUrl != null && !isOfflineQueued) {
+      buffer
+        ..writeln()
+        ..writeln('See pictures of it: $picturesUrl');
     }
 
     return buffer.toString().trim();
@@ -124,6 +131,10 @@ class ProposalDelivery {
   /// In a browser, the browser's own PDF viewer (new tab) prints and saves.
   static Future<bool> openProposalInBrowser(String quoteId) =>
       _tryLaunchWeb(Uri.parse(AppConfig.pdfEndpoint(quoteId)));
+
+  /// Opens a page (the client's pictures, say) in the browser, where it can
+  /// be looked at, saved or shared.
+  static Future<bool> openPage(String url) => _tryLaunchWeb(Uri.parse(url));
 
   static Future<bool> _tryLaunchWeb(Uri uri) async {
     try {

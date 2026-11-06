@@ -20,8 +20,10 @@ import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
 import '../scene/scene_bridge.dart';
+import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
 import '../widgets/closing_modal.dart';
+import '../widgets/pictures_sheet.dart';
 import 'proposal_preview_screen.dart';
 import '../utils/offline_store.dart';
 
@@ -60,6 +62,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _priceVisible = false;
 
   Timer? _saveTimer;
+
+  /// Waiting for the 3D page to answer `capturePictures`.
+  Completer<List<String>>? _picturesRequest;
+
+  /// The office has pictures of this design (sent with the quote), so the
+  /// message to the client can link to them.
+  bool _picturesAttached = false;
 
   /// Layouts mode (default) or Edit mode (add, move and remove cabinets).
   /// Outside Edit, touching the 3D only looks around.
@@ -416,6 +425,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     try {
       final data = jsonDecode(message) as Map<String, dynamic>;
       switch (data['event'] as String?) {
+        case 'pictures':
+          _picturesRequest?.complete([
+            for (final image in (data['images'] as List? ?? const []))
+              if (image is String) image,
+          ]);
+          _picturesRequest = null;
         case 'cabinet_placed':
           setState(() {
             _placedCabinets.add(data);
@@ -679,6 +694,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       styleName: _cpqSummary.styleName,
       depositLocked: _status == ProjectStatus.deposit,
       isOfflineQueued: !sent,
+      picturesUrl:
+          _picturesAttached ? AppConfig.picturesPageUrl(_quoteId) : null,
     );
     final result = await ProposalDelivery.sendViaWhatsApp(
       phone: _clientPhone,
@@ -694,6 +711,74 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         "Couldn't open WhatsApp. The message is copied: paste it in a chat.",
     };
     messenger.showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Takes the front and angled pictures of the design in the 3D view. Empty
+  /// if the view isn't ready or doesn't answer in time.
+  Future<List<String>> _capturePictures() async {
+    if (!_sceneLoaded) return const [];
+    final request = _picturesRequest = Completer<List<String>>();
+    unawaited(_scene.runJavaScript("capturePictures('app')"));
+    return request.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => const [],
+    );
+  }
+
+  /// The Pictures button: pictures to show the client, and to send on.
+  Future<void> _takePictures() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('Taking pictures…'),
+        duration: Duration(seconds: 2),
+      ));
+    final images = await _capturePictures();
+    if (!mounted) return;
+    messenger.hideCurrentSnackBar();
+    final bytes = [
+      for (final image in images)
+        if (DesignPictures.decode(image) case final picture?) picture,
+    ];
+    if (bytes.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text("Couldn't take the pictures. Try again."),
+      ));
+      return;
+    }
+
+    // Both ways of sending go through the office, which keeps the pictures
+    // and gives the client a page to open.
+    Future<String?> pageUrl() async {
+      final url = await DesignPictures.upload(_quoteId, images);
+      if (url == null && mounted) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text("Couldn't reach the office. Try again when you're "
+              'online.'),
+        ));
+      }
+      return url;
+    }
+
+    await PicturesSheet.show(
+      context,
+      pictures: bytes,
+      onSendWhatsApp: () async {
+        final url = await pageUrl();
+        if (url == null) return;
+        final name = _clientName.trim();
+        await ProposalDelivery.sendViaWhatsApp(
+          phone: _clientPhone,
+          message: '${name.isEmpty ? 'Hi!' : 'Hi $name!'} Here are pictures '
+              'of your kitchen design: $url',
+        );
+      },
+      onOpenToSave: () async {
+        final url = await pageUrl();
+        if (url != null) await ProposalDelivery.openPage(url);
+      },
+    );
   }
 
   void _openClosingModal() {
@@ -726,17 +811,34 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _saveTimer = null;
     final summary = _cpqSummary;
     final record = _projectRecord(signatureBase64: signatureBase64);
+    // The quote PDF and the client's page show the design as pictures.
+    final pictures = await _capturePictures();
+    final toSend = {
+      ...record,
+      if (pictures.isNotEmpty) 'design_images': pictures,
+    };
 
     // Saved on the phone first, so nothing is lost if the network fails.
+    // (Without the pictures: they are large, and a draft is saved often.)
     await OfflineStore.saveDraft(record);
 
     var sent = false;
     var pdfUrl = '';
     // Offline or the office server is unreachable: it stays queued.
-    final reply =
-        await ApiClient.postJson(Uri.parse(AppConfig.quoteEndpoint), record);
+    final reply = await ApiClient.postJson(
+      Uri.parse(AppConfig.quoteEndpoint),
+      toSend,
+      timeout: const Duration(seconds: 20),
+    );
+    if (reply == null || !reply.ok) {
+      // Waiting to be sent: keep the pictures with it when they fit.
+      if (pictures.isNotEmpty && DesignPictures.fitsOffline(pictures)) {
+        await OfflineStore.saveDraft(toSend);
+      }
+    }
     // Only drop the device copy once the office has actually accepted it.
     if (reply != null && reply.ok) {
+      _picturesAttached = pictures.isNotEmpty;
       final result = reply.json;
       if (result is Map<String, dynamic>) {
         pdfUrl = result['pdf_url'] as String? ?? '';
@@ -1024,6 +1126,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       appBar: AppBar(
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
+          IconButton(
+            tooltip: 'Take pictures of this design',
+            onPressed: _sceneLoaded ? _takePictures : null,
+            icon: const Icon(Icons.photo_camera_outlined),
+          ),
           IconButton(
             tooltip: _controlsHidden ? 'Show controls' : 'Full view',
             onPressed: () => setState(() => _controlsHidden = !_controlsHidden),
