@@ -414,3 +414,33 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - A render in the Studio (only quick pictures there).
 - Real finish textures, and floor reflections, for a more photographic look.
 - Android save-to-gallery / share sheet (a plugin).
+
+## 19. Session 2026-11-06 — finish textures for the 3D view and the render
+
+**Why:** the cabinets, worktops and floor were flat colours with a small grey pattern drawn in code, so even the realistic render looked like a model. Asked for: real finish textures.
+
+**What it is and isn't.** The site that hosts free photographic textures (ambientCG, Poly Haven) isn't reachable from the build environment, and I did not want images of unclear licence in the repository. So the textures are **generated stand-ins** (`tool/gen_finish_textures.py`: original, procedural, deterministic), not photographs of SS Love's finishes. They read as oak, walnut, birch, quartz, Calacatta marble, black granite, slate, terrazzo and a plank floor. **The designer's real photographs replace them by dropping files in** (`assets/3d/textures/README.md` has the exact sizes and naming); no code changes.
+
+**The pipeline** (`assets/3d/index.html`, `lib/features/viewer/scene/finish_textures.dart`)
+- Each finish has a colour map and, where it has relief or uneven gloss, a normal map and a roughness map (physically based materials). Painted and matte-laminate fronts are a flat colour plus a faint micro texture. Worktops are physical materials with a clear coat (polished stone), floor planks tile every 2.4 m, grain runs down each door.
+- The page loads from a string, so it can't fetch files. After it loads, the app sends the manifest and each image as a data URL (`registerFinishTextures`, `registerFinishFile`, `finishTexturesReady`), one JavaScript call per file, before the scene loads. About 3 MB of images (4 MB over the bridge); a test fails above 4 MB.
+- **Fallback:** if they don't arrive (or the page runs without the app) it uses its old drawn textures, tinted as before. A picture or render asked for while textures are still decoding waits for them.
+- **The benchtop choice now shows in 3D.** Calacatta quartz and Nero granite have their own look and matte laminate a flat colour; any other benchtop (the designer can add them) keeps the style's worktop (`BENCHTOP_LOOKS`).
+- The texture set: 10 textures (3 woods, 6 stones, a floor), tile sizes in `manifest.json`, one size for all wood and one for all stone.
+
+**Things found on the way**
+- My noise "stretch" controls were inverted, which made the first woods look like contour maps and then like woven cloth (horizontal speckle crossing the vertical grain). Fixed in the generator; the woods now have long vertical grain, fine pores and gentle drift.
+- The floor texture left its last 8 pixel rows black, which showed as dark lines every 2.4 m. Fixed (16 planks of 128 px).
+- The texture list is checked against the page by a test (every `tex: '…'` in the page exists in the manifest).
+
+**Verified**
+- Flutter 245 tests (9 new: the set, the hand-over, the viewer sends textures before the scene and the benchtop to the page). Backend 86, Studio 87 unchanged.
+- **3D page in Chromium, 18 checks:** fallback without textures, a picture asked for during decoding, every style's finishes, the benchtops, an unknown benchtop key, pictures.
+- **Through the real app in Chromium, 11 checks:** every texture file reaches the page (about 6.5 s from tapping "View in 3D" with software rendering), the fronts and floor are textured, choosing Calacatta and granite in the Edit panel changes the worktop, Industrial puts walnut on and Minimalist paints, a render comes back with the finishes on.
+- The earlier picture (12) and render (7) checks still pass.
+
+**Not done / open**
+- **Real photographs** of SS Love's finishes: the main thing that would make it look photographic.
+- **Studio:** its own 3D view still uses the old drawn finishes; the texture pipeline is only in the sales app's 3D page (and so in its pictures and render).
+- The renders still have no light bouncing or real reflections, so a photograph-level look also needs those.
+- Painted white is a flat colour; a real lacquer sample would need a photo only if it has texture.

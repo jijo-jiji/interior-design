@@ -382,14 +382,12 @@ function initScene() {
   });
   oakTexture.repeat.set(12, 12);
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 30),
-    new THREE.MeshStandardMaterial({
-      map: oakTexture,
-      roughness: 0.62,
-      metalness: 0.0,
-    })
-  );
+  floorMaterial = new THREE.MeshStandardMaterial({
+    map: oakTexture,
+    roughness: 0.62,
+    metalness: 0.0,
+  });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
@@ -887,10 +885,10 @@ function updateSnapGuide(show, x, y, h) {
 // textures can replace woodTexture() / stoneTexture() later.
 const STYLE_FINISHES = {
   japandi: {
-    base: { color: 0xe2c49c, wood: true, roughness: 0.62 },   // light oak
+    base: { color: 0xe2c49c, wood: true, tex: 'oak_light', roughness: 0.62 },   // light oak
     wall: { color: 0xf1ece3, wood: false, roughness: 0.55 },  // warm white
-    tall: { color: 0xe2c49c, wood: true, roughness: 0.62 },
-    top: { color: 0xf6f2ec, roughness: 0.22 },                // warm white quartz
+    tall: { color: 0xe2c49c, wood: true, tex: 'oak_light', roughness: 0.62 },
+    top: { color: 0xf6f2ec, tex: 'quartz_warm', roughness: 0.22 },              // warm white quartz
     handle: { kind: 'bar', color: 0xc9a24f, metalness: 0.9, roughness: 0.32 }, // brushed brass
     plinth: 0x3b3027,
   },
@@ -898,23 +896,23 @@ const STYLE_FINISHES = {
     base: { color: 0x40454e, wood: false, roughness: 0.78 },  // matte charcoal
     wall: { color: 0xf4f4f1, wood: false, roughness: 0.6 },
     tall: { color: 0x40454e, wood: false, roughness: 0.78 },
-    top: { color: 0xfafaf8, roughness: 0.18 },                // snow quartz
+    top: { color: 0xfafaf8, tex: 'quartz_snow', roughness: 0.18 },              // snow quartz
     handle: { kind: 'groove', color: 0x121316, metalness: 0.2, roughness: 0.7 }, // handleless
     plinth: 0x1d1f23,
   },
   nordic: {
     base: { color: 0xa7b5a0, wood: false, roughness: 0.66 },  // soft sage
     wall: { color: 0xf3f2ed, wood: false, roughness: 0.6 },
-    tall: { color: 0xead6b4, wood: true, roughness: 0.6 },    // birch
-    top: { color: 0xebe6dc, roughness: 0.3 },                 // light terrazzo
+    tall: { color: 0xead6b4, wood: true, tex: 'birch', roughness: 0.6 },    // birch
+    top: { color: 0xebe6dc, tex: 'terrazzo', roughness: 0.3 },                 // light terrazzo
     handle: { kind: 'knob', color: 0xb7bcc2, metalness: 0.85, roughness: 0.35 }, // satin nickel
     plinth: 0x4a4f48,
   },
   industrial: {
-    base: { color: 0x7a5a44, wood: true, roughness: 0.55 },   // dark walnut
+    base: { color: 0x7a5a44, wood: true, tex: 'walnut', roughness: 0.55 },   // dark walnut
     wall: { color: 0x36383e, wood: false, roughness: 0.5 },   // graphite
-    tall: { color: 0x7a5a44, wood: true, roughness: 0.55 },
-    top: { color: 0x55575d, roughness: 0.36 },                // dark slate
+    tall: { color: 0x7a5a44, wood: true, tex: 'walnut', roughness: 0.55 },
+    top: { color: 0x55575d, tex: 'slate_dark', roughness: 0.36 },                // dark slate
     handle: { kind: 'bar', color: 0x1b1b1d, metalness: 0.6, roughness: 0.45 }, // black steel
     plinth: 0x18191c,
   },
@@ -922,8 +920,90 @@ const STYLE_FINISHES = {
 
 const TEX = {};
 const MAT = {};
-const WOOD_TILE = 0.6;  // metres of front per texture repeat
-const STONE_TILE = 1.2;
+let WOOD_TILE = 0.6;  // metres of front per texture repeat
+let STONE_TILE = 1.2;
+
+// ── Finish textures ──────────────────────────────────────────────────────────
+// Photographs (or stand-ins made by tool/gen_finish_textures.py) of the real
+// finishes: a colour map, and where the finish has relief or uneven gloss a
+// normal map and a roughness map. The app sends them after the page loads
+// (registerFinishTextures, then registerFinishFile for each file, then
+// finishTexturesReady), as data URLs, so they work offline. Without them the
+// page falls back on the textures it draws itself.
+const FINISH = { manifest: null, files: {}, cache: {}, loading: 0, waiting: [] };
+
+window.registerFinishTextures = function(manifest) {
+  try { FINISH.manifest = typeof manifest === 'string' ? JSON.parse(manifest) : manifest; } catch (e) { return; }
+  // One tile size per kind keeps every cabinet's grain the same scale.
+  const sizes = Object.values(FINISH.manifest.textures || {});
+  const wood = sizes.find(t => t.kind === 'wood'), stone = sizes.find(t => t.kind === 'stone');
+  if (wood) WOOD_TILE = wood.tile_m;
+  if (stone) STONE_TILE = stone.tile_m;
+};
+window.registerFinishFile = function(name, dataUrl) { FINISH.files[name] = dataUrl; };
+window.finishTexturesReady = function() {
+  applyFinishTextures();
+};
+
+// A texture from a registered file, loading in the background. Null if the
+// file never arrived.
+function finishMap(file, { color = false, normal = false } = {}) {
+  if (!file || !FINISH.files[file]) return null;
+  if (FINISH.cache[file]) return FINISH.cache[file];
+  const tex = new THREE.Texture();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  if (color && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  FINISH.cache[file] = tex;
+  FINISH.loading++;
+  const img = new Image();
+  const done = () => {
+    FINISH.loading--;
+    if (FINISH.loading === 0) {
+      // Everything asked for has arrived: put it on the materials.
+      applyFinishTextures();
+      FINISH.waiting.splice(0).forEach(fn => fn());
+    }
+    invalidate();
+  };
+  img.onload = () => { tex.image = img; tex.needsUpdate = true; done(); };
+  img.onerror = () => { delete FINISH.cache[file]; done(); };
+  img.src = FINISH.files[file];
+  return tex;
+}
+
+// Runs [fn] when every texture asked for so far has finished decoding.
+function whenTexturesSettled(fn) {
+  if (FINISH.loading === 0) fn(); else FINISH.waiting.push(fn);
+}
+
+// The maps of one texture id, or null.
+function finishSet(id) {
+  const t = FINISH.manifest && FINISH.manifest.textures && FINISH.manifest.textures[id];
+  if (!t) return null;
+  // Ask for all three maps at once; use the set once the colour has decoded
+  // (a texture with no image yet would show black).
+  const map = finishMap(t.albedo, { color: true });
+  const normalMap = finishMap(t.normal), roughnessMap = finishMap(t.roughness);
+  if (!map || !map.image) return null;
+  return {
+    map,
+    normalMap: normalMap && normalMap.image ? normalMap : null,
+    roughnessMap: roughnessMap && roughnessMap.image ? roughnessMap : null,
+    tile: t.tile_m,
+    kind: t.kind,
+  };
+}
+
+// The close-up look of a matte painted or laminate front: faint relief and
+// uneven gloss, used with a flat colour.
+function microSet() {
+  const m = FINISH.manifest && FINISH.manifest.micro;
+  if (!m) return null;
+  const normalMap = finishMap(m.normal), roughnessMap = finishMap(m.roughness);
+  if (!normalMap || !normalMap.image) return null;
+  return { normalMap, roughnessMap: roughnessMap && roughnessMap.image ? roughnessMap : null };
+}
 
 function seededRandom(seed) {
   let s = seed;
@@ -994,7 +1074,7 @@ function initMaterials() {
   MAT.base = std({ metalness: 0.02 });
   MAT.wall = std({ metalness: 0.02 });
   MAT.tall = std({ metalness: 0.02 });
-  MAT.top = std({ map: TEX.stone, metalness: 0.0 });
+  MAT.top = new THREE.MeshPhysicalMaterial({ map: TEX.stone, metalness: 0.0, clearcoat: 0.3, clearcoatRoughness: 0.14 });
   MAT.handle = std({});
   MAT.plinth = std({ roughness: 0.9 });
   MAT.reveal = std({ color: 0x14120f, roughness: 1 });
@@ -1007,23 +1087,102 @@ function initMaterials() {
 }
 
 function setFront(mat, f) {
-  mat.color.setHex(f.color);
-  mat.roughness = f.roughness;
-  mat.map = f.wood ? TEX.wood : null;
+  const set = f.tex && finishSet(f.tex);
+  if (set) {
+    // A real finish: its own colours, relief and gloss.
+    mat.color.setHex(0xffffff);
+    mat.map = set.map;
+    mat.normalMap = set.normalMap;
+    mat.normalScale.set(0.8, 0.8);
+    mat.roughnessMap = set.roughnessMap;
+    mat.roughness = set.roughnessMap ? 1 : f.roughness;
+  } else {
+    // Painted or laminate: a flat colour with a faint micro texture.
+    const micro = microSet();
+    mat.color.setHex(f.color);
+    mat.map = !FINISH.manifest && f.wood ? TEX.wood : null;
+    mat.normalMap = micro ? micro.normalMap : null;
+    mat.normalScale.set(0.08, 0.08);
+    mat.roughnessMap = micro ? micro.roughnessMap : null;
+    mat.roughness = micro && micro.roughnessMap ? Math.min(1, f.roughness / 0.62) : f.roughness;
+  }
   mat.needsUpdate = true;
+}
+
+// Worktop looks chosen as a benchtop (the keys of the catalogue's benchtop
+// options); anything else keeps the style's own worktop.
+const BENCHTOP_LOOKS = {
+  quartz_calacatta: { tex: 'calacatta', color: 0xffffff, roughness: 0.18 },
+  granite_black: { tex: 'granite_black', color: 0xffffff, roughness: 0.2 },
+  laminate_matte: { tex: null, color: 0xd9d5cc, roughness: 0.72 },
+};
+let benchtopKey = null;
+
+function applyTop(fin) {
+  const look = benchtopKey && BENCHTOP_LOOKS[benchtopKey];
+  const spec = look || fin.top;
+  const set = spec.tex && finishSet(spec.tex);
+  const top = MAT.top;
+  if (set) {
+    top.color.setHex(0xffffff);
+    top.map = set.map;
+    top.normalMap = set.normalMap;
+    top.normalScale.set(0.7, 0.7);
+    top.roughnessMap = set.roughnessMap;
+    // The roughness map holds the real gloss; polished stone also gets a clear coat.
+    top.roughness = set.roughnessMap ? 1 : spec.roughness;
+    top.clearcoat = spec.roughness < 0.3 ? 0.35 : 0.08;
+  } else {
+    const micro = look ? microSet() : null;
+    top.color.setHex(spec.color);
+    top.map = look ? null : TEX.stone;
+    top.normalMap = micro ? micro.normalMap : null;
+    top.normalScale.set(0.06, 0.06);
+    top.roughnessMap = micro ? micro.roughnessMap : null;
+    top.roughness = micro && micro.roughnessMap ? Math.min(1, spec.roughness / 0.62) : spec.roughness;
+    top.clearcoat = look ? 0 : 0.3;
+  }
+  top.needsUpdate = true;
 }
 
 function applyFinishMaterials(fin) {
   setFront(MAT.base, fin.base);
   setFront(MAT.wall, fin.wall);
   setFront(MAT.tall, fin.tall);
-  MAT.top.color.setHex(fin.top.color);
-  MAT.top.roughness = fin.top.roughness;
+  applyTop(fin);
   MAT.handle.color.setHex(fin.handle.color);
   MAT.handle.metalness = fin.handle.metalness;
   MAT.handle.roughness = fin.handle.roughness;
   MAT.plinth.color.setHex(fin.plinth);
 }
+
+// The floor of the room: wide planks, once their textures have arrived.
+let floorMaterial = null;
+function applyFloorTextures() {
+  if (!floorMaterial) return;
+  const set = finishSet('floor_oak');
+  if (!set) return;
+  floorMaterial.map = set.map;
+  floorMaterial.normalMap = set.normalMap;
+  floorMaterial.normalScale.set(0.6, 0.6);
+  floorMaterial.roughnessMap = set.roughnessMap;
+  floorMaterial.roughness = 1;
+  for (const t of [set.map, set.normalMap, set.roughnessMap]) if (t) t.repeat.set(30 / set.tile, 30 / set.tile);
+  floorMaterial.needsUpdate = true;
+}
+
+// Called when the textures have been handed over, and on a style change.
+function applyFinishTextures() {
+  applyFinishMaterials(currentFinish());
+  applyFloorTextures();
+  invalidate();
+}
+
+window.setBenchtop = function(key) {
+  benchtopKey = (typeof key === 'string' && BENCHTOP_LOOKS[key]) ? key : null;
+  applyTop(currentFinish());
+  invalidate();
+};
 
 function currentFinish() {
   return STYLE_FINISHES[currentArchetypeId] || STYLE_FINISHES.japandi;
@@ -1037,12 +1196,13 @@ function boxGeo(w, h, d, tile) {
   const g = new THREE.BoxGeometry(w, h, d);
   if (!tile) return g;
   const uv = g.attributes.uv;
-  const offset = ((uvSeed++ * 0.6180339) % 1);
+  const offset = ((uvSeed * 0.6180339) % 1);
+  const offsetV = ((uvSeed++ * 0.7548777) % 1);
   const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; // +x −x +y −y +z −z
   for (let f = 0; f < 6; f++) {
     for (let k = 0; k < 4; k++) {
       const i = f * 4 + k;
-      uv.setXY(i, uv.getX(i) * dims[f][0] / tile + offset, uv.getY(i) * dims[f][1] / tile);
+      uv.setXY(i, uv.getX(i) * dims[f][0] / tile + offset, uv.getY(i) * dims[f][1] / tile + offsetV);
     }
   }
   return g;
@@ -2082,6 +2242,11 @@ window.capturePictures = function(requestId) {
     notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
     return images;
   }
+  // Textures still decoding: take the pictures when they are on the materials.
+  if (FINISH.loading > 0) {
+    whenTexturesSettled(() => window.capturePictures(requestId));
+    return images;
+  }
   if (!box.isEmpty() && renderer && scene) {
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
@@ -2261,6 +2426,8 @@ window.renderPictures = async function(requestId, options) {
   if (!box.isEmpty() && renderer && scene && keyLight) {
     renderBusy = true;
     renderCancelled = false;
+    // Textures still decoding: wait, so the render shows the real finishes.
+    await new Promise(resolve => whenTexturesSettled(resolve));
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
     const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);

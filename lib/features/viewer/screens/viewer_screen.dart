@@ -19,6 +19,7 @@ import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
+import '../scene/finish_textures.dart';
 import '../scene/scene_bridge.dart';
 import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
@@ -244,6 +245,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           },
       ]);
 
+  /// Puts the chosen benchtop on the worktop in the 3D view (none: the
+  /// style's own).
+  Future<void> _showBenchtop() =>
+      _scene.runJavaScript('setBenchtop(${jsonEncode(_benchtopMaterial)})');
+
   Future<void> _injectScene() async {
     final escaped =
         widget.jsonPayload.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
@@ -251,7 +257,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _scene.runJavaScript("setNativeMode(true)");
     await _scene.runJavaScript(
         'setCatalogModules(${jsonEncode(_catalogModulesJson())})');
+    // Photographs of the finishes; without them the page draws its own.
+    await FinishTextures.send(_scene.runJavaScript);
     await _scene.runJavaScript("loadScene('$escaped')");
+    await _showBenchtop();
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
       _showVariantWarnings(
@@ -599,6 +608,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final metres = _cpqSummary.benchtopLinearMetres;
     void choose(String? material) {
       setState(() => _benchtopMaterial = material);
+      _showBenchtop();
       HapticFeedback.selectionClick();
       _scheduleSave();
     }

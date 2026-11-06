@@ -36,6 +36,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/3d/
+    - assets/3d/textures/
   # Bundled so the app looks right offline (it used to download the font at
   # runtime). SIL Open Font License: assets/fonts/OFL.txt
   fonts:

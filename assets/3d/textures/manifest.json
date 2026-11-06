@@ -1,0 +1,74 @@
+{
+  "textures": {
+    "oak_light": {
+      "albedo": "oak_light_albedo.jpg",
+      "normal": "oak_light_normal.jpg",
+      "roughness": "oak_light_rough.jpg",
+      "tile_m": 0.8,
+      "kind": "wood"
+    },
+    "birch": {
+      "albedo": "birch_albedo.jpg",
+      "normal": "birch_normal.jpg",
+      "roughness": "birch_rough.jpg",
+      "tile_m": 0.8,
+      "kind": "wood"
+    },
+    "walnut": {
+      "albedo": "walnut_albedo.jpg",
+      "normal": "walnut_normal.jpg",
+      "roughness": "walnut_rough.jpg",
+      "tile_m": 0.8,
+      "kind": "wood"
+    },
+    "quartz_warm": {
+      "albedo": "quartz_warm_albedo.jpg",
+      "roughness": "quartz_warm_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "quartz_snow": {
+      "albedo": "quartz_snow_albedo.jpg",
+      "roughness": "quartz_snow_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "calacatta": {
+      "albedo": "calacatta_albedo.jpg",
+      "roughness": "calacatta_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "granite_black": {
+      "albedo": "granite_black_albedo.jpg",
+      "roughness": "granite_black_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "slate_dark": {
+      "albedo": "slate_dark_albedo.jpg",
+      "normal": "slate_dark_normal.jpg",
+      "roughness": "slate_dark_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "terrazzo": {
+      "albedo": "terrazzo_albedo.jpg",
+      "roughness": "terrazzo_rough.jpg",
+      "tile_m": 1.2,
+      "kind": "stone"
+    },
+    "floor_oak": {
+      "albedo": "floor_oak_albedo.jpg",
+      "normal": "floor_oak_normal.jpg",
+      "roughness": "floor_oak_rough.jpg",
+      "tile_m": 2.4,
+      "kind": "floor"
+    }
+  },
+  "micro": {
+    "normal": "micro_normal.jpg",
+    "roughness": "micro_rough.jpg",
+    "tile_m": 0.3
+  }
+}

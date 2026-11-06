@@ -123,3 +123,12 @@ the Studio (**Price list** in the header).
   network.
 - **Studio:** *Picture* in the header saves the 3D view as a 2000 px PNG
   (not in Plan and Elevation).
+
+### Finish textures
+
+The 3D page puts wood, stone and painted finishes on the cabinets, worktop and
+floor (`assets/3d/textures/`). **They are generated stand-ins, not
+photographs of SS Love's finishes**: the folder's README says how to replace
+them with real photographs. Choosing a benchtop in the Edit panel now changes
+the worktop in the 3D view (the Calacatta and granite choices have their own
+look; any other benchtop keeps the style's worktop).

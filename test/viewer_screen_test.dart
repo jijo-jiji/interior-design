@@ -330,6 +330,54 @@ void main() {
     });
   });
 
+  group('finish textures', () {
+    testWidgets('are handed to the page before the scene loads',
+        (tester) async {
+      await pumpViewer(tester);
+      final js = page().javaScript;
+      final register =
+          js.indexWhere((c) => c.startsWith('registerFinishTextures('));
+      final ready = js.indexOf('finishTexturesReady()');
+      final scene = js.indexWhere((c) => c.startsWith('loadScene('));
+      expect(register, isNonNegative);
+      expect(js.where((c) => c.startsWith('registerFinishFile(')).length,
+          greaterThan(15));
+      expect(register, lessThan(ready));
+      expect(ready, lessThan(scene));
+      await finish(tester);
+    });
+
+    testWidgets('the chosen benchtop is put on the worktop', (tester) async {
+      await pumpViewer(tester);
+      // Opened with none chosen: the style's own worktop.
+      expect(page().javaScript, contains('setBenchtop(null)'));
+
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Benchtop'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Calacatta Engineered Quartz'));
+      await tester.pumpAndSettle();
+      expect(page().javaScript.last, 'setBenchtop("quartz_calacatta")');
+
+      await tester.tap(find.textContaining('Benchtop:'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No benchtop in this quote'));
+      await tester.pumpAndSettle();
+      expect(page().javaScript.last, 'setBenchtop(null)');
+      await finish(tester);
+    });
+
+    testWidgets('a reopened design shows the benchtop it was saved with',
+        (tester) async {
+      final saved = jsonDecode(payload) as Map<String, dynamic>
+        ..['benchtop_material'] = 'granite_black';
+      await pumpViewer(tester, json: jsonEncode(saved));
+      expect(page().javaScript, contains('setBenchtop("granite_black")'));
+      await finish(tester);
+    });
+  });
+
   group('pictures of the design', () {
     // A real 1x1 PNG.
     const png =
@@ -521,7 +569,7 @@ void main() {
       // Close the sheet (back).
       Navigator.of(tester.element(find.text('Realistic render'))).pop();
       await tester.pumpAndSettle();
-      final captures = () => page()
+      int captures() => page()
           .javaScript
           .where((c) =>
               c.startsWith('capturePictures(') ||
