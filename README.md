@@ -116,6 +116,19 @@ the Studio (**Price list** in the header).
   the view, each lit from a different part of the sky, averaged). It takes
   longer, with a progress bar and *Cancel*. The quote uses the render if the
   design hasn't changed since; otherwise it takes the quick pictures.
+- **A true-lighting render:** *Make a true-lighting render* follows light
+  paths on the tablet's graphics chip (path tracing), so light really bounces:
+  the oak tints the wall beside it, corners darken, the under-cabinet lights
+  glow on the tile. It is the closest the app gets to a photograph. It runs in
+  the 3D page with no internet. A picture is as clean as the samples it
+  reaches: it stops at 300 samples or 120 seconds (*Fine detail*: 1000 or 300),
+  whichever comes first, then smooths what noise is left, harder the fewer
+  samples it got. It needs a recent device (WebGL 2 with float render targets); on one
+  without, the sheet says so and makes the realistic render instead. *Cancel*
+  stops it. The library is `assets/3d/pathtracer.min.js`
+  ([how it is built](tool/pathtracer/README.md), licences in
+  `assets/3d/pathtracer.LICENSE.txt`). **How fast it is on a tablet has not
+  been measured**; here it was only run with software rendering.
 - **The quote:** sending a quote carries the pictures. The signed PDF shows
   them under "Your design", and the client's message links a page with them
   (`/pictures/<quote id>`). Pictures are stored in `backend/design_pictures/`

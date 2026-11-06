@@ -79,7 +79,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// Goes up with every change to the design, so a render made earlier can
   /// be told from one of the design as it is now.
   int _designRevision = 0;
-  ({int revision, List<String> images})? _rendered;
+  ({int revision, List<String> images, RenderEngine engine})? _rendered;
+
+  /// What the page said about the render it last finished: the engine that
+  /// made it, and whether it fell back on another for want of the device.
+  ({RenderEngine? engine, bool fellBack}) _lastRender =
+      (engine: null, fellBack: false);
 
   /// How many frames a render averages: more is smoother and slower.
   /// (`--dart-define=RENDER_SAMPLES=n` changes it, for testing.)
@@ -200,6 +205,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Future<void> _loadHtml() async {
     final threeJs = await rootBundle.loadString('assets/3d/three.min.js');
     var orbitJs = await rootBundle.loadString('assets/3d/OrbitControls.js');
+    final pathTracerJs =
+        await rootBundle.loadString('assets/3d/pathtracer.min.js');
     var html = await rootBundle.loadString('assets/3d/index.html');
 
     if (!mounted) return;
@@ -229,7 +236,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
     html = html.replaceFirst(
       '</head>',
-      '<script>$threeJs</script>\n<script>$orbitJs</script>\n</head>',
+      '<script>$threeJs</script>\n<script>$orbitJs</script>\n'
+      '<script>$pathTracerJs</script>\n</head>',
     );
 
     await _scene.loadHtml(html);
@@ -567,6 +575,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       final data = jsonDecode(message) as Map<String, dynamic>;
       switch (data['event'] as String?) {
         case 'pictures':
+          if (data['rendered'] == true) {
+            _lastRender = (
+              engine: switch (data['engine']) {
+                'path' => RenderEngine.path,
+                'sky' => RenderEngine.sky,
+                _ => null,
+              },
+              fellBack: data['fell_back'] == true,
+            );
+          }
           _pictureRequests
               .remove(data['request_id'] as String? ?? 'app')
               ?.complete([
@@ -877,16 +895,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         'app', "capturePictures('app')", const Duration(seconds: 20));
   }
 
-  /// The slower, softer-lit version of the same two pictures. Null if it was
+  /// The slower, better-lit version of the same two pictures. Null if it was
   /// cancelled or the view couldn't make it.
-  Future<List<String>?> _renderPictures() async {
+  Future<RenderResult?> _renderPictures(RenderRequest request) async {
     if (!_sceneLoaded || _rendering) return null;
     setState(() => _rendering = true);
     _renderProgress.value = 0;
+    _lastRender = (engine: null, fellBack: false);
     final images = await _pictureCall(
       'render',
-      "renderPictures('render', {samples: $_renderSamples})",
-      const Duration(minutes: 10),
+      request.javaScript(skySamples: _renderSamples),
+      request.timeout,
     );
     if (images.isEmpty) {
       // Gave up waiting: tell the page to stop too.
@@ -895,8 +914,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _renderProgress.value = null;
     if (mounted) setState(() => _rendering = false);
     if (images.isEmpty) return null;
-    _rendered = (revision: _designRevision, images: images);
-    return images;
+    // The page says which engine it used; an older page says nothing, which
+    // means the one asked for.
+    final engine = _lastRender.engine ?? request.engine;
+    _rendered = (revision: _designRevision, images: images, engine: engine);
+    return RenderResult(images, engine, fellBack: _lastRender.fellBack);
   }
 
   /// The render of the design as it is now, if there is one.
@@ -909,7 +931,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Future<void> _takePictures() async {
     final messenger = ScaffoldMessenger.of(context);
     var images = _currentRender;
-    final alreadyRendered = images != null;
+    final alreadyRendered = _rendered != null && images != null
+        ? _rendered!.engine
+        : null;
     if (images == null) {
       messenger
         ..hideCurrentSnackBar()
@@ -955,7 +979,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       ),
       builder: (_) => PicturesSheet(
         initial: usable,
-        initiallyRendered: alreadyRendered,
+        initialRender: alreadyRendered,
         progress: _renderProgress,
         onRender: _renderPictures,
         onCancelRender: () => _scene.runJavaScript('cancelRender()'),

@@ -46,3 +46,62 @@ class DesignPictures {
     return AppConfig.picturesPageUrl(quoteId);
   }
 }
+
+/// How a render is lit.
+enum RenderEngine {
+  /// Many frames, each lit from another part of the sky, averaged: soft
+  /// shadows and darker corners, in tens of seconds.
+  sky,
+
+  /// True lighting: light paths are followed on the graphics chip, so light
+  /// bounces between surfaces. Slower, and needs a recent device.
+  path,
+}
+
+/// How much detail a true-lighting render goes to.
+enum RenderQuality { standard, fine }
+
+/// A render being asked for.
+class RenderRequest {
+  const RenderRequest(this.engine, [this.quality = RenderQuality.standard]);
+
+  final RenderEngine engine;
+  final RenderQuality quality;
+
+  /// The call that asks the 3D page for it. [skySamples] is how many frames
+  /// the sky-averaged render takes.
+  String javaScript({required int skySamples}) => switch (engine) {
+        RenderEngine.sky => "renderPictures('render', {samples: $skySamples})",
+        RenderEngine.path => switch (quality) {
+            // The page stops at the samples or the seconds, whichever comes
+            // first, so a slow device still gets a picture (a noisier one:
+            // the picture is as clean as the samples it reached).
+            RenderQuality.standard =>
+              "renderPictures('render', {engine: 'path', samples: 300, "
+                  "minSamples: 24, seconds: 120})",
+            RenderQuality.fine =>
+              "renderPictures('render', {engine: 'path', samples: 1000, "
+                  "minSamples: 64, seconds: 300})",
+          },
+      };
+
+  /// How long to wait for the page: both pictures, with the shader build.
+  Duration get timeout => switch (engine) {
+        RenderEngine.sky => const Duration(minutes: 10),
+        RenderEngine.path => quality == RenderQuality.fine
+            ? const Duration(minutes: 25)
+            : const Duration(minutes: 12),
+      };
+}
+
+/// What a render made.
+class RenderResult {
+  const RenderResult(this.images, this.engine, {this.fellBack = false});
+
+  final List<String> images;
+
+  /// The engine that made [images]: the one asked for, unless the device
+  /// couldn't ([fellBack]).
+  final RenderEngine engine;
+  final bool fellBack;
+}

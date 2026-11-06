@@ -10,6 +10,46 @@ const _png =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 void main() {
+  group('asking the page for a render', () {
+    test('the sky-averaged render takes the frames it is given', () {
+      const request = RenderRequest(RenderEngine.sky);
+      expect(request.javaScript(skySamples: 40),
+          "renderPictures('render', {samples: 40})");
+    });
+
+    test('true lighting asks for the path tracer, with a time limit', () {
+      const request = RenderRequest(RenderEngine.path);
+      final call = request.javaScript(skySamples: 40);
+      expect(call, contains("engine: 'path'"));
+      expect(call, contains('samples: 300'));
+      expect(call, contains('seconds: 120'));
+      // A call the page can read: balanced, one object.
+      expect(call, startsWith("renderPictures('render', {"));
+      expect(call, endsWith('})'));
+    });
+
+    test('fine detail asks for more samples and more time', () {
+      const fine = RenderRequest(RenderEngine.path, RenderQuality.fine);
+      const standard = RenderRequest(RenderEngine.path);
+      expect(fine.javaScript(skySamples: 40), contains('samples: 1000'));
+      expect(fine.timeout, greaterThan(standard.timeout));
+      expect(standard.timeout, greaterThan(
+          const RenderRequest(RenderEngine.sky).timeout));
+    });
+
+    test('the app waits longer than the page will (both pictures)', () {
+      // The page stops each picture at its seconds (plus building the
+      // shader and tone mapping): two pictures must fit in the wait.
+      expect(const RenderRequest(RenderEngine.path).timeout.inSeconds,
+          greaterThan(2 * 120 + 60));
+      expect(
+          const RenderRequest(RenderEngine.path, RenderQuality.fine)
+              .timeout
+              .inSeconds,
+          greaterThan(2 * 300 + 60));
+    });
+  });
+
   group('reading a picture', () {
     test('gives the bytes of an image data URL', () {
       final bytes = DesignPictures.decode('data:image/png;base64,$_png');

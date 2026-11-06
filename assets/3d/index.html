@@ -1844,6 +1844,7 @@ function updateRoom(force) {
   // Recessed downlights in two rows.
   const across = Math.max(2, Math.round(W / 1.3));
   const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 3.0, 2.6) });
+  lamp.userData.lamp = true;
   const trim = new THREE.MeshStandardMaterial({ color: 0xd9d6d0, roughness: 0.5 });
   const spots = [];
   for (let r = 0; r < 2; r++) {
@@ -2698,7 +2699,7 @@ window.setRoomView = function(view) {
 // picture, from the front and from an angle, at one size whatever the screen
 // is. They use their own cameras (the viewer's view isn't touched) and leave
 // out the editing aids (selection box, snap guide, the plan around the room).
-const PICTURE_W = 1600, PICTURE_H = 1000;
+let PICTURE_W = 1600, PICTURE_H = 1000; // `let`: tests render smaller pictures
 
 // Where the pictures are taken from: a direction from the kitchen's centre
 // (x to the right, y up, z toward the viewer). The L-shape's return wall is
@@ -2937,10 +2938,332 @@ async function renderStill(cam, W, H, samples, label, onProgress) {
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
+// ── True lighting: path tracing ─────────────────────────────────────────────
+// The render above fakes bounced light by averaging many skies. This one
+// follows light paths on the graphics chip (three-gpu-pathtracer, bundled in
+// pathtracer.min.js and handed over by the app as window.PathTracerLib), so the
+// light really bounces: the oak tints the wall beside it, corners darken, the
+// LED strips light the tile. It needs WebGL 2 with float render targets; when
+// the device lacks them the app gets the sky-averaged render instead.
+const PATH_LOOK = {
+  day: {
+    skyTop: 0x9fc4f0, skyBottom: 0xfff4e2, sky: 0.7, sun: 4.2, sunColor: 0xfff0dc,
+    strip: 12, down: 0, exposure: 0.58, bounces: 5,
+  },
+  evening: {
+    skyTop: 0x59486a, skyBottom: 0xffcf99, sky: 0.32, sun: 0.0, sunColor: 0xffd9b0,
+    strip: 38, down: 260, exposure: 0.95, bounces: 5,
+  },
+};
+window.PATH_LOOK = PATH_LOOK; // adjustable while tuning
+
+function pathTracerAvailable() {
+  try {
+    if (!window.PathTracerLib || !renderer) return false;
+    const gl = renderer.getContext();
+    return typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext &&
+      !!renderer.extensions.get('EXT_color_buffer_float');
+  } catch (e) { return false; }
+}
+window.pathTracerAvailable = pathTracerAvailable;
+
+// What the picture's tone curve does to a value (ACES, then gamma), so the
+// backdrop can be set to a radiance that comes out as the colour we want.
+function pathTone(x, exposure) {
+  x *= exposure;
+  const v = Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+  return Math.pow(v, 1 / 2.2);
+}
+function pathBackdrop(hex, exposure) {
+  const want = new THREE.Color(hex).convertLinearToSRGB(); // the colour as a picture shows it
+  const solve = target => {
+    let lo = 0, hi = 400;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (pathTone(mid, exposure) < target) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
+  return new THREE.Color(solve(want.r), solve(want.g), solve(want.b));
+}
+
+// Puts the scene in a form the path tracer reads (the live scene's own lights,
+// self-lit "basic" materials and environment mean nothing to it) and returns
+// the function that puts everything back.
+function preparePathScene(look, backdrop) {
+  const undo = [];
+  const added = [];
+
+  // Standard stand-ins for the basic (self-lit) materials: the ceiling, the
+  // downlight discs and the LED strips.
+  const standIn = new Map();
+  const evening = mood === 'evening';
+  const swap = m => {
+    if (!m || !m.isMeshBasicMaterial) return m;
+    let s = standIn.get(m);
+    if (!s) {
+      s = new THREE.MeshStandardMaterial({ color: m.color.clone(), roughness: 0.9, metalness: 0, side: m.side });
+      s.userData = m.userData;
+      if (m === MAT.led) {
+        s.emissive.copy(m.color); s.emissiveIntensity = evening ? 2.2 : 0.6;
+      } else if (m.userData && m.userData.lamp) {
+        s.color.set(0xffffff); s.emissive.set(0xfff0d8); s.emissiveIntensity = evening ? 6 : 0.8;
+      }
+      standIn.set(m, s);
+    }
+    return s;
+  };
+  scene.traverse(o => {
+    if (o.isMesh) {
+      const was = o.material;
+      o.material = Array.isArray(was) ? was.map(swap) : swap(was);
+      undo.push(() => { o.material = was; });
+    } else if (o.isLight && o.visible) {
+      o.visible = false;
+      undo.push(() => { o.visible = true; });
+    }
+  });
+
+  // The sun (the key light's own place), the sky, and the backdrop.
+  scene.updateMatrixWorld(true);
+  if (look.sun > 0 && keyLight) {
+    const sun = new THREE.DirectionalLight(look.sunColor, look.sun);
+    sun.position.copy(keyLight.getWorldPosition(new THREE.Vector3()));
+    sun.target.position.copy(keyLight.target.getWorldPosition(new THREE.Vector3()));
+    scene.add(sun, sun.target); added.push(sun, sun.target);
+  }
+  const sky = new window.PathTracerLib.GradientEquirectTexture(32);
+  sky.topColor.set(look.skyTop); sky.bottomColor.set(look.skyBottom); sky.update();
+  const env = scene.environment, bg = scene.background, envI = scene.environmentIntensity;
+  scene.environment = sky; scene.environmentIntensity = look.sky; scene.background = backdrop;
+  undo.push(() => { scene.environment = env; scene.background = bg; scene.environmentIntensity = envI; sky.dispose(); });
+
+  // Area lights where the page has glowing things: a light for each LED
+  // strip (facing down) and each downlight. Glowing geometry alone would
+  // light the room only by chance, and speckle.
+  const strip = new THREE.Vector3(), axis = new THREE.Vector3(), side = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const faceDown = (light, long) => {
+    // With local +z up and x along the strip, the tracer lights downwards.
+    side.crossVectors(up, long).normalize();
+    light.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(long, side, up));
+  };
+  placedCabinets.forEach(c => {
+    c.traverse(o => {
+      if (!o.isMesh || o.material !== standIn.get(MAT.led) || !o.geometry.parameters) return;
+      const w = o.geometry.parameters.width || 0.3;
+      o.getWorldPosition(strip);
+      axis.set(1, 0, 0).transformDirection(o.matrixWorld);
+      const light = new THREE.RectAreaLight(MOODS[mood].led, look.strip, w, 0.05);
+      light.position.copy(strip).add(new THREE.Vector3(0, -0.02, 0));
+      faceDown(light, axis.clone());
+      scene.add(light); added.push(light);
+    });
+  });
+  if (look.down > 0 && roomGroup) {
+    roomGroup.children.forEach(o => {
+      if (!(o.isMesh && o.material.userData && o.material.userData.lamp && o.geometry.type === 'CircleGeometry')) return;
+      const light = new THREE.RectAreaLight(0xffe2bd, look.down, 0.11, 0.11);
+      light.isCircular = true;
+      o.getWorldPosition(light.position); light.position.y -= 0.01;
+      faceDown(light, new THREE.Vector3(1, 0, 0));
+      scene.add(light); added.push(light);
+    });
+  }
+  undo.push(() => { added.forEach(o => scene.remove(o)); });
+
+  return () => { for (let i = undo.length - 1; i >= 0; i--) undo[i](); standIn.forEach(m => m.dispose()); };
+}
+
+// Tone maps what the path tracer has accumulated, then (lightly) denoises it,
+// both in picture colours, and returns a JPEG data URL.
+function pathFinish(pt, W, H, look, denoise) {
+  const lib = window.PathTracerLib;
+  const targets = [];
+  const fsq = new lib.FullScreenQuad(new THREE.ShaderMaterial({
+    uniforms: { map: { value: pt.target.texture }, exposure: { value: look.exposure } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform float exposure; varying vec2 vUv;
+      void main(){
+        vec3 x = texture2D(map, vUv).rgb * exposure;
+        vec3 c = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+        gl_FragColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
+      }`,
+    depthTest: false, depthWrite: false,
+  }));
+  // Isolated bright or dark dots (a path that happened to find a light, or
+  // missed one) are not edges, so the edge-preserving filter would keep them.
+  // A pixel that differs sharply from the middle value of its 3x3 neighbours
+  // AND has fewer than two neighbours like itself takes that middle value: a
+  // fine line or an edge has neighbours like itself (along it), a speckle has
+  // none.
+  const despeckle = new lib.FullScreenQuad(new THREE.ShaderMaterial({
+    uniforms: { map: { value: null }, texel: { value: new THREE.Vector2(1 / W, 1 / H) }, limit: { value: denoise.despeckle ?? 0.1 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform vec2 texel; uniform float limit; varying vec2 vUv;
+      float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+      void main(){
+        vec3 c[9]; float l[9];
+        for (int i = 0; i < 9; i++) {
+          vec2 o = vec2(float(i - (i / 3) * 3 - 1), float(i / 3 - 1));
+          c[i] = texture2D(map, vUv + o * texel).rgb; l[i] = lum(c[i]);
+        }
+        vec3 here = c[4]; float hereL = l[4];
+        float alike = 0.0;
+        for (int i = 0; i < 9; i++) if (i != 4 && abs(l[i] - hereL) < limit * 0.6) alike += 1.0;
+        // The middle of nine: selection sort, five rounds.
+        for (int i = 0; i < 5; i++) {
+          int m = i;
+          for (int j = i + 1; j < 9; j++) if (l[j] < l[m]) m = j;
+          float tl = l[i]; l[i] = l[m]; l[m] = tl;
+          vec3 tc = c[i]; c[i] = c[m]; c[m] = tc;
+        }
+        gl_FragColor = vec4(abs(hereL - l[4]) > limit && alike < 2.0 ? c[4] : here, 1.0);
+      }`,
+    depthTest: false, depthWrite: false,
+  }));
+  const mk = () => { const t = new THREE.WebGLRenderTarget(W, H, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); targets.push(t); return t; };
+  const toned = mk(), cleaned = mk(), clean = mk();
+  const before = renderer.getRenderTarget(), autoClear = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.setRenderTarget(toned); fsq.render(renderer);
+  const dn = new lib.DenoiseMaterial();
+  Object.assign(dn.uniforms.sigma, { value: denoise.sigma });
+  dn.uniforms.threshold.value = denoise.threshold;
+  dn.uniforms.kSigma.value = denoise.kSigma;
+  const useDespeckle = (denoise.despeckle ?? 0.1) > 0;
+  if (useDespeckle) {
+    despeckle.material.uniforms.map.value = toned.texture;
+    renderer.setRenderTarget(cleaned); despeckle.render(renderer);
+  }
+  dn.uniforms.map.value = (useDespeckle ? cleaned : toned).texture;
+  const dq = new lib.FullScreenQuad(dn);
+  renderer.setRenderTarget(clean); dq.render(renderer);
+  renderer.setRenderTarget(before); renderer.autoClear = autoClear;
+  const px = new Uint8Array(W * H * 4);
+  renderer.readRenderTargetPixels(denoise.on ? clean : (useDespeckle ? cleaned : toned), 0, 0, W, H, px);
+  fsq.material.dispose(); despeckle.material.dispose(); despeckle.dispose(); dn.dispose(); dq.dispose(); fsq.dispose();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) image.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+  g.putImageData(image, 0, 0);
+  targets.forEach(t => t.dispose());
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+window.__pathFinish = pathFinish; // for the tests
+
+// How hard to smooth for the samples a picture got: the fewer, the noisier,
+// so the harder (a slow device that stopped at its time limit gets a softer
+// picture, not a speckled one).
+function pathDenoiseFor(samples) {
+  if (samples >= 128) return { sigma: 2, kSigma: 2, threshold: 0.05, despeckle: 0.12 };
+  if (samples >= 48) return { sigma: 2.5, kSigma: 2, threshold: 0.06, despeckle: 0.1 };
+  if (samples >= 24) return { sigma: 2.5, kSigma: 2, threshold: 0.07, despeckle: 0.1 };
+  return { sigma: 3, kSigma: 2, threshold: 0.1, despeckle: 0.06 };
+}
+
+// One picture, path traced: up to [samples] samples or [seconds] seconds, then
+// tone mapped and lightly denoised on the graphics chip. Returns a JPEG data URL.
+async function renderPathStill(pt, cam, W, H, opts, label, onProgress) {
+  const look = PATH_LOOK[mood] || PATH_LOOK.day;
+  const backdrop = pathBackdrop(MOODS[mood].background, look.exposure);
+  const restore = preparePathScene(look, backdrop);
+  try {
+    pt.bounces = look.bounces;
+    pt.setScene(scene, cam);
+    window.__pathLights = pt._pathTracer.material.lights.count; // for the tests
+    const tiles = pt.tiles.x * pt.tiles.y;
+    let done = 0;
+    // Wait for the shader to build, then sample.
+    pt.renderSample();
+    while (pt.isCompiling) {
+      showRenderProgress(`${label}: preparing`);
+      await nextFrame();
+      if (renderCancelled) throw new Error('cancelled');
+      pt.renderSample();
+    }
+    const budget = opts.seconds * 1000, started2 = performance.now();
+    // Reading one pixel back waits for the graphics chip. gl.finish() doesn't
+    // (the draws are only queued), and a loop that runs ahead of the chip
+    // would make the progress and the time limit mean nothing.
+    const probe = new Float32Array(4);
+    while (pt.samples < opts.samples) {
+      for (let k = 0; k < tiles; k++) pt.renderSample();
+      renderer.readRenderTargetPixels(pt.target, 0, 0, 1, 1, probe);
+      done = pt.samples;
+      const elapsed = performance.now() - started2;
+      const fraction = Math.min(1, Math.max(done / opts.samples, elapsed / budget));
+      showRenderProgress(`${label} ${Math.round(100 * fraction)}%`);
+      if (onProgress) onProgress(fraction);
+      await nextFrame();
+      if (renderCancelled) throw new Error('cancelled');
+      if (elapsed > budget && done >= opts.minSamples) break;
+    }
+
+    const dataUrl = pathFinish(pt, W, H, look,
+      opts.denoise.auto ? Object.assign(pathDenoiseFor(pt.samples), opts.denoise) : opts.denoise);
+    window.__lastPathSamples = pt.samples;
+    return dataUrl;
+  } finally {
+    restore();
+  }
+}
+
+function makePathTracer(W, H) {
+  const pt = new window.PathTracerLib.WebGLPathTracer(renderer);
+  pt.renderDelay = 0; pt.minSamples = 0; pt.fadeDuration = 0;
+  pt.rasterizeScene = false; pt.renderToCanvas = false; pt.dynamicLowRes = false;
+  pt.filterGlossyFactor = 0.4;
+  const t = pathTiles(W, H);
+  pt.tiles.set(t, t);
+  return pt;
+}
+
+// Frees the graphics memory a path tracer holds (its own dispose() leaves the
+// scene's data textures behind).
+function disposePathTracer(pt) {
+  const seen = new Set();
+  const free = v => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return;
+    seen.add(v);
+    if (typeof v.dispose === 'function') { try { v.dispose(); } catch (e) { /* already gone */ } }
+    if (v.tex) free(v.tex);
+  };
+  for (const tracer of [pt._pathTracer, pt._lowResPathTracer]) {
+    if (!tracer) continue;
+    const m = tracer.material;
+    if (m && m.uniforms) for (const key in m.uniforms) free(m.uniforms[key].value);
+    for (const key of ['bvh', 'textures', 'materials', 'lights', 'iesProfiles', 'attributesArray', 'materialIndexAttribute', 'envMapInfo', 'stratifiedTexture', 'stratifiedSamplerCombined']) free(m && m[key]);
+    try { tracer.dispose(); } catch (e) { /* not fully built */ }
+  }
+  if (pt._quad && pt._quad.material) { try { pt._quad.material.dispose(); } catch (e) { /* ignore */ } }
+  if (pt._colorBackground) free(pt._colorBackground);
+}
+
+// How many tiles a picture is traced in per sample: a long single draw can
+// make a phone's graphics chip give up, so big pictures go in pieces.
+function pathTiles(W, H) {
+  const px = W * H;
+  return px > 900000 ? 4 : px > 300000 ? 2 : 1;
+}
+
 // Rendered pictures of the design (front and angled), one after the other.
 // Resolves with [{ name, data }] and tells the app, as capturePictures does.
 window.renderPictures = async function(requestId, options) {
-  const samples = Math.max(4, Math.min(200, (options && options.samples) || 40));
+  options = options || {};
+  // engine 'path': true lighting (path tracing), if this device can; else the
+  // sky-averaged render, and the app is told it fell back.
+  const wantPath = options.engine === 'path';
+  const usePath = wantPath && pathTracerAvailable();
+  const samples = usePath
+    ? Math.max(8, Math.min(2000, options.samples || 300))
+    : Math.max(4, Math.min(200, options.samples || 40));
+  const pathOptions = {
+    samples,
+    minSamples: Math.min(samples, options.minSamples || 12),
+    seconds: Math.max(10, Math.min(900, options.seconds || 120)),
+    denoise: Object.assign({ on: true, auto: true }, options.denoise || {}),
+  };
+  let pt = null;
   const images = [];
   let cancelled = false;
   if (renderBusy) {
@@ -2975,20 +3298,25 @@ window.renderPictures = async function(requestId, options) {
         corners.push(new THREE.Vector3(x, y, z));
       }
       const views = pictureViews().filter(v => !(options && options.only) || options.only === v.name);
+      if (usePath) pt = makePathTracer(PICTURE_W, PICTURE_H);
       for (let n = 0; n < views.length; n++) {
         const view = views[n];
         const distance = pictureDistance(cam, target, view.dir, corners);
         cam.position.copy(target).addScaledVector(view.dir, distance);
         cam.lookAt(target);
         cam.updateMatrixWorld(true);
-        const data = await renderStill(cam, PICTURE_W, PICTURE_H, samples, `Rendering picture ${n + 1} of ${views.length}`,
-          fraction => notifyFlutter({ event: 'render_progress', request_id: requestId || null, fraction: (n + fraction) / views.length }));
+        const label = `Rendering picture ${n + 1} of ${views.length}`;
+        const progress = fraction => notifyFlutter({ event: 'render_progress', request_id: requestId || null, fraction: (n + fraction) / views.length });
+        const data = usePath
+          ? await renderPathStill(pt, cam, PICTURE_W, PICTURE_H, pathOptions, label, progress)
+          : await renderStill(cam, PICTURE_W, PICTURE_H, samples, label, progress);
         images.push({ name: view.name, data });
       }
     } catch (e) {
       if (e && e.message === 'cancelled') { cancelled = true; images.length = 0; }
       else console.error('renderPictures error:', e);
     } finally {
+      if (pt) { if (options.keep) window.__pt = pt; else disposePathTracer(pt); }
       renderBusy = false;
       showRenderProgress(null);
       canvasEl.style.visibility = wasHidden;
@@ -3001,7 +3329,11 @@ window.renderPictures = async function(requestId, options) {
       invalidate();
     }
   }
-  notifyFlutter({ event: 'pictures', request_id: requestId || null, rendered: true, cancelled, images: images.map(i => i.data), names: images.map(i => i.name) });
+  notifyFlutter({
+    event: 'pictures', request_id: requestId || null, rendered: true, cancelled,
+    engine: usePath ? 'path' : 'sky', fell_back: wantPath && !usePath,
+    images: images.map(i => i.data), names: images.map(i => i.name),
+  });
   return images;
 };
 

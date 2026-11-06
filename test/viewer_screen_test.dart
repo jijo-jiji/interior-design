@@ -645,6 +645,113 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a true-lighting render can be asked for, with progress',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      expect(find.text('True-lighting render'), findsNothing);
+      // Both kinds are offered, and which is which is said.
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      final call = page()
+          .javaScript
+          .lastWhere((c) => c.startsWith("renderPictures('render'"));
+      expect(call, contains("engine: 'path'"));
+      expect(call, contains('samples: 300'));
+      expect(find.text('Rendering… 0%'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      fromPage({
+        'event': 'render_progress',
+        'request_id': 'render',
+        'fraction': 0.25
+      });
+      await tester.pump();
+      expect(find.text('Rendering… 25%'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'path',
+        'fell_back': false,
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('True-lighting render'), findsOneWidget);
+      expect(find.text('Realistic render'), findsNothing);
+      expect(find.textContaining("can't do true lighting"), findsNothing);
+      expect(find.text('Make a true-lighting render'), findsNothing);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Fine detail asks the page for more samples', (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Fine detail (slower)'));
+      await tester.tap(find.text('Fine detail (slower)'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      final call = page()
+          .javaScript
+          .lastWhere((c) => c.startsWith("renderPictures('render'"));
+      expect(call, contains('samples: 1000'));
+      // Let the render finish, so no wait is left pending.
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'path',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      await finish(tester);
+    });
+
+    testWidgets('a device without true lighting is told, and gets the other',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'sky',
+        'fell_back': true,
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Realistic render'), findsOneWidget);
+      expect(find.text('True-lighting render'), findsNothing);
+      expect(find.textContaining("can't do true lighting"), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('an older page that names no engine gets the one asked for',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('True-lighting render'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('Cancel stops the render and the quick pictures stay',
         (tester) async {
       await pumpViewer(tester);

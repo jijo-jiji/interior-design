@@ -11,7 +11,7 @@ class PicturesSheet extends StatefulWidget {
   const PicturesSheet({
     super.key,
     required this.initial,
-    required this.initiallyRendered,
+    required this.initialRender,
     required this.progress,
     required this.onRender,
     required this.onCancelRender,
@@ -22,14 +22,14 @@ class PicturesSheet extends StatefulWidget {
   /// The pictures as data URLs, front view first.
   final List<String> initial;
 
-  /// [initial] are already the realistic render.
-  final bool initiallyRendered;
+  /// [initial] are already this kind of render (null: quick pictures).
+  final RenderEngine? initialRender;
 
   /// How far a render has got (0 to 1), or null when none is running.
   final ValueListenable<double?> progress;
 
-  /// Makes the realistic render; null if it was cancelled or failed.
-  final Future<List<String>?> Function() onRender;
+  /// Makes the render asked for; null if it was cancelled or failed.
+  final Future<RenderResult?> Function(RenderRequest request) onRender;
   final VoidCallback onCancelRender;
 
   /// Both return once the office has the pictures (or has failed to). They
@@ -45,7 +45,9 @@ const _labels = ['Front view of the design', 'Angled view of the design'];
 
 class _PicturesSheetState extends State<PicturesSheet> {
   late List<String> _images = widget.initial;
-  late bool _rendered = widget.initiallyRendered;
+  late RenderEngine? _rendered = widget.initialRender;
+  bool _fellBack = false;
+  RenderQuality _quality = RenderQuality.standard;
   bool _sending = false;
   bool _rendering = false;
 
@@ -58,14 +60,15 @@ class _PicturesSheetState extends State<PicturesSheet> {
     }
   }
 
-  Future<void> _render() async {
+  Future<void> _render(RenderRequest request) async {
     setState(() => _rendering = true);
     try {
-      final made = await widget.onRender();
+      final made = await widget.onRender(request);
       if (made != null && mounted) {
         setState(() {
-          _images = made;
-          _rendered = true;
+          _images = made.images;
+          _rendered = made.engine;
+          _fellBack = made.fellBack;
         });
       }
     } finally {
@@ -95,7 +98,7 @@ class _PicturesSheetState extends State<PicturesSheet> {
                     child: Text('Pictures of the design',
                         style: context.textTheme.titleMedium),
                   ),
-                  if (_rendered)
+                  if (_rendered != null)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
@@ -103,7 +106,10 @@ class _PicturesSheetState extends State<PicturesSheet> {
                         color: AppTheme.successDim,
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text('Realistic render',
+                      child: Text(
+                          _rendered == RenderEngine.path
+                              ? 'True-lighting render'
+                              : 'Realistic render',
                           style: context.textTheme.labelSmall
                               ?.copyWith(color: AppTheme.success)),
                     ),
@@ -115,6 +121,15 @@ class _PicturesSheetState extends State<PicturesSheet> {
                 style: context.textTheme.bodySmall
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
+              if (_fellBack) ...[
+                const SizedBox(height: 8),
+                Text(
+                  "This device can't do true lighting, so the realistic "
+                  'render was made instead.',
+                  style: context.textTheme.bodySmall
+                      ?.copyWith(color: context.colors.onSurfaceVariant),
+                ),
+              ],
               const SizedBox(height: 12),
               for (var i = 0; i < bytes.length; i++) ...[
                 ClipRRect(
@@ -160,10 +175,12 @@ class _PicturesSheetState extends State<PicturesSheet> {
                       ),
                   ],
                 ),
-                if (!_rendered) ...[
+                if (_rendered == null) ...[
                   const SizedBox(height: 8),
                   TextButton.icon(
-                    onPressed: _sending ? null : _render,
+                    onPressed: _sending
+                        ? null
+                        : () => _render(const RenderRequest(RenderEngine.sky)),
                     icon: const Icon(Icons.auto_awesome_outlined, size: 18),
                     label: const Text('Make a realistic render'),
                   ),
@@ -172,6 +189,39 @@ class _PicturesSheetState extends State<PicturesSheet> {
                     'quote uses it if the design has not changed.',
                     style: context.textTheme.bodySmall
                         ?.copyWith(color: context.colors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _sending
+                        ? null
+                        : () => _render(RenderRequest(RenderEngine.path, _quality)),
+                    icon: const Icon(Icons.wb_incandescent_outlined, size: 18),
+                    label: const Text('Make a true-lighting render'),
+                  ),
+                  Text(
+                    'Light bounces off the oak, the walls and the floor, '
+                    'like in a photograph. Slower, and needs a recent '
+                    'device. You can cancel.',
+                    style: context.textTheme.bodySmall
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Standard'),
+                        selected: _quality == RenderQuality.standard,
+                        onSelected: (_) =>
+                            setState(() => _quality = RenderQuality.standard),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Fine detail (slower)'),
+                        selected: _quality == RenderQuality.fine,
+                        onSelected: (_) =>
+                            setState(() => _quality = RenderQuality.fine),
+                      ),
+                    ],
                   ),
                 ],
               ],
