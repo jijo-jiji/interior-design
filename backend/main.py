@@ -163,6 +163,10 @@ class QuoteRequest(BaseModel):
     # or PNG, up to MAX_PICTURES. The server stores them as files, prints
     # them in the quote PDF and serves them to the client.
     design_images: list[str] = []
+    # How the design was dressed in the pictures (sales app "Look"): doors,
+    # backsplash, decor, light. Presentation only; the quote says what in it
+    # is not part of the price.
+    scene: dict[str, Any] | None = None
 
 class LineItem(BaseModel):
     description: str
@@ -239,6 +243,7 @@ def create_quote(request: QuoteRequest):
         total_price=total_price,
         catalog=catalog,
         pictures=[path for path, _ in pictures],
+        scene=_clean_scene(request.scene),
     )
 
     # Store path for /pdf/<id> retrieval
@@ -269,6 +274,9 @@ def create_quote(request: QuoteRequest):
     }
     if request.floor_plan:
         record["floor_plan"] = _store_floor_plan(quote_id, request.floor_plan)
+    look = _clean_scene(request.scene)
+    if look:
+        record["scene"] = look
     if pictures:
         record["pictures"] = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(pictures) + 1)]
     db = _load_projects_db()
@@ -580,6 +588,7 @@ def pictures_page(quote_id: str):
     db = _load_projects_db()
     name = (db.get(quote_id) or {}).get("client_name") or ""
     heading = f"Your kitchen design" + (f", {name}" if name else "")
+    note = _scene_note((db.get(quote_id) or {}).get("scene"))
     figures = "".join(
         f'<figure><img src="/api/projects/{quote_id}/picture/{n}" alt="Picture {n} of your kitchen design">'
         f'<figcaption><a href="/api/projects/{quote_id}/picture/{n}" download="kitchen-{quote_id}-{n}.jpg">Save picture {n}</a></figcaption></figure>'
@@ -594,7 +603,8 @@ def pictures_page(quote_id: str):
         "figure{margin:0 0 1.5rem}img{width:100%;height:auto;border-radius:.75rem;display:block}"
         "figcaption{padding:.5rem 0}a{color:#8f5238;font-weight:600}p{color:#574a3e;font-size:.9rem}</style></head><body><main>"
         f"<h1>{html.escape(heading)}</h1>{figures}"
-        "<p>These pictures show the design. Colours and finishes may look slightly different from the real materials.</p>"
+        "<p>These pictures show the design. Colours and finishes may look slightly different from the real materials. "
+        f"{html.escape(note)}</p>"
         "</main></body></html>"
     )
 
@@ -778,6 +788,43 @@ def get_pdf(quote_id: str):
 
 # ─── PDF Generation ──────────────────────────────────────────────────────────
 
+_SCENE_OPTIONS = {
+    "doors": {"slab", "shaker", "raised"},
+    "backsplash": {"none", "subway", "hex"},
+    "mood": {"day", "evening"},
+}
+
+
+def _clean_scene(scene: dict[str, Any] | None) -> dict[str, Any]:
+    """The parts of a design's look the server knows, with nothing else kept."""
+    if not isinstance(scene, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, allowed in _SCENE_OPTIONS.items():
+        if scene.get(key) in allowed:
+            out[key] = scene[key]
+    if isinstance(scene.get("decor"), bool):
+        out["decor"] = scene["decor"]
+    return out
+
+
+def _scene_note(scene: dict[str, Any] | None) -> str:
+    """What in the pictures is not part of the quote (printed under them)."""
+    scene = _clean_scene(scene)
+    shown = []
+    if scene.get("decor", False):
+        shown.append("The decor (plates, plants, jars and similar)")
+    if scene.get("backsplash", "none") != "none":
+        shown.append("the backsplash tile" if shown else "The backsplash tile")
+    note = ""
+    if shown:
+        note = (" and ".join(shown) + (" shown are" if len(shown) > 1 else " shown is")
+                + " not part of this quote.")
+    if scene.get("doors", "slab") != "slab":
+        note += " The door style shown is for illustration."
+    return note.strip()
+
+
 def _pdf_pictures(paths: list[str]) -> list[RLImage]:
     """The design pictures sized to share one row of the page (170 mm wide):
     one fills it, two sit side by side. A file that can't be read is skipped."""
@@ -808,6 +855,7 @@ def _generate_pdf(
     total_price: float,
     catalog: "catalog_lib.Catalog | None" = None,
     pictures: list[str] | None = None,
+    scene: dict[str, Any] | None = None,
 ) -> str:
     catalog = catalog or _catalog_for(request)
     # Proposals used to land in the OS temp directory, so every signed PDF was
@@ -897,7 +945,7 @@ def _generate_pdf(
         story.append(gallery)
         story.append(Paragraph(
             "<font size=8 color='#555577'>Pictures show the design. Colours and finishes may look slightly "
-            "different from the real materials.</font>",
+            f"different from the real materials. {html.escape(_scene_note(scene))}</font>",
             styles["Normal"],
         ))
     story.append(Spacer(1, 6 * mm))

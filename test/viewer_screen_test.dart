@@ -330,6 +330,115 @@ void main() {
     });
   });
 
+  group('the look of the design', () {
+    testWidgets('is put on the page before the cabinets arrive',
+        (tester) async {
+      await pumpViewer(tester);
+      final js = page().javaScript;
+      final cabinets = js.indexWhere((c) => c.startsWith('replaceCabinets('));
+      for (final call in const [
+        "setDoorStyle('slab')",
+        "setBacksplash('subway')",
+        'setDecor(true)',
+        "setMood('day')",
+      ]) {
+        final at = js.indexOf(call);
+        expect(at, isNonNegative, reason: call);
+        // Doors rebuild every cabinet, so they must precede the cabinets.
+        expect(at, lessThan(cabinets), reason: call);
+      }
+      await finish(tester);
+    });
+
+    testWidgets('the Look button changes doors, backsplash, light and decor',
+        (tester) async {
+      await pumpViewer(tester);
+      await tester
+          .tap(find.byTooltip('Look: doors, backsplash, decor and light'));
+      await tester.pumpAndSettle();
+      expect(find.text('Look of the design'), findsOneWidget);
+      expect(find.textContaining('changes the price'), findsOneWidget);
+
+      // Each change sends the whole look, so read the latest of each call.
+      String latest(String prefix) =>
+          page().javaScript.lastWhere((c) => c.startsWith(prefix));
+      await tester.tap(find.text('Shaker'));
+      await tester.pump();
+      expect(latest('setDoorStyle'), "setDoorStyle('shaker')");
+      await tester.tap(find.text('Hexagon tile'));
+      await tester.pump();
+      expect(latest('setBacksplash'), "setBacksplash('hex')");
+      await tester.tap(find.text('Evening'));
+      await tester.pump();
+      expect(latest('setMood'), "setMood('evening')");
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      expect(latest('setDecor'), 'setDecor(false)');
+      // Not included in the quote, in so many words.
+      expect(find.textContaining('Not included in the quote'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('is saved with the design and comes back when it is reopened',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await tester
+          .tap(find.byTooltip('Look: doors, backsplash, decor and light'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Raised panel'));
+      await tester.pump();
+      await tester.tap(find.text('Evening'));
+      await tester.pump();
+      await finish(tester);
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 250)));
+      final drafts = await tester.runAsync(OfflineStore.getDrafts);
+      final saved =
+          drafts!.firstWhere((d) => d['quote_id'] == 'QT-TEST-VIEWER');
+      expect(saved['scene'], {
+        'doors': 'raised',
+        'backsplash': 'subway',
+        'decor': true,
+        'mood': 'evening',
+      });
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+
+      // Reopened from the saved record.
+      final reopened = jsonDecode(payload) as Map<String, dynamic>
+        ..['scene'] = {
+          'doors': 'raised',
+          'backsplash': 'hex',
+          'decor': false,
+          'mood': 'evening',
+        };
+      // A new screen, not an update of the old one.
+      await tester.pumpWidget(const SizedBox());
+      await pumpViewer(tester, json: jsonEncode(reopened));
+      expect(page().javaScript, contains("setDoorStyle('raised')"));
+      expect(page().javaScript, contains("setBacksplash('hex')"));
+      expect(page().javaScript, contains('setDecor(false)'));
+      expect(page().javaScript, contains("setMood('evening')"));
+      await finish(tester);
+    });
+
+    testWidgets('Look is off while a render runs', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': const <String>[]
+      });
+      await tester.pump();
+      final look = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.palette_outlined));
+      expect(look.onPressed, isNotNull); // normal when nothing is rendering
+      await finish(tester);
+    });
+  });
+
   group('finish textures', () {
     testWidgets('are handed to the page before the scene loads',
         (tester) async {

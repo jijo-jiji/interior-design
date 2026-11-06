@@ -10,6 +10,8 @@ Run from the repo root:  python -m pytest backend/test_pictures.py
 import base64
 import io
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -198,3 +200,66 @@ def test_an_upload_with_nothing_usable_is_refused_and_changes_nothing(client, im
 def test_an_upload_for_a_bad_quote_id_is_refused(client, tmp_path):
     assert client.post("/api/projects/not-a-quote/pictures", json={"images": [_url(_image())]}).status_code == 404
     assert not (tmp_path / "pictures").exists()
+
+
+# ── What in the pictures is not part of the quote ───────────────────────────
+
+
+@pytest.mark.parametrize(
+    "scene, expected",
+    [
+        (None, ""),
+        ({}, ""),
+        ({"decor": False, "backsplash": "none", "doors": "slab"}, ""),
+        ({"decor": True}, "The decor (plates, plants, jars and similar) shown is not part of this quote."),
+        ({"backsplash": "hex"}, "The backsplash tile shown is not part of this quote."),
+        (
+            {"decor": True, "backsplash": "subway", "doors": "shaker"},
+            "The decor (plates, plants, jars and similar) and the backsplash tile shown are not part of this "
+            "quote. The door style shown is for illustration.",
+        ),
+        ({"doors": "raised", "decor": False, "backsplash": "none"}, "The door style shown is for illustration."),
+        # Nonsense is ignored, never printed.
+        ({"decor": "yes", "backsplash": "<b>x</b>", "doors": "glass"}, ""),
+    ],
+)
+def test_the_note_says_what_in_the_pictures_is_not_in_the_quote(scene, expected):
+    assert main._scene_note(scene) == expected
+
+
+def test_only_the_known_parts_of_the_look_are_kept(client):
+    body = _quote([_url(_image())])
+    body["scene"] = {"doors": "shaker", "backsplash": "hex", "decor": True, "mood": "evening",
+                     "secret": "x", "extra": {"a": 1}}
+    client.post("/quote", json=body)
+    assert client.get("/api/projects/QT-PIC-1").json()["scene"] == {
+        "doors": "shaker", "backsplash": "hex", "decor": True, "mood": "evening",
+    }
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext not installed")
+def test_the_pdf_prints_the_note_under_the_pictures(client, tmp_path):
+    body = _quote([_url(_image())])
+    body["scene"] = {"decor": True, "backsplash": "subway", "doors": "shaker"}
+    client.post("/quote", json=body)
+    pdf = tmp_path / "q.pdf"
+    pdf.write_bytes(client.get("/pdf/QT-PIC-1").content)
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
+    flat = " ".join(text.split())
+    assert "not part of this quote" in flat and "The door style shown is for illustration" in flat
+
+    # A quote with plain pictures carries no such note.
+    plain = _quote([_url(_image())], quote_id="QT-PIC-2")
+    plain["scene"] = {"decor": False, "backsplash": "none", "doors": "slab"}
+    client.post("/quote", json=plain)
+    pdf.write_bytes(client.get("/pdf/QT-PIC-2").content)
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
+    assert "not part of this quote" not in " ".join(text.split())
+
+
+def test_the_clients_page_carries_the_same_note(client):
+    body = _quote([_url(_image())])
+    body["scene"] = {"decor": True, "backsplash": "none", "doors": "slab"}
+    client.post("/quote", json=body)
+    page = client.get("/pictures/QT-PIC-1").text
+    assert "The decor (plates, plants, jars and similar) shown is not part of this quote." in page

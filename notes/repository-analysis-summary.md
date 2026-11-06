@@ -444,3 +444,26 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 - **Studio:** its own 3D view still uses the old drawn finishes; the texture pipeline is only in the sales app's 3D page (and so in its pictures and render).
 - The renders still have no light bouncing or real reflections, so a photograph-level look also needs those.
 - Painted white is a flat colour; a real lacquer sample would need a photo only if it has texture.
+
+## 20. Session 2026-11-06 — dressing the scene (doors, backsplash, decor, light)
+
+**Why:** reference pictures of finished kitchens (a grey shaker kitchen, a warm kitchen with an island and open shelves, a navy raised-panel kitchen) showed two kinds of difference from our render: what is *in* the scene, and the lighting engine (light bouncing, true reflections). Asked which to do first, the answer was the scene; the lighting engine is still the open half.
+
+**Built** (`assets/3d/index.html`, `lib/features/viewer/models/scene_look.dart`)
+- **Door styles:** flat, shaker (frame round a recessed panel, with a fine lip) and raised panel (two steps up from the recess); framed wall units get a cornice. `setDoorStyle` rebuilds the cabinets.
+- **Tile backsplash:** subway and hexagon, between the worktop and the wall units, following the base units (so it grows and shrinks with them), along the side wall of an L, and stopping at a window. Tile textures come from the generator (a tile sheet, relief and gloss maps).
+- **Decor:** plates, a fruit bowl, jars, a plant, a chopping board, a utensil crock, a kettle and a knife block, from simple shapes, placed on worktops by a fixed rule (the same design always gets the same decor; some worktop stays bare). Not cabinets: nothing selects them, nothing prices them.
+- **Light:** `day`, or `evening` (warm sky, the main light dimmed, strong warm under-cabinet lights). Day also gets a gentle under-cabinet light: without it the backsplash sat in the cabinets' shadow as a dark slab. A render re-balances for the evening too.
+- **App:** a palette button opens a "Look" sheet (doors, backsplash, light, decor). The choice is saved with the design (`scene` in the record), sent with the quote, and put on the page before the cabinets arrive.
+- **Honesty about what the quote covers:** the server keeps only the known parts of the look, and prints under the pictures in the PDF and on the client's page that the decor and the backsplash tile shown are not part of the quote and that the door style shown is for illustration.
+
+**Open decisions**
+- **Pricing:** door style and backsplash don't change the price (there is no price rule for them). If shaker or raised doors cost more at SS Love, the catalogue needs a rule; until then the note above is what keeps a client from assuming otherwise.
+- The sample look is not SS Love's. Their real door profiles and tile choices need the designer.
+
+**Still missing for the reference pictures**
+- **Lighting engine:** no light bouncing between surfaces, no true reflections in the floor, steel or stone, no glass.
+- **Room context:** no ceiling with downlights, no other walls, rugs or furniture; an island, open shelves and glass-front doors are not in the layout generator.
+- **Better models:** props and appliances are simple shapes (the reference pictures use detailed models); a stainless fridge with its door lines, a real oven, gas hob grates.
+
+**Verified:** Flutter 256 tests, backend 97 (11 new for the look and the quote note), Studio 87. 3D page in Chromium: scene check 21 (door styles, backsplash and the window, decor, light, L-shape, pictures with everything on), textures 18, pictures 12, render guard 7. Through the real app in Chromium: the Look sheet changes the page, the server keeps the look, and the PDF and the picture page carry the note.

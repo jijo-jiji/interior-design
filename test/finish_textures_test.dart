@@ -45,6 +45,20 @@ void main() {
       expect(textures.containsKey('floor_oak'), isTrue);
     });
 
+    test('the backsplash tiles the page names are in the manifest', () {
+      final tiles = RegExp(r"'(tile_[a-z]+)'")
+          .allMatches(page)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(tiles, {'tile_subway', 'tile_hex'});
+      for (final id in tiles) {
+        expect(textures.containsKey(id), isTrue, reason: id);
+        expect((textures[id] as Map)['kind'], 'tile');
+      }
+      // The hexagon sheet is not square: the manifest says how tall it is.
+      expect((textures['tile_hex'] as Map)['tile_h_m'], isNotNull);
+    });
+
     test('the set stays small enough to send to a tablet', () {
       final bytes = Directory('assets/3d/textures')
           .listSync()

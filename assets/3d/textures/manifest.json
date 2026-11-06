@@ -58,6 +58,21 @@
       "tile_m": 1.2,
       "kind": "stone"
     },
+    "tile_subway": {
+      "albedo": "tile_subway_albedo.jpg",
+      "normal": "tile_subway_normal.jpg",
+      "roughness": "tile_subway_rough.jpg",
+      "tile_m": 0.6,
+      "kind": "tile"
+    },
+    "tile_hex": {
+      "albedo": "tile_hex_albedo.jpg",
+      "normal": "tile_hex_normal.jpg",
+      "roughness": "tile_hex_rough.jpg",
+      "tile_m": 0.6,
+      "kind": "tile",
+      "tile_h_m": 0.5197
+    },
     "floor_oak": {
       "albedo": "floor_oak_albedo.jpg",
       "normal": "floor_oak_normal.jpg",

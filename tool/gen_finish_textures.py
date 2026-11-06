@@ -96,13 +96,17 @@ def normal_from_height(height, strength=1.0):
 
 
 def resample(img, size):
-    """Smaller copy of an HxW or HxWx3 float image (box average)."""
-    f = img.shape[0] // size
+    """Smaller copy of an HxW or HxWx3 float image (box average), keeping its
+    shape: [size] is the width."""
+    h, w = img.shape[:2]
+    f = w // size
     if f <= 1:
         return img
+    nh = h // f
+    img = img[:nh * f, :size * f]
     if img.ndim == 2:
-        return img.reshape(size, f, size, f).mean(axis=(1, 3))
-    return img.reshape(size, f, size, f, img.shape[2]).mean(axis=(1, 3))
+        return img.reshape(nh, f, size, f).mean(axis=(1, 3))
+    return img.reshape(nh, f, size, f, img.shape[2]).mean(axis=(1, 3))
 
 
 def to_img(a):
@@ -336,6 +340,71 @@ def micro(seed):
     return peel, rough
 
 
+# ── Tiles ────────────────────────────────────────────────────────────────────
+
+
+def tile_maps(inside, edge, tint, *, grout=rgb(206, 204, 198), seed=0):
+    """Colour, height and roughness for a glazed tile layout.
+
+    [inside] is 1 inside a tile and 0 in the grout; [edge] is 0 at a tile's
+    edge rising to 1 a few pixels in (the bevel)."""
+    h, w = inside.shape
+    var = fnoise((h, w), 0.2, lo=2, hi=40, seed=seed) * 0.006
+    cell = np.tile(tint, (h, w, 1)) * (1 + var[..., None])
+    # per-tile tone: smooth the id field by quantising low-frequency noise
+    col = mix(np.tile(grout, (h, w, 1)), np.clip(cell, 0, 1), inside)
+    # the glaze darkens very slightly toward the edges
+    col = col * (1 - 0.035 * (1 - edge))[..., None]
+    height = inside * (0.5 + 0.5 * edge) - 1.0
+    rough = np.clip(0.12 + (1 - inside) * 0.7, 0.05, 1.0)
+    return np.clip(col, 0, 1), height, rough
+
+
+def subway(seed=0):
+    """Subway tile, 150 x 75 mm with a 2 mm joint, laid in a half-brick bond;
+    the tile is 0.6 m square (4 bricks across, 8 courses)."""
+    n = SIZE
+    px_w, px_h = n / 4.0, n / 8.0
+    y, x = np.mgrid[0:n, 0:n].astype(np.float64)
+    row = np.floor(y / px_h)
+    xx = (x + (row % 2) * px_w / 2.0) % px_w
+    yy = y % px_h
+    grout_px = 3.0
+    dx = np.minimum(xx, px_w - xx)
+    dy = np.minimum(yy, px_h - yy)
+    d = np.minimum(dx, dy)
+    inside = smooth(d, grout_px * 0.5, grout_px * 0.5 + 1.2)
+    edge = smooth(d, grout_px, grout_px + 7.0)
+    return tile_maps(inside, edge, rgb(243, 243, 241), seed=seed)
+
+
+def hexagons(seed=0):
+    """A hexagon mosaic, 12 across (about 50 mm each); the tile is 0.6 m wide
+    and about 0.52 m high (six double rows of hexagons)."""
+    w = SIZE
+    h = int(round(w / 12.0 * 6 * np.sqrt(3)))
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64)
+    # lattice units: one hexagon is 1 wide (flat to flat), rows 0.5*sqrt(3) apart
+    u = x / (w / 12.0)
+    v = y / (h / (6 * np.sqrt(3)))
+    def to_nearest(u, v, du, dv):
+        # distance to the nearest of two interleaved lattices
+        a = ((u - du) % 1.0) - 0.5, ((v - dv) % np.sqrt(3)) - np.sqrt(3) / 2
+        return a
+    ax, ay = to_nearest(u, v, 0.0, 0.0)
+    bx, by = to_nearest(u, v, 0.5, np.sqrt(3) / 2)
+    def hexdist(px, py):
+        # hexagon with flat sides left and right: distance to the edge, in lattice units
+        px, py = np.abs(px), np.abs(py)
+        return 0.5 - np.maximum(px, px * 0.5 + py * np.sqrt(3) / 2)
+    da, db = hexdist(ax, ay), hexdist(bx, by)
+    d = np.maximum(da, db) * (w / 12.0)
+    grout_px = 2.2
+    inside = smooth(d, grout_px * 0.5, grout_px * 0.5 + 1.2)
+    edge = smooth(d, grout_px, grout_px + 3.5)
+    return tile_maps(inside, edge, rgb(240, 240, 237), seed=seed)
+
+
 # ── The set ──────────────────────────────────────────────────────────────────
 
 OAK_EARLY, OAK_LATE = rgb(232, 202, 158), rgb(196, 152, 104)
@@ -362,6 +431,8 @@ def build():
     t["terrazzo"] = (*terrazzo(16, rgb(231, 226, 216),
                               [((70, 72, 74), 2), ((176, 120, 92), 2), ((148, 166, 140), 2), ((244, 240, 232), 3),
                                ((190, 176, 150), 3), ((36, 36, 38), 1)]), 0.0, 1.2, "stone")
+    t["tile_subway"] = (*subway(21), 1.6, 0.6, "tile")
+    t["tile_hex"] = (*hexagons(22), 1.6, 0.6, "tile")
     t["floor_oak"] = (*floor_planks(404, rgb(224, 192, 148), rgb(190, 150, 104)), 1.2, 2.4, "floor")
     return t
 
@@ -371,11 +442,11 @@ def save_set(name, albedo, height, rough, strength, out_dir):
     img = to_img(albedo)
     img.save(os.path.join(out_dir, files["albedo"]), quality=84, optimize=True, progressive=True)
     if np.any(height != 0):
-        h_small = resample(height, SMALL) if height.shape[0] > SMALL else height
+        h_small = resample(height, SMALL) if height.shape[1] > SMALL else height
         nrm = normal_from_height(h_small, strength)
         files["normal"] = f"{name}_normal.jpg"
         to_img(nrm).save(os.path.join(out_dir, files["normal"]), quality=88, optimize=True)
-    r_small = resample(rough, SMALL) if rough.shape[0] > SMALL else rough
+    r_small = resample(rough, SMALL) if rough.shape[1] > SMALL else rough
     files["roughness"] = f"{name}_rough.jpg"
     to_img(r_small).convert("L").save(os.path.join(out_dir, files["roughness"]), quality=85, optimize=True)
     return files
@@ -392,6 +463,8 @@ def main():
     for name, (albedo, height, rough, strength, tile, kind) in build().items():
         files = save_set(name, albedo, height, rough, strength, args.out)
         manifest["textures"][name] = {**files, "tile_m": tile, "kind": kind}
+        if albedo.shape[0] != albedo.shape[1]:
+            manifest["textures"][name]["tile_h_m"] = round(tile * albedo.shape[0] / albedo.shape[1], 4)
         print(f"{name:14s} {sum(os.path.getsize(os.path.join(args.out, f)) for f in files.values()) / 1024:7.0f} KB")
 
     peel, rough = micro(901)

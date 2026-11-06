@@ -35,6 +35,7 @@ flat colour.
 | `terrazzo` | Nordic worktop |
 | `slate_dark` | Industrial worktop |
 | `calacatta`, `granite_black` | the benchtop choices *Calacatta Engineered Quartz* and *Nero Absolute Granite* |
+| `tile_subway`, `tile_hex` | the backsplash: 150×75 mm subway bricks and a hexagon mosaic (0.6 m per tile; the hexagon sheet is not square, `tile_h_m` in the manifest says how tall) |
 | `floor_oak` | the room's floor (about 2.4 m of plank floor per tile) |
 
 Painted fronts (the white wall units, Minimalist's charcoal, Nordic's sage)

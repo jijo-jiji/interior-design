@@ -132,3 +132,16 @@ photographs of SS Love's finishes**: the folder's README says how to replace
 them with real photographs. Choosing a benchtop in the Edit panel now changes
 the worktop in the 3D view (the Calacatta and granite choices have their own
 look; any other benchtop keeps the style's worktop).
+
+### Look of the design (doors, backsplash, decor, light)
+
+The palette icon on the 3D screen changes how the design is dressed, in 3D
+and in the pictures: **doors** (flat, shaker, raised panel; framed doors also
+get a cornice on the wall units), **backsplash** (none, subway or hexagon
+tile, following the cabinets and stopping at windows), **light** (day, or a
+warm evening with the under-cabinet lights on) and **decor** (plates, jars,
+plants and the like on the worktop, drawn from simple shapes). It is saved
+with the design. **None of it changes the price**, and the quote PDF and the
+client's picture page say that the decor and the backsplash tile shown are
+not part of the quote and that the door style is for illustration. If a door
+style or a tile should cost more, that needs a price rule from the designer.

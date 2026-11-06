@@ -19,6 +19,7 @@ import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
+import '../models/scene_look.dart';
 import '../scene/finish_textures.dart';
 import '../scene/scene_bridge.dart';
 import '../utils/design_pictures.dart';
@@ -63,6 +64,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _priceVisible = false;
 
   Timer? _saveTimer;
+
+  /// How the design is dressed: doors, backsplash, decor and light.
+  SceneLook _look = const SceneLook();
 
   /// Calls waiting for the 3D page to send pictures, by request id: 'app' is
   /// a quick capture, 'render' a realistic render.
@@ -142,6 +146,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _floorPlan = parsed['floor_plan'] as Map<String, dynamic>?;
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
       _benchtopMaterial = parsed['benchtop_material'] as String?;
+      _look = SceneLook.fromJson(parsed['scene']);
       if (parsed['placed_cabinets'] != null) {
         final cabs = parsed['placed_cabinets'] as List<dynamic>;
         for (final c in cabs) {
@@ -245,6 +250,105 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           },
       ]);
 
+  /// Puts [_look] on the 3D view.
+  Future<void> _applyLook() async {
+    for (final call in _look.javaScript) {
+      await _scene.runJavaScript(call);
+    }
+  }
+
+  void _setLook(SceneLook look) {
+    if (look == _look) return;
+    setState(() => _look = look);
+    _applyLook();
+    _scheduleSave();
+  }
+
+  /// The Look button: doors, backsplash, decor and light.
+  void _showLookSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void change(SceneLook look) {
+            _setLook(look);
+            setSheetState(() {});
+          }
+
+          Widget choices(String label, Map<String, String> options,
+                  String selected, void Function(String) onPick) =>
+              Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: context.textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in options.entries)
+                          ChoiceChip(
+                            label: Text(entry.value),
+                            selected: selected == entry.key,
+                            onSelected: (_) => onPick(entry.key),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Look of the design',
+                      style: context.textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    'How it is shown in 3D and in the pictures. None of this '
+                    'changes the price.',
+                    style: context.textTheme.bodySmall
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 14),
+                  choices('Doors', SceneLook.doorOptions, _look.doors,
+                      (v) => change(_look.copyWith(doors: v))),
+                  choices(
+                      'Backsplash',
+                      SceneLook.backsplashOptions,
+                      _look.backsplash,
+                      (v) => change(_look.copyWith(backsplash: v))),
+                  choices('Light', SceneLook.moodOptions, _look.mood,
+                      (v) => change(_look.copyWith(mood: v))),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show decor'),
+                    subtitle: const Text(
+                        'Plates, jars, plants on the worktop. Not included '
+                        'in the quote.'),
+                    value: _look.decor,
+                    onChanged: (v) => change(_look.copyWith(decor: v)),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   /// Puts the chosen benchtop on the worktop in the 3D view (none: the
   /// style's own).
   Future<void> _showBenchtop() =>
@@ -261,6 +365,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await FinishTextures.send(_scene.runJavaScript);
     await _scene.runJavaScript("loadScene('$escaped')");
     await _showBenchtop();
+    await _applyLook();
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
       _showVariantWarnings(
@@ -323,6 +428,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
       'benchtop_material': _benchtopMaterial,
+      'scene': _look.toJson(),
       'client_name': _clientName,
       'client_phone': _clientPhone,
       'client_email': _clientEmail,
@@ -1207,6 +1313,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       appBar: AppBar(
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
+          IconButton(
+            tooltip: 'Look: doors, backsplash, decor and light',
+            onPressed: _sceneLoaded && !_rendering ? _showLookSheet : null,
+            icon: const Icon(Icons.palette_outlined),
+          ),
           IconButton(
             tooltip: 'Take pictures of this design',
             onPressed: _sceneLoaded && !_rendering ? _takePictures : null,
