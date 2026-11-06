@@ -50,6 +50,37 @@ void main() {
     });
   });
 
+  group('what a true-lighting render reached', () {
+    test('is read from what the page sends', () {
+      final stats = RenderStats.fromJson({
+        'samples': [143, 151.0],
+        'seconds': [98.2, 101],
+        'gpu': ' Adreno (TM) 650 ',
+      })!;
+      expect(stats.samples, [143, 151]);
+      expect(stats.seconds, [98.2, 101.0]);
+      expect(stats.gpu, 'Adreno (TM) 650');
+    });
+
+    test('says it in words, with the chip when known', () {
+      expect(
+        const RenderStats(samples: [143, 151], seconds: [98, 101.5], gpu: 'X')
+            .summary,
+        'Light paths traced: 143 and 151 samples, in 98 and 101.5 s.\n'
+        'Graphics: X',
+      );
+      expect(const RenderStats(samples: [64]).summary,
+          'Light paths traced: 64 samples.');
+    });
+
+    test('is nothing when the page sent nothing usable', () {
+      expect(RenderStats.fromJson(null), isNull);
+      expect(RenderStats.fromJson('x'), isNull);
+      expect(RenderStats.fromJson({'samples': []}), isNull);
+      expect(RenderStats.fromJson({'samples': ['a']}), isNull);
+    });
+  });
+
   group('reading a picture', () {
     test('gives the bytes of an image data URL', () {
       final bytes = DesignPictures.decode('data:image/png;base64,$_png');

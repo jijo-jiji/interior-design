@@ -127,8 +127,11 @@ the Studio (**Price list** in the header).
   without, the sheet says so and makes the realistic render instead. *Cancel*
   stops it. The library is `assets/3d/pathtracer.min.js`
   ([how it is built](tool/pathtracer/README.md), licences in
-  `assets/3d/pathtracer.LICENSE.txt`). **How fast it is on a tablet has not
-  been measured**; here it was only run with software rendering.
+  `assets/3d/pathtracer.LICENSE.txt`). After a true-lighting render the sheet
+  shows how many samples each picture reached, how long it took and the
+  graphics chip. **How fast it is on a tablet has not been measured** (here it
+  was only run with software rendering): see
+  [the tablet test](notes/true-lighting-tablet-test.md).
 - **The quote:** sending a quote carries the pictures. The signed PDF shows
   them under "Your design", and the client's message links a page with them
   (`/pictures/<quote id>`). Pictures are stored in `backend/design_pictures/`

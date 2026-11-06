@@ -2957,6 +2957,15 @@ const PATH_LOOK = {
 };
 window.PATH_LOOK = PATH_LOOK; // adjustable while tuning
 
+// The graphics chip's name, where the browser says (it helps to read a test).
+function gpuName() {
+  try {
+    const gl = renderer.getContext();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+  } catch (e) { return ''; }
+}
+
 function pathTracerAvailable() {
   try {
     if (!window.PathTracerLib || !renderer) return false;
@@ -3265,6 +3274,7 @@ window.renderPictures = async function(requestId, options) {
   };
   let pt = null;
   const images = [];
+  const pathStats = { samples: [], seconds: [] }; // what a path-traced picture reached
   let cancelled = false;
   if (renderBusy) {
     notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
@@ -3307,9 +3317,14 @@ window.renderPictures = async function(requestId, options) {
         cam.updateMatrixWorld(true);
         const label = `Rendering picture ${n + 1} of ${views.length}`;
         const progress = fraction => notifyFlutter({ event: 'render_progress', request_id: requestId || null, fraction: (n + fraction) / views.length });
+        const started = performance.now();
         const data = usePath
           ? await renderPathStill(pt, cam, PICTURE_W, PICTURE_H, pathOptions, label, progress)
           : await renderStill(cam, PICTURE_W, PICTURE_H, samples, label, progress);
+        if (usePath) {
+          pathStats.samples.push(Math.round(window.__lastPathSamples));
+          pathStats.seconds.push(Math.round((performance.now() - started) / 100) / 10);
+        }
         images.push({ name: view.name, data });
       }
     } catch (e) {
@@ -3332,6 +3347,7 @@ window.renderPictures = async function(requestId, options) {
   notifyFlutter({
     event: 'pictures', request_id: requestId || null, rendered: true, cancelled,
     engine: usePath ? 'path' : 'sky', fell_back: wantPath && !usePath,
+    stats: usePath && !cancelled ? { samples: pathStats.samples, seconds: pathStats.seconds, gpu: gpuName() } : null,
     images: images.map(i => i.data), names: images.map(i => i.name),
   });
   return images;

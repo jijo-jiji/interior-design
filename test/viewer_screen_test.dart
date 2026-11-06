@@ -677,11 +677,20 @@ void main() {
         'rendered': true,
         'engine': 'path',
         'fell_back': false,
+        'stats': {
+          'samples': [143, 151],
+          'seconds': [98.4, 101],
+          'gpu': 'Test GPU',
+        },
         'images': [rendered, rendered],
       });
       await tester.pumpAndSettle();
       expect(find.text('True-lighting render'), findsOneWidget);
       expect(find.text('Realistic render'), findsNothing);
+      // What it reached is shown, so a test on a device can be read.
+      expect(find.textContaining('143 and 151 samples, in 98.4 and 101 s'),
+          findsOneWidget);
+      expect(find.textContaining('Graphics: Test GPU'), findsOneWidget);
       expect(find.textContaining("can't do true lighting"), findsNothing);
       expect(find.text('Make a true-lighting render'), findsNothing);
       expect(find.text('Send on WhatsApp'), findsOneWidget);

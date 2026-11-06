@@ -79,12 +79,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// Goes up with every change to the design, so a render made earlier can
   /// be told from one of the design as it is now.
   int _designRevision = 0;
-  ({int revision, List<String> images, RenderEngine engine})? _rendered;
+  ({
+    int revision,
+    List<String> images,
+    RenderEngine engine,
+    RenderStats? stats,
+  })? _rendered;
 
   /// What the page said about the render it last finished: the engine that
   /// made it, and whether it fell back on another for want of the device.
-  ({RenderEngine? engine, bool fellBack}) _lastRender =
-      (engine: null, fellBack: false);
+  ({RenderEngine? engine, bool fellBack, RenderStats? stats}) _lastRender =
+      (engine: null, fellBack: false, stats: null);
 
   /// How many frames a render averages: more is smoother and slower.
   /// (`--dart-define=RENDER_SAMPLES=n` changes it, for testing.)
@@ -583,6 +588,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 _ => null,
               },
               fellBack: data['fell_back'] == true,
+              stats: RenderStats.fromJson(data['stats']),
             );
           }
           _pictureRequests
@@ -901,7 +907,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!_sceneLoaded || _rendering) return null;
     setState(() => _rendering = true);
     _renderProgress.value = 0;
-    _lastRender = (engine: null, fellBack: false);
+    _lastRender = (engine: null, fellBack: false, stats: null);
     final images = await _pictureCall(
       'render',
       request.javaScript(skySamples: _renderSamples),
@@ -917,8 +923,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // The page says which engine it used; an older page says nothing, which
     // means the one asked for.
     final engine = _lastRender.engine ?? request.engine;
-    _rendered = (revision: _designRevision, images: images, engine: engine);
-    return RenderResult(images, engine, fellBack: _lastRender.fellBack);
+    final stats = _lastRender.stats;
+    _rendered = (
+      revision: _designRevision,
+      images: images,
+      engine: engine,
+      stats: stats,
+    );
+    return RenderResult(images, engine,
+        fellBack: _lastRender.fellBack, stats: stats);
   }
 
   /// The render of the design as it is now, if there is one.
@@ -934,6 +947,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final alreadyRendered = _rendered != null && images != null
         ? _rendered!.engine
         : null;
+    final alreadyStats = alreadyRendered == null ? null : _rendered!.stats;
     if (images == null) {
       messenger
         ..hideCurrentSnackBar()
@@ -980,6 +994,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       builder: (_) => PicturesSheet(
         initial: usable,
         initialRender: alreadyRendered,
+        initialStats: alreadyStats,
         progress: _renderProgress,
         onRender: _renderPictures,
         onCancelRender: () => _scene.runJavaScript('cancelRender()'),

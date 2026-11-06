@@ -12,6 +12,7 @@ class PicturesSheet extends StatefulWidget {
     super.key,
     required this.initial,
     required this.initialRender,
+    this.initialStats,
     required this.progress,
     required this.onRender,
     required this.onCancelRender,
@@ -24,6 +25,9 @@ class PicturesSheet extends StatefulWidget {
 
   /// [initial] are already this kind of render (null: quick pictures).
   final RenderEngine? initialRender;
+
+  /// What that render reached, if it was a true-lighting one.
+  final RenderStats? initialStats;
 
   /// How far a render has got (0 to 1), or null when none is running.
   final ValueListenable<double?> progress;
@@ -46,6 +50,7 @@ const _labels = ['Front view of the design', 'Angled view of the design'];
 class _PicturesSheetState extends State<PicturesSheet> {
   late List<String> _images = widget.initial;
   late RenderEngine? _rendered = widget.initialRender;
+  late RenderStats? _stats = widget.initialStats;
   bool _fellBack = false;
   RenderQuality _quality = RenderQuality.standard;
   bool _sending = false;
@@ -69,6 +74,7 @@ class _PicturesSheetState extends State<PicturesSheet> {
           _images = made.images;
           _rendered = made.engine;
           _fellBack = made.fellBack;
+          _stats = made.stats;
         });
       }
     } finally {
@@ -121,6 +127,14 @@ class _PicturesSheetState extends State<PicturesSheet> {
                 style: context.textTheme.bodySmall
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
+              if (_rendered == RenderEngine.path && _stats != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '${_stats!.summary}\nMore samples make a cleaner picture.',
+                  style: context.textTheme.bodySmall
+                      ?.copyWith(color: context.colors.onSurfaceVariant),
+                ),
+              ],
               if (_fellBack) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -194,7 +208,8 @@ class _PicturesSheetState extends State<PicturesSheet> {
                   TextButton.icon(
                     onPressed: _sending
                         ? null
-                        : () => _render(RenderRequest(RenderEngine.path, _quality)),
+                        : () =>
+                            _render(RenderRequest(RenderEngine.path, _quality)),
                     icon: const Icon(Icons.wb_incandescent_outlined, size: 18),
                     label: const Text('Make a true-lighting render'),
                   ),

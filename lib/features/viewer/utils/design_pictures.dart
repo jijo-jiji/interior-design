@@ -94,11 +94,59 @@ class RenderRequest {
       };
 }
 
+/// What a true-lighting render reached: how many samples each picture got
+/// (the more, the cleaner), how long each took, and the graphics chip.
+class RenderStats {
+  const RenderStats({
+    this.samples = const [],
+    this.seconds = const [],
+    this.gpu = '',
+  });
+
+  /// Reads the page's `stats`; null when it sent none (or nonsense).
+  static RenderStats? fromJson(Object? json) {
+    if (json is! Map) return null;
+    List<num> numbers(Object? value) => value is List
+        ? [
+            for (final v in value)
+              if (v is num) v
+          ]
+        : const [];
+    final samples = numbers(json['samples']);
+    if (samples.isEmpty) return null;
+    return RenderStats(
+      samples: [for (final s in samples) s.round()],
+      seconds: [for (final s in numbers(json['seconds'])) s.toDouble()],
+      gpu: json['gpu'] is String ? (json['gpu'] as String).trim() : '',
+    );
+  }
+
+  final List<int> samples;
+  final List<double> seconds;
+  final String gpu;
+
+  String _list(Iterable<String> items) => items.join(' and ');
+
+  /// What to show: the samples and seconds, and the chip when known.
+  String get summary {
+    final seconds = this.seconds.map(
+        (s) => s == s.roundToDouble() ? '${s.round()}' : s.toStringAsFixed(1));
+    final took = seconds.isEmpty ? '' : ', in ${_list(seconds)} s';
+    final chip = gpu.isEmpty ? '' : '\nGraphics: $gpu';
+    return 'Light paths traced: ${_list(samples.map((s) => '$s'))} samples'
+        '$took.$chip';
+  }
+}
+
 /// What a render made.
 class RenderResult {
-  const RenderResult(this.images, this.engine, {this.fellBack = false});
+  const RenderResult(this.images, this.engine,
+      {this.fellBack = false, this.stats});
 
   final List<String> images;
+
+  /// What a true-lighting render reached (null for the other kind).
+  final RenderStats? stats;
 
   /// The engine that made [images]: the one asked for, unless the device
   /// couldn't ([fellBack]).
