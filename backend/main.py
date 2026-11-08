@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import math
 import uuid
 from datetime import datetime
 from typing import Any
@@ -159,6 +160,16 @@ class QuoteRequest(BaseModel):
     # and rooms in mm from the kitchen's corner. The picture is stored as a
     # file; the project keeps its address.
     floor_plan: dict[str, Any] | None = None
+    # How the wall was measured on the photo (sales app, camera route): its
+    # four corners as fractions of the photo, the photo's size and lens, how
+    # the phone was held. For checking a design against a tape later, and as
+    # labelled photos for a learned corner finder.
+    capture: dict[str, Any] | None = None
+    # The wall photo itself (a JPEG or PNG data URL), kept with the corners as
+    # a labelled photo. keep_wall_photo is the client's choice on the quote
+    # sheet: False removes any copy kept before.
+    wall_photo: str | None = None
+    keep_wall_photo: bool = True
     # Pictures of the design (the 3D page's "Save picture"): data URLs, JPEG
     # or PNG, up to MAX_PICTURES. The server stores them as files, prints
     # them in the quote PDF and serves them to the client.
@@ -233,6 +244,12 @@ def create_quote(request: QuoteRequest):
     # new pictures keeps the ones it had.
     pictures = _store_pictures(quote_id, request.design_images)
 
+    # The wall photo, only with the corners marked on it (a photo without
+    # them teaches nothing), and only if the client agreed.
+    capture = _clean_capture(request.capture)
+    wall_photo_kept = _store_wall_photo(
+        quote_id, request.wall_photo if capture else None, request.keep_wall_photo)
+
     # Generate PDF
     pdf_path = _generate_pdf(
         quote_id=quote_id,
@@ -244,6 +261,7 @@ def create_quote(request: QuoteRequest):
         catalog=catalog,
         pictures=[path for path, _ in pictures],
         scene=_clean_scene(request.scene),
+        wall_photo_kept=wall_photo_kept,
     )
 
     # Store path for /pdf/<id> retrieval
@@ -274,6 +292,10 @@ def create_quote(request: QuoteRequest):
     }
     if request.floor_plan:
         record["floor_plan"] = _store_floor_plan(quote_id, request.floor_plan)
+    if capture:
+        if wall_photo_kept:
+            capture["photo_kept"] = True
+        record["capture"] = capture
     look = _clean_scene(request.scene)
     if look:
         record["scene"] = look
@@ -309,6 +331,116 @@ _pdf_store: dict[str, str] = {}
 
 _QUOTE_ID = re.compile(r"^QT-[A-Za-z0-9-]{1,40}$")
 MAX_PLAN_IMAGE_BYTES = 8 * 1024 * 1024
+# Wall photos the camera route measured from, kept with their corners as
+# labelled photos for training a corner finder (see _store_wall_photo).
+WALL_PHOTO_DIR = os.path.join(os.path.dirname(__file__), "wall_photos")
+MAX_WALL_PHOTO_BYTES = 8 * 1024 * 1024
+WALL_PHOTO_LONG_SIDE = 2400
+
+
+def _wall_photo_path(quote_id: str) -> str:
+    return os.path.join(WALL_PHOTO_DIR, f"{quote_id}.jpg")
+
+
+def _store_wall_photo(quote_id: str, data_url: str | None, keep: bool) -> bool:
+    """Keeps the wall photo a quote was measured from, or removes it when the
+    client said no. Returns whether the quote now has one.
+
+    Saved upright (as the app showed it, so the corners line up) and without
+    the photo's metadata: a phone photo can carry the home's GPS position.
+    Never served back out: it is training data, not part of the quote."""
+    if not _QUOTE_ID.match(quote_id):
+        return False
+    path = _wall_photo_path(quote_id)
+    if not keep:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return False
+    if isinstance(data_url, str):
+        for prefix in ("data:image/jpeg;base64,", "data:image/png;base64,"):
+            if data_url.startswith(prefix):
+                try:
+                    raw = base64.b64decode(data_url[len(prefix):], validate=True)
+                except ValueError:
+                    break
+                if len(raw) <= MAX_WALL_PHOTO_BYTES:
+                    _write_wall_photo(raw, path)
+                break
+    return os.path.exists(path)
+
+
+def _write_wall_photo(raw: bytes, path: str) -> None:
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(io.BytesIO(raw)) as photo:
+            if photo.format not in ("JPEG", "PNG"):
+                return
+            upright = ImageOps.exif_transpose(photo).convert("RGB")
+    except Exception:
+        return
+    upright.thumbnail((WALL_PHOTO_LONG_SIDE, WALL_PHOTO_LONG_SIDE))
+    os.makedirs(WALL_PHOTO_DIR, exist_ok=True)
+    # No exif= argument: nothing of the original's metadata is written.
+    upright.save(path, "JPEG", quality=90)
+
+
+def _number(value: Any) -> float | None:
+    """A plain finite number, or None (bools and strings are not numbers)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def _clean_corners(raw: Any) -> list[list[float]] | None:
+    """Four [x, y] points, each a fraction of the photo, or None."""
+    if not (isinstance(raw, list) and len(raw) == 4):
+        return None
+    clean = []
+    for corner in raw:
+        if not (isinstance(corner, list) and len(corner) == 2):
+            return None
+        xy = [_number(v) for v in corner]
+        if any(v is None or not 0 <= v <= 1 for v in xy):
+            return None
+        clean.append(xy)
+    return clean
+
+
+def _clean_capture(raw: Any) -> dict[str, Any] | None:
+    """The photo measurement, keeping only the fields the app sends, as plain
+    numbers in range, so a project file can't fill up with a client's junk.
+    Without four sensible corners there is nothing worth keeping."""
+    if not isinstance(raw, dict):
+        return None
+    clean_corners = _clean_corners(raw.get("corners"))
+    if clean_corners is None:
+        return None
+    out: dict[str, Any] = {"method": "corners", "corners": clean_corners}
+    # Where the wall-corner model put them, if it found them: beside the
+    # corners confirmed, it measures the model.
+    suggested = _clean_corners(raw.get("suggested_corners"))
+    if suggested is not None:
+        out["suggested_corners"] = suggested
+    size = raw.get("photo_px")
+    if isinstance(size, list) and len(size) == 2:
+        wh = [_number(v) for v in size]
+        if all(v is not None and 0 < v <= 20000 for v in wh):
+            out["photo_px"] = [int(v) for v in wh]
+    for key, low, high in (("focal_px", 1, 100000), ("photo_aspect", 0.05, 20)):
+        v = _number(raw.get(key))
+        if v is not None and low <= v <= high:
+            out[key] = v
+    if raw.get("focal_source") in ("photo", "corners", "assumed"):
+        out["focal_source"] = raw["focal_source"]
+    tilt = raw.get("tilt_deg")
+    if isinstance(tilt, dict):
+        angles = {k: _number(tilt.get(k)) for k in ("roll", "pitch")}
+        if all(v is not None and -180 <= v <= 180 for v in angles.values()):
+            out["tilt_deg"] = angles
+    return out
 
 
 def _store_floor_plan(quote_id: str, plan: dict[str, Any]) -> dict[str, Any]:
@@ -859,6 +991,7 @@ def _generate_pdf(
     catalog: "catalog_lib.Catalog | None" = None,
     pictures: list[str] | None = None,
     scene: dict[str, Any] | None = None,
+    wall_photo_kept: bool = False,
 ) -> str:
     catalog = catalog or _catalog_for(request)
     # Proposals used to land in the OS temp directory, so every signed PDF was
@@ -1034,6 +1167,13 @@ def _generate_pdf(
         "This proposal locks in material pricing and reserves manufacturing queue priority for 30 days. All prices in MYR including SST.",
         styles["Normal"],
     ))
+    if wall_photo_kept:
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph(
+            "A photo of your wall was kept on our office server to help us measure "
+            "more accurately. It is never shared, and we delete it whenever you ask.",
+            styles["Normal"],
+        ))
 
     doc.build(story)
     return path

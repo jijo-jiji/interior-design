@@ -21,6 +21,7 @@ import 'package:webview_flutter_platform_interface/webview_flutter_platform_inte
 
 import 'helpers/fake_plan_reader.dart';
 import 'helpers/fake_webview.dart';
+import 'helpers/fake_corner_suggester.dart';
 
 const _photo = 'floor_plan/images.png';
 
@@ -58,6 +59,7 @@ final _screens = <String, Widget Function()>{
             required clientEmail,
             required depositAmount,
             required signatureBase64,
+            required keepWallPhoto,
           }) async {},
         ),
       ),
@@ -73,6 +75,7 @@ Future<void> _pump(WidgetTester tester, Widget screen,
       GoRouter(routes: [GoRoute(path: '/', builder: (_, __) => screen)]);
   await tester.pumpWidget(
     ProviderScope(
+      overrides: [noCornerModel],
       child: MediaQuery(
         data: MediaQueryData(
           size: const Size(390, 844),

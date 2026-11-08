@@ -9,6 +9,7 @@ import 'package:static_trace/features/trace/screens/camera_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/shared/labels.dart';
 import 'package:static_trace/shared/theme.dart';
+import 'helpers/fake_corner_suggester.dart';
 
 void main() {
   late ProviderContainer container;
@@ -17,7 +18,7 @@ void main() {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
-    container = ProviderContainer();
+    container = ProviderContainer(overrides: [noCornerModel]);
     addTearDown(container.dispose);
     final router = GoRouter(routes: [
       GoRoute(path: '/', builder: (_, __) => screen),
@@ -47,7 +48,7 @@ void main() {
       await pump(tester, const WallSetupScreen(imagePath: 'wall.png'));
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Wall width'), '360');
-      await tester.tap(find.text('Next: line up the photo'));
+      await tester.tap(find.text('Next: mark the wall'));
       await tester.pumpAndSettle();
       expect(find.textContaining('That looks small for a wall width'),
           findsOneWidget);
@@ -60,10 +61,13 @@ void main() {
           find.widgetWithText(TextFormField, 'Wall width'), '3600');
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Ceiling height'), '2800');
-      await tester.tap(find.text('Next: line up the photo'));
+      await tester.tap(find.text('Next: mark the wall'));
       await tester.pumpAndSettle();
       expect(find.text('Trace screen'), findsOneWidget);
       final wall = container.read(wallSetupProvider);
+      // The wall's corners were looked for while the tape was read.
+      final model = container.read(cornerSuggesterProvider) as FakeCornerSuggester;
+      expect(model.asked, ['wall.png']);
       expect(wall.widthMm, 3600);
       expect(wall.heightMm, 2800);
       expect(wall.depthMm, 150);

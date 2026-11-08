@@ -18,6 +18,8 @@ class PayloadBuilder {
     double? bottomLinePx,
     required List<Obstacle> obstacles,
     required double canvasHeightPx, // used to anchor distance_from_floor
+    Map<String, dynamic>? capture,
+    String? photoPath,
   }) {
     final sRatioX =
         (scaleRatioX != null && scaleRatioX > 0) ? scaleRatioX : scaleRatio;
@@ -62,6 +64,11 @@ class PayloadBuilder {
         'depth_mm': wallDepthMm,
       },
       'obstacles': obstacleList,
+      // How the wall was measured on the photo (corners, lens, tilt).
+      if (capture != null) 'capture': capture,
+      // Where the photo is on this phone: sent with the quote if the client
+      // agrees (see the quote sheet), never as a path.
+      if (photoPath != null) 'wall_photo_path': photoPath,
       'salesperson_id': 'demo_agent_01', // hardcoded per spec
     };
   }
@@ -78,6 +85,8 @@ class PayloadBuilder {
     double? bottomLinePx,
     required List<Obstacle> obstacles,
     required double canvasHeightPx,
+    Map<String, dynamic>? capture,
+    String? photoPath,
   }) =>
       jsonEncode(build(
         wallWidthMm: wallWidthMm,
@@ -90,5 +99,7 @@ class PayloadBuilder {
         bottomLinePx: bottomLinePx,
         obstacles: obstacles,
         canvasHeightPx: canvasHeightPx,
+        capture: capture,
+        photoPath: photoPath,
       ));
 }

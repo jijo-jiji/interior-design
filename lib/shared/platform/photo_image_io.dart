@@ -17,3 +17,7 @@ Widget photoImage(
       height: height,
       errorBuilder: (_, __, ___) => const PhotoError(),
     );
+
+/// The same photo as an [ImageProvider], for screens that need its size or
+/// draw it themselves (one decode, shared through the image cache).
+ImageProvider photoProvider(String path) => FileImage(File(path));

@@ -25,6 +25,13 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   final _heightCtrl = TextEditingController(text: '2700');
 
   @override
+  void initState() {
+    super.initState();
+    // Start looking for the wall's corners while the tape is read.
+    ref.read(cornerSuggestionProvider(widget.imagePath));
+  }
+
+  @override
   void dispose() {
     _widthCtrl.dispose();
     _heightCtrl.dispose();
@@ -118,7 +125,7 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _proceed,
                   icon: const Icon(Icons.arrow_forward_rounded),
-                  label: const Text('Next: line up the photo'),
+                  label: const Text('Next: mark the wall'),
                 ),
               ),
             ],

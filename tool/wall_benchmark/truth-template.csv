@@ -1,0 +1,3 @@
+quote_id,view,wall_width_mm,wall_height_mm,type,left_mm,from_floor_mm,width_mm,height_mm
+QT-EXAMPLE1,head-on,4000,2700,window,1500,1000,1200,1000
+QT-EXAMPLE1,head-on,4000,2700,door,3000,0,800,2100

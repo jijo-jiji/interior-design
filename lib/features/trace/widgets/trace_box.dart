@@ -22,7 +22,7 @@ class TraceBox extends ConsumerStatefulWidget {
   final double canvasHeight;
   final VoidCallback onDelete;
 
-  /// False while the wall edges are being lined up: shown, but not touchable.
+  /// False when shown for reference only: visible, but not touchable.
   final bool interactive;
 
   const TraceBox({

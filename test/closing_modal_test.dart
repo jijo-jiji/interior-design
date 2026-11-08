@@ -3,16 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:static_trace/features/viewer/widgets/closing_modal.dart';
 
 class _Call {
-  _Call(this.name, this.deposit, this.signature);
+  _Call(this.name, this.deposit, this.signature, this.keepWallPhoto);
   final String name;
   final double deposit;
   final String? signature;
+  final bool keepWallPhoto;
 }
 
 void main() {
   late List<_Call> calls;
 
-  Future<void> pumpSheet(WidgetTester tester, {String clientName = ''}) async {
+  Future<void> pumpSheet(WidgetTester tester,
+      {String clientName = '', bool fromWallPhoto = false}) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -27,14 +29,17 @@ void main() {
           styleName: 'Japandi Natural',
           totalPrice: 18450,
           clientName: clientName,
+          askToKeepWallPhoto: fromWallPhoto,
           onConfirm: ({
             required clientName,
             required clientPhone,
             required clientEmail,
             required depositAmount,
             required signatureBase64,
+            required keepWallPhoto,
           }) async {
-            calls.add(_Call(clientName, depositAmount, signatureBase64));
+            calls.add(_Call(
+                clientName, depositAmount, signatureBase64, keepWallPhoto));
           },
         ),
       ),
@@ -94,6 +99,32 @@ void main() {
       findsOneWidget,
     );
     expect(calls, isEmpty);
+  });
+
+  group('the wall photo', () {
+    testWidgets('is only asked about for a room measured from one',
+        (tester) async {
+      await pumpSheet(tester, clientName: 'Puan Aminah');
+      expect(find.text('Keep the wall photo'), findsNothing);
+      await tapButton(tester, 'Save & send quote');
+      expect(calls.single.keepWallPhoto, isFalse);
+    });
+
+    testWidgets('is kept unless the client says no', (tester) async {
+      await pumpSheet(tester, clientName: 'Puan Aminah', fromWallPhoto: true);
+      expect(find.text('Keep the wall photo'), findsOneWidget);
+      expect(find.textContaining('Never shared; deleted on request.'),
+          findsOneWidget);
+      await tapButton(tester, 'Save & send quote');
+      expect(calls.single.keepWallPhoto, isTrue);
+    });
+
+    testWidgets('the client can say no', (tester) async {
+      await pumpSheet(tester, clientName: 'Puan Aminah', fromWallPhoto: true);
+      await tapButton(tester, 'Keep the wall photo');
+      await tapButton(tester, 'Save & send quote');
+      expect(calls.single.keepWallPhoto, isFalse);
+    });
   });
 
   testWidgets('no invented terms or financing on the sheet', (tester) async {

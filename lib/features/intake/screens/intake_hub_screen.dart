@@ -152,6 +152,11 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
           },
       'obstacles': project['obstacles'] ?? [],
       if (_floorPlanOf(project) case final plan?) 'floor_plan': plan,
+      if (project['capture'] case final Map<String, dynamic> capture)
+        'capture': capture,
+      if (project['keep_wall_photo'] case final bool keep) 'keep_wall_photo': keep,
+      if (project['wall_photo_path'] case final String path)
+        'wall_photo_path': path,
       'placed_cabinets': project['placed_cabinets'] ?? [],
       'style_archetype': project['style_archetype'] ?? 'japandi',
       'benchtop_material': project['benchtop_material'],
@@ -332,8 +337,8 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
         _MeasureCard(
           title: 'Photo of the wall',
           description:
-              'Take a photo, line up the wall edges, then mark the windows '
-              'and doors.',
+              'Take a photo, mark the wall’s four corners, then the '
+              'windows and doors. Works from an angle too.',
           tag: 'Most accurate',
           icon: Icons.camera_alt_rounded,
           accentColor: AppTheme.accent,
