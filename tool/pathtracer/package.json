@@ -1,0 +1,13 @@
+{
+  "name": "static-trace-pathtracer-bundle",
+  "private": true,
+  "description": "Builds assets/3d/pathtracer.min.js: three-gpu-pathtracer as a classic script that uses the page's own THREE.",
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.160.0",
+    "three-gpu-pathtracer": "0.0.23",
+    "three-mesh-bvh": "0.7.6"
+  }
+}

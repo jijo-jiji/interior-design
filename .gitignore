@@ -77,3 +77,9 @@ backend/generated_pdfs/
 
 # Floor plan images stored with quotes (backend/main.py)
 backend/plan_images/
+
+# Pictures of designs stored with quotes (backend/main.py)
+backend/design_pictures/
+
+# Live catalogue and its version history (backend/catalog.py): per-installation data, seeded from assets/catalog/default_catalog.json
+/backend/catalog_store/

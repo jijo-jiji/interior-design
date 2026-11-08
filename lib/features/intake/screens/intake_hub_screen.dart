@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import '../../../shared/platform/api_client.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
 import '../../../shared/theme.dart';
+import '../../catalog/catalog_repository.dart';
 import '../../viewer/models/cpq_engine.dart';
 import '../../viewer/utils/offline_store.dart';
 import '../providers/consultation_provider.dart';
@@ -46,6 +48,10 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
 
   Future<void> _fetchProjects() async {
     setState(() => _isLoading = true);
+
+    // Prices, sizes and tax come from the office; fetch the latest while the
+    // list loads. A design already open keeps the version it started with.
+    unawaited(CatalogRepository.sync());
 
     final local = await OfflineStore.getDrafts();
     final waiting = (await OfflineStore.pendingSync()).length;

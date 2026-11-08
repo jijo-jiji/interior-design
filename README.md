@@ -74,3 +74,107 @@ Notes for the browser:
   sent.
 - **The 3D view:** runs in an iframe.
 
+
+## The price list (catalogue)
+
+Every price, size, finish multiplier, benchtop rate, tax rate and layout rule
+lives in one place: the **catalogue**, kept by the office server and edited in
+the Studio (**Price list** in the header).
+
+- **Designer:** open the Studio, choose *Price list*, change what needs
+  changing, and *Save as version N*. Older versions are kept. A cabinet that
+  isn't in the list is priced by its width (a price at a reference width,
+  plus so much per 100 mm), not a flat figure.
+- **Sales app:** takes the latest catalogue when the home screen loads, keeps
+  a copy for offline use, and starts on the sample prices shipped inside it.
+  A design stays on the version it was opened with; the version is saved on
+  the quote, and the office prices the quote with that version, so the PDF
+  always matches what the client saw.
+- **Office server:** `GET /api/catalog` (add `?version=N` for an earlier one),
+  `GET /api/catalog/versions`, `PUT /api/catalog`. To require a key for
+  saving, set `CATALOG_ADMIN_KEY` before starting the server; the Studio then
+  asks for it. Versions are files in `backend/catalog_store/` (not committed).
+- **The shipped sample:** `assets/catalog/default_catalog.json`. After editing
+  it, run `python tool/gen_default_catalog.py`; a test fails if the app's
+  embedded copy is out of date. **All figures in it are samples** until SS
+  Love's designer confirms them (the Studio shows "Sample prices" until the
+  box *These are SS Love's confirmed prices* is ticked).
+- **One price, three engines:** the server, the sales app and the Studio each
+  price a layout. They are checked against the same cases in
+  `test/fixtures/pricing_cases.json` (`backend/test_pricing_contract.py`,
+  `test/pricing_contract_test.dart`, `frontend/src/pricing.contract.test.ts`).
+
+## Pictures of the design
+
+- **Sales app:** the **camera icon** on the 3D screen takes two pictures of
+  the design (front, and from an angle) to show the client on the spot. From
+  there: *Send on WhatsApp* (a message with a link) or *Open to save* (the
+  page in the browser, where the picture can be saved or shared). Both go
+  through the office server, so the tablet needs to be online.
+- **A realistic render:** *Make a realistic render* in the same sheet makes
+  the two pictures again with soft shadows and darker corners (many frames of
+  the view, each lit from a different part of the sky, averaged). It takes
+  longer, with a progress bar and *Cancel*. The quote uses the render if the
+  design hasn't changed since; otherwise it takes the quick pictures.
+- **A true-lighting render:** *Make a true-lighting render* follows light
+  paths on the tablet's graphics chip (path tracing), so light really bounces:
+  the oak tints the wall beside it, corners darken, the under-cabinet lights
+  glow on the tile. It is the closest the app gets to a photograph. It runs in
+  the 3D page with no internet. A picture is as clean as the samples it
+  reaches: it stops at 300 samples or 120 seconds (*Fine detail*: 1000 or 300),
+  whichever comes first, then smooths what noise is left, harder the fewer
+  samples it got. It needs a recent device (WebGL 2 with float render targets); on one
+  without, the sheet says so and makes the realistic render instead. *Cancel*
+  stops it. The library is `assets/3d/pathtracer.min.js`
+  ([how it is built](tool/pathtracer/README.md), licences in
+  `assets/3d/pathtracer.LICENSE.txt`). After a true-lighting render the sheet
+  shows how many samples each picture reached, how long it took and the
+  graphics chip. **How fast it is on a tablet has not been measured** (here it
+  was only run with software rendering): see
+  [the tablet test](notes/true-lighting-tablet-test.md).
+- **The quote:** sending a quote carries the pictures. The signed PDF shows
+  them under "Your design", and the client's message links a page with them
+  (`/pictures/<quote id>`). Pictures are stored in `backend/design_pictures/`
+  (not committed). Like the 3D link, the page is reachable from the office
+  network.
+- **Studio:** *Picture* in the header saves the 3D view as a 2000 px PNG
+  (not in Plan and Elevation).
+
+### Finish textures
+
+The 3D page puts wood, stone and painted finishes on the cabinets, worktop and
+floor (`assets/3d/textures/`). **They are generated stand-ins, not
+photographs of SS Love's finishes**: the folder's README says how to replace
+them with real photographs. Choosing a benchtop in the Edit panel now changes
+the worktop in the 3D view (the Calacatta and granite choices have their own
+look; any other benchtop keeps the style's worktop).
+
+**The Studio's 3D view uses the same files.** `frontend/` builds them into the
+Studio bundle (`backend/static/studio/assets/`, committed with the rest of the
+build), so replacing a photograph in `assets/3d/textures/` and running
+`npm run build` in `frontend/` changes both apps. The Studio draws the oak,
+birch and walnut fronts, the quartz, terrazzo, slate, Calacatta and granite
+worktops (the benchtop chosen in the Finish tab) and the plank floor, and falls
+back on its drawn textures while they decode or if they can't be had. Its
+Picture button waits for them. The Studio's cabinet data
+(`frontend/src/canvas/finishes.ts`) is checked against the sales app's page
+by a test, so the two can't drift apart.
+
+### Look of the design (doors, backsplash, decor, room, light)
+
+The palette icon on the 3D screen changes how the design is dressed, in 3D
+and in the pictures: **doors** (flat, shaker, raised panel; framed doors also
+get a cornice on the wall units), **backsplash** (none, subway or hexagon
+tile, following the cabinets and stopping at windows), **light** (day, or a
+warm evening with the under-cabinet lights on) and **decor** (plates, jars,
+plants and the like on the worktop, drawn from simple shapes) and **the room**
+(the side walls, a ceiling with downlights, skirting and a wooden floor
+around the kitchen, so a picture reads as a kitchen in a room instead of
+cabinets on a plain floor; in the evening the downlights are lit too). The
+room is cut away from above, so the 3D view stays open, and it steps aside in
+the Room and House views of a design read from a floor plan, which show the
+plan's own walls. It is saved with the design. **None of it changes the
+price**, and the quote PDF and the client's picture page say that the decor
+and the backsplash tile shown are not part of the quote and that the door
+style and the room are for illustration. If a door style or a tile should
+cost more, that needs a price rule from the designer.

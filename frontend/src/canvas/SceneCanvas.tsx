@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { RoomShell } from './RoomShell';
 import { LightingRig } from './LightingRig';
 import { CabinetMesh } from './CabinetMesh';
+import { PictureTaker } from './PictureTaker';
+import type { PictureFn } from './picture';
 import type { CabinetData, CabinetFinish, DoorStyle } from './CabinetMesh';
 import { viewExtent } from './floorPlan';
 import type { FloorPlan, RoomView } from './floorPlan';
@@ -21,6 +23,8 @@ interface SceneCanvasProps {
   selectedCabinetId: string | null;
   finish: CabinetFinish;
   doorStyle: DoorStyle;
+  /** The benchtop chosen (changes the worktop's look), if any. */
+  benchtop?: string | null;
   mood: 'day' | 'evening';
   cameraView: CameraView;
   /** Changes whenever the view should be re-framed (e.g. "Fit to screen"). */
@@ -29,6 +33,8 @@ interface SceneCanvasProps {
   /** The floor plan the room was read from, and how much of it to show. */
   floorPlan?: FloorPlan | null;
   roomView?: RoomView;
+  /** Filled with a function that takes a picture of the current view. */
+  pictureRef?: React.MutableRefObject<PictureFn | null>;
 }
 
 /** The part of the room that has to be on screen. */
@@ -278,12 +284,14 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   selectedCabinetId,
   finish,
   doorStyle,
+  benchtop = null,
   mood,
   cameraView,
   fitKey,
   onSelectCabinet,
   floorPlan = null,
   roomView: chosenRoomView = 'kitchen',
+  pictureRef,
 }) => {
   // An elevation draws the kitchen's main wall straight on; the plan's walls
   // in front of the kitchen would stand in the way, so it shows the kitchen
@@ -347,12 +355,14 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
             isSelected={cab.id === selectedCabinetId}
             finish={finish}
             doorStyle={doorStyle}
+            benchtop={benchtop}
             ceiling={wallH}
             onSelect={onSelectCabinet}
           />
         ))}
         {dims.length > 0 && <Dimensions dims={dims} />}
         <ViewRig view={cameraView} bounds={bounds} fitKey={fitKey} />
+        {pictureRef && <PictureTaker takeRef={pictureRef} />}
       </Canvas>
     </div>
   );

@@ -14,13 +14,18 @@ import '../../../shared/platform/api_client.dart';
 import '../../../shared/project_status.dart';
 import '../../../shared/sales_config.dart';
 import '../../../shared/widgets/nudge_buttons.dart';
+import '../../catalog/price_catalog.dart';
 import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
+import '../models/scene_look.dart';
+import '../scene/finish_textures.dart';
 import '../scene/scene_bridge.dart';
+import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
 import '../widgets/closing_modal.dart';
+import '../widgets/pictures_sheet.dart';
 import 'proposal_preview_screen.dart';
 import '../utils/offline_store.dart';
 
@@ -60,6 +65,41 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Timer? _saveTimer;
 
+  /// How the design is dressed: doors, backsplash, decor and light.
+  SceneLook _look = const SceneLook();
+
+  /// Calls waiting for the 3D page to send pictures, by request id: 'app' is
+  /// a quick capture, 'render' a realistic render.
+  final Map<String, Completer<List<String>>> _pictureRequests = {};
+
+  /// How far a render has got (0 to 1); null when none is running.
+  final ValueNotifier<double?> _renderProgress = ValueNotifier(null);
+  bool _rendering = false;
+
+  /// Goes up with every change to the design, so a render made earlier can
+  /// be told from one of the design as it is now.
+  int _designRevision = 0;
+  ({
+    int revision,
+    List<String> images,
+    RenderEngine engine,
+    RenderStats? stats,
+  })? _rendered;
+
+  /// What the page said about the render it last finished: the engine that
+  /// made it, and whether it fell back on another for want of the device.
+  ({RenderEngine? engine, bool fellBack, RenderStats? stats}) _lastRender =
+      (engine: null, fellBack: false, stats: null);
+
+  /// How many frames a render averages: more is smoother and slower.
+  /// (`--dart-define=RENDER_SAMPLES=n` changes it, for testing.)
+  static const _renderSamples =
+      int.fromEnvironment('RENDER_SAMPLES', defaultValue: 40);
+
+  /// The office has pictures of this design (sent with the quote), so the
+  /// message to the client can link to them.
+  bool _picturesAttached = false;
+
   /// Layouts mode (default) or Edit mode (add, move and remove cabinets).
   /// Outside Edit, touching the 3D only looks around.
   bool _editing = false;
@@ -94,6 +134,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   String _currentStyle = 'japandi';
 
+  /// The catalogue this design was opened with. A newer one arriving from the
+  /// office mid-meeting waits for the next design, so the price on screen
+  /// never moves under the client and always matches the version recorded on
+  /// the quote.
+  final PriceCatalog _catalog = PriceCatalog.current;
+
   /// Auto-generated layouts (A Value / B Balanced / C Premium) for this room.
   List<LayoutVariant> _variants = const [];
   String? _activeVariantKey;
@@ -110,6 +156,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _floorPlan = parsed['floor_plan'] as Map<String, dynamic>?;
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
       _benchtopMaterial = parsed['benchtop_material'] as String?;
+      _look = SceneLook.fromJson(parsed['scene']);
       if (parsed['placed_cabinets'] != null) {
         final cabs = parsed['placed_cabinets'] as List<dynamic>;
         for (final c in cabs) {
@@ -142,7 +189,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // Balanced variant; a restored draft keeps its own cabinets.
     if (parsed != null) {
       try {
-        _variants = const KitchenLayoutGenerator()
+        _variants = KitchenLayoutGenerator.forCatalog(_catalog)
             .generateAll(KitchenRoom.fromPayload(parsed));
         final initial = _variants.where(
             (v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
@@ -163,6 +210,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Future<void> _loadHtml() async {
     final threeJs = await rootBundle.loadString('assets/3d/three.min.js');
     var orbitJs = await rootBundle.loadString('assets/3d/OrbitControls.js');
+    final pathTracerJs =
+        await rootBundle.loadString('assets/3d/pathtracer.min.js');
     var html = await rootBundle.loadString('assets/3d/index.html');
 
     if (!mounted) return;
@@ -192,18 +241,153 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
     html = html.replaceFirst(
       '</head>',
-      '<script>$threeJs</script>\n<script>$orbitJs</script>\n</head>',
+      '<script>$threeJs</script>\n<script>$orbitJs</script>\n'
+      '<script>$pathTracerJs</script>\n</head>',
     );
 
     await _scene.loadHtml(html);
   }
+
+  /// The catalogue's modules as the 3D page needs them: sizes and how each
+  /// is drawn, so a size edited in the Studio is what the client sees.
+  String _catalogModulesJson() => jsonEncode([
+        for (final m in _catalog.modules)
+          {
+            'type': m.type,
+            'label': m.label,
+            'width_mm': m.widthMm,
+            'height_mm': m.heightMm,
+            'depth_mm': m.depthMm,
+            'mount_mm': m.mountMm,
+            'kind': _catalog.kindOf(m.type),
+          },
+      ]);
+
+  /// Puts [_look] on the 3D view.
+  Future<void> _applyLook() async {
+    for (final call in _look.javaScript) {
+      await _scene.runJavaScript(call);
+    }
+  }
+
+  void _setLook(SceneLook look) {
+    if (look == _look) return;
+    setState(() => _look = look);
+    _applyLook();
+    _scheduleSave();
+  }
+
+  /// The Look button: doors, backsplash, decor and light.
+  void _showLookSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void change(SceneLook look) {
+            _setLook(look);
+            setSheetState(() {});
+          }
+
+          Widget choices(String label, Map<String, String> options,
+                  String selected, void Function(String) onPick) =>
+              Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: context.textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in options.entries)
+                          ChoiceChip(
+                            label: Text(entry.value),
+                            selected: selected == entry.key,
+                            onSelected: (_) => onPick(entry.key),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Look of the design',
+                      style: context.textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    'How it is shown in 3D and in the pictures. None of this '
+                    'changes the price.',
+                    style: context.textTheme.bodySmall
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 14),
+                  choices('Doors', SceneLook.doorOptions, _look.doors,
+                      (v) => change(_look.copyWith(doors: v))),
+                  choices(
+                      'Backsplash',
+                      SceneLook.backsplashOptions,
+                      _look.backsplash,
+                      (v) => change(_look.copyWith(backsplash: v))),
+                  choices('Light', SceneLook.moodOptions, _look.mood,
+                      (v) => change(_look.copyWith(mood: v))),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show decor'),
+                    subtitle: const Text(
+                        'Plates, jars, plants on the worktop. Not included '
+                        'in the quote.'),
+                    value: _look.decor,
+                    onChanged: (v) => change(_look.copyWith(decor: v)),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show the room'),
+                    subtitle: const Text(
+                        'Walls, ceiling and lights around the kitchen. Not '
+                        'included in the quote.'),
+                    value: _look.room,
+                    onChanged: (v) => change(_look.copyWith(room: v)),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Puts the chosen benchtop on the worktop in the 3D view (none: the
+  /// style's own).
+  Future<void> _showBenchtop() =>
+      _scene.runJavaScript('setBenchtop(${jsonEncode(_benchtopMaterial)})');
 
   Future<void> _injectScene() async {
     final escaped =
         widget.jsonPayload.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
     await _scene.runJavaScript("setNativeMode(true)");
+    await _scene.runJavaScript(
+        'setCatalogModules(${jsonEncode(_catalogModulesJson())})');
+    // Photographs of the finishes; without them the page draws its own.
+    await FinishTextures.send(_scene.runJavaScript);
     await _scene.runJavaScript("loadScene('$escaped')");
+    await _showBenchtop();
+    await _applyLook();
     if (_activeVariantKey != null) {
       await _pushCabinetsToScene();
       _showVariantWarnings(
@@ -233,6 +417,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void dispose() {
     if (_saveTimer != null) _saveNow(); // don't lose the last change
     _scene.dispose();
+    _renderProgress.dispose();
     super.dispose();
   }
 
@@ -241,6 +426,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// Saves the design on the phone shortly after every change, so nothing is
   /// lost if the meeting ends without a quote.
   void _scheduleSave() {
+    _designRevision++;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 800), _saveNow);
   }
@@ -264,11 +450,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
       'benchtop_material': _benchtopMaterial,
+      'scene': _look.toJson(),
       'client_name': _clientName,
       'client_phone': _clientPhone,
       'client_email': _clientEmail,
       'deposit_paid': _depositPaid,
       'total_price': summary.totalPrice,
+      // The server prices with this version, so the signed PDF matches the
+      // number shown here even if the catalogue changed since.
+      'catalog_version': summary.catalogVersion,
       if (signatureBase64 != null) 'signature_base64': signatureBase64,
     };
   }
@@ -389,6 +579,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     try {
       final data = jsonDecode(message) as Map<String, dynamic>;
       switch (data['event'] as String?) {
+        case 'pictures':
+          if (data['rendered'] == true) {
+            _lastRender = (
+              engine: switch (data['engine']) {
+                'path' => RenderEngine.path,
+                'sky' => RenderEngine.sky,
+                _ => null,
+              },
+              fellBack: data['fell_back'] == true,
+              stats: RenderStats.fromJson(data['stats']),
+            );
+          }
+          _pictureRequests
+              .remove(data['request_id'] as String? ?? 'app')
+              ?.complete([
+            for (final image in (data['images'] as List? ?? const []))
+              if (image is String) image,
+          ]);
+        case 'render_progress':
+          _renderProgress.value = (data['fraction'] as num?)?.toDouble();
         case 'cabinet_placed':
           setState(() {
             _placedCabinets.add(data);
@@ -453,50 +663,37 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       obstacles: _obstacles,
       styleArchetype: _currentStyle,
       benchtopMaterial: _benchtopMaterial,
+      catalog: _catalog,
     );
   }
 
-  /// Appliance modules. They price like joinery (the cabinetry, cutouts and
-  /// services), so they're added like a cabinet.
-  static const List<({String type, String label, String blurb, IconData icon})>
-      _appliances = [
-    (
-      type: 'sink_600',
-      label: 'Sink 600',
-      blurb: 'Undermount bowl and tap cutout',
-      icon: Icons.water_drop_outlined
-    ),
-    (
-      type: 'cooktop_600',
-      label: 'Cooktop 600',
-      blurb: 'Induction cutout and isolator',
-      icon: Icons.local_fire_department_outlined
-    ),
-    (
-      type: 'dishwasher_600',
-      label: 'Dishwasher 600',
-      blurb: 'Integrated, under the worktop',
-      icon: Icons.local_laundry_service_outlined
-    ),
-    (
-      type: 'oven_tower_600',
-      label: 'Oven tower 600',
-      blurb: 'Wall oven and microwave stack',
-      icon: Icons.microwave_outlined
-    ),
-    (
-      type: 'fridge_recess_700',
-      label: 'Fridge recess 700',
-      blurb: 'Framed recess and panels',
-      icon: Icons.kitchen_outlined
-    ),
-    (
-      type: 'rangehood_900',
-      label: 'Rangehood 900',
-      blurb: 'Wall mounted, ducted',
-      icon: Icons.air_outlined
-    ),
-  ];
+  /// What an appliance line says about itself, by how it is drawn. The
+  /// modules, sizes and prices come from the catalogue; this is wording.
+  static ({String blurb, IconData icon}) _applianceInfo(String kind) =>
+      switch (kind) {
+        'sink' => (
+            blurb: 'Undermount bowl and tap cutout',
+            icon: Icons.water_drop_outlined
+          ),
+        'hob' => (
+            blurb: 'Induction cutout and isolator',
+            icon: Icons.local_fire_department_outlined
+          ),
+        'dishwasher' => (
+            blurb: 'Integrated, under the worktop',
+            icon: Icons.local_laundry_service_outlined
+          ),
+        'oven' => (
+            blurb: 'Wall oven and microwave stack',
+            icon: Icons.microwave_outlined
+          ),
+        'fridge' => (
+            blurb: 'Framed recess and panels',
+            icon: Icons.kitchen_outlined
+          ),
+        'hood' => (blurb: 'Wall mounted, ducted', icon: Icons.air_outlined),
+        _ => (blurb: 'Cabinetry and services', icon: Icons.build_outlined),
+      };
 
   void _showApplianceSheet() {
     showModalBottomSheet(
@@ -522,14 +719,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
               const SizedBox(height: 8),
-              for (final item in _appliances)
+              for (final item in _catalog.applianceModules)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(item.icon, color: AppTheme.accent),
+                  leading: Icon(_applianceInfo(_catalog.kindOf(item.type)).icon,
+                      color: AppTheme.accent),
                   title: Text(item.label),
-                  subtitle: Text(item.blurb),
+                  subtitle:
+                      Text(_applianceInfo(_catalog.kindOf(item.type)).blurb),
                   trailing: Text(
-                    formatMoney(CPQEngine.cabinetPrices[item.type] ?? 0),
+                    formatMoney(item.price),
                     style: context.textTheme.labelLarge,
                   ),
                   onTap: () {
@@ -548,6 +747,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final metres = _cpqSummary.benchtopLinearMetres;
     void choose(String? material) {
       setState(() => _benchtopMaterial = material);
+      _showBenchtop();
       HapticFeedback.selectionClick();
       _scheduleSave();
     }
@@ -576,7 +776,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
               const SizedBox(height: 8),
-              for (final entry in CPQEngine.benchtopRates.entries)
+              for (final entry in _catalog.benchtopOptions.entries)
                 RadioListTile<String?>(
                   contentPadding: EdgeInsets.zero,
                   value: entry.key,
@@ -585,10 +785,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     choose(v);
                     Navigator.pop(sheetContext);
                   },
-                  title: Text(CPQEngine.benchtopNames[entry.key] ?? entry.key),
-                  subtitle: Text('${formatMoney(entry.value)} per metre'),
+                  title: Text(entry.value.name),
+                  subtitle:
+                      Text('${formatMoney(entry.value.ratePerM)} per metre'),
                   secondary: Text(
-                    metres > 0 ? '+${formatMoney(metres * entry.value)}' : '—',
+                    metres > 0
+                        ? '+${formatMoney(metres * entry.value.ratePerM)}'
+                        : '—',
                     style: context.textTheme.labelLarge,
                   ),
                 ),
@@ -660,6 +863,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       styleName: _cpqSummary.styleName,
       depositLocked: _status == ProjectStatus.deposit,
       isOfflineQueued: !sent,
+      picturesUrl:
+          _picturesAttached ? AppConfig.picturesPageUrl(_quoteId) : null,
     );
     final result = await ProposalDelivery.sendViaWhatsApp(
       phone: _clientPhone,
@@ -675,6 +880,140 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         "Couldn't open WhatsApp. The message is copied: paste it in a chat.",
     };
     messenger.showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Asks the 3D page for pictures and waits for its answer. Empty if the
+  /// page doesn't answer in time (or is busy with a render).
+  Future<List<String>> _pictureCall(
+      String id, String javaScript, Duration timeout) {
+    final request = _pictureRequests[id] = Completer<List<String>>();
+    unawaited(_scene.runJavaScript(javaScript));
+    return request.future.timeout(timeout, onTimeout: () {
+      _pictureRequests.remove(id);
+      return const [];
+    });
+  }
+
+  /// Takes the front and angled pictures of the design in the 3D view.
+  Future<List<String>> _capturePictures() async {
+    if (!_sceneLoaded) return const [];
+    return _pictureCall(
+        'app', "capturePictures('app')", const Duration(seconds: 20));
+  }
+
+  /// The slower, better-lit version of the same two pictures. Null if it was
+  /// cancelled or the view couldn't make it.
+  Future<RenderResult?> _renderPictures(RenderRequest request) async {
+    if (!_sceneLoaded || _rendering) return null;
+    setState(() => _rendering = true);
+    _renderProgress.value = 0;
+    _lastRender = (engine: null, fellBack: false, stats: null);
+    final images = await _pictureCall(
+      'render',
+      request.javaScript(skySamples: _renderSamples),
+      request.timeout,
+    );
+    if (images.isEmpty) {
+      // Gave up waiting: tell the page to stop too.
+      unawaited(_scene.runJavaScript('cancelRender()'));
+    }
+    _renderProgress.value = null;
+    if (mounted) setState(() => _rendering = false);
+    if (images.isEmpty) return null;
+    // The page says which engine it used; an older page says nothing, which
+    // means the one asked for.
+    final engine = _lastRender.engine ?? request.engine;
+    final stats = _lastRender.stats;
+    _rendered = (
+      revision: _designRevision,
+      images: images,
+      engine: engine,
+      stats: stats,
+    );
+    return RenderResult(images, engine,
+        fellBack: _lastRender.fellBack, stats: stats);
+  }
+
+  /// The render of the design as it is now, if there is one.
+  List<String>? get _currentRender =>
+      _rendered != null && _rendered!.revision == _designRevision
+          ? _rendered!.images
+          : null;
+
+  /// The Pictures button: pictures to show the client, and to send on.
+  Future<void> _takePictures() async {
+    final messenger = ScaffoldMessenger.of(context);
+    var images = _currentRender;
+    final alreadyRendered = _rendered != null && images != null
+        ? _rendered!.engine
+        : null;
+    final alreadyStats = alreadyRendered == null ? null : _rendered!.stats;
+    if (images == null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Taking pictures…'),
+          duration: Duration(seconds: 2),
+        ));
+      images = await _capturePictures();
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+    }
+    final usable = [
+      for (final image in images)
+        if (DesignPictures.decode(image) != null) image,
+    ];
+    if (usable.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text("Couldn't take the pictures. Try again."),
+      ));
+      return;
+    }
+
+    // Both ways of sending go through the office, which keeps the pictures
+    // and gives the client a page to open.
+    Future<String?> pageUrl(List<String> shown) async {
+      final url = await DesignPictures.upload(_quoteId, shown);
+      if (url == null && mounted) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text("Couldn't reach the office. Try again when you're "
+              'online.'),
+        ));
+      }
+      return url;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => PicturesSheet(
+        initial: usable,
+        initialRender: alreadyRendered,
+        initialStats: alreadyStats,
+        progress: _renderProgress,
+        onRender: _renderPictures,
+        onCancelRender: () => _scene.runJavaScript('cancelRender()'),
+        onSendWhatsApp: (shown) async {
+          final url = await pageUrl(shown);
+          if (url == null) return;
+          final name = _clientName.trim();
+          await ProposalDelivery.sendViaWhatsApp(
+            phone: _clientPhone,
+            message: '${name.isEmpty ? 'Hi!' : 'Hi $name!'} Here are pictures '
+                'of your kitchen design: $url',
+          );
+        },
+        onOpenToSave: (shown) async {
+          final url = await pageUrl(shown);
+          if (url != null) await ProposalDelivery.openPage(url);
+        },
+      ),
+    );
   }
 
   void _openClosingModal() {
@@ -707,17 +1046,34 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _saveTimer = null;
     final summary = _cpqSummary;
     final record = _projectRecord(signatureBase64: signatureBase64);
+    // The quote PDF and the client's page show the design as pictures.
+    final pictures = _currentRender ?? await _capturePictures();
+    final toSend = {
+      ...record,
+      if (pictures.isNotEmpty) 'design_images': pictures,
+    };
 
     // Saved on the phone first, so nothing is lost if the network fails.
+    // (Without the pictures: they are large, and a draft is saved often.)
     await OfflineStore.saveDraft(record);
 
     var sent = false;
     var pdfUrl = '';
     // Offline or the office server is unreachable: it stays queued.
-    final reply =
-        await ApiClient.postJson(Uri.parse(AppConfig.quoteEndpoint), record);
+    final reply = await ApiClient.postJson(
+      Uri.parse(AppConfig.quoteEndpoint),
+      toSend,
+      timeout: const Duration(seconds: 20),
+    );
+    if (reply == null || !reply.ok) {
+      // Waiting to be sent: keep the pictures with it when they fit.
+      if (pictures.isNotEmpty && DesignPictures.fitsOffline(pictures)) {
+        await OfflineStore.saveDraft(toSend);
+      }
+    }
     // Only drop the device copy once the office has actually accepted it.
     if (reply != null && reply.ok) {
+      _picturesAttached = pictures.isNotEmpty;
       final result = reply.json;
       if (result is Map<String, dynamic>) {
         pdfUrl = result['pdf_url'] as String? ?? '';
@@ -829,7 +1185,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final summary = _cpqSummary;
     // Opening the breakdown is a deliberate reveal.
     if (!_priceVisible) setState(() => _priceVisible = true);
-    final taxPercent = (CPQEngine.gstRate * 100).round();
+    final taxPercent = (_catalog.taxRate * 100).round();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
@@ -884,7 +1240,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               value: '×${summary.materialMultiplier}',
             ),
             _SummaryTile(
-              label: 'Installation (${summary.totalModules} units)',
+              label: 'Installation (${summary.labourModules} units)',
               value: formatMoney(summary.labourTotal),
             ),
             if (summary.obstacleAllowance != 0)
@@ -990,7 +1346,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
           const SizedBox(width: 4),
           ElevatedButton.icon(
-            onPressed: _sceneLoaded ? _openClosingModal : null,
+            onPressed: _sceneLoaded && !_rendering ? _openClosingModal : null,
             icon: const Icon(Icons.send_rounded, size: 16),
             label: const Text('Quote'),
             style: ElevatedButton.styleFrom(
@@ -1011,6 +1367,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       appBar: AppBar(
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
+          IconButton(
+            tooltip: 'Look: doors, backsplash, decor, room and light',
+            onPressed: _sceneLoaded && !_rendering ? _showLookSheet : null,
+            icon: const Icon(Icons.palette_outlined),
+          ),
+          IconButton(
+            tooltip: 'Take pictures of this design',
+            onPressed: _sceneLoaded && !_rendering ? _takePictures : null,
+            icon: const Icon(Icons.photo_camera_outlined),
+          ),
           IconButton(
             tooltip: _controlsHidden ? 'Show controls' : 'Full view',
             onPressed: () => setState(() => _controlsHidden = !_controlsHidden),
@@ -1143,7 +1509,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         onBenchtop: _showBenchtopSheet,
                         benchtopName: _benchtopMaterial == null
                             ? null
-                            : CPQEngine.benchtopNames[_benchtopMaterial],
+                            : _catalog.benchtopOptions[_benchtopMaterial]?.name,
+                        modules: _catalog.cabinetModules,
+                        kindOf: _catalog.kindOf,
                         onDone: () => _setEditing(false),
                       )
                     else
@@ -1375,6 +1743,12 @@ class _EditPanel extends StatelessWidget {
   final VoidCallback onAppliances;
   final VoidCallback onBenchtop;
 
+  /// The modules offered in the tray, from the catalogue.
+  final List<CatalogModule> modules;
+
+  /// How the 3D view draws a module type (picks its icon).
+  final String Function(String type) kindOf;
+
   /// The chosen benchtop's name, or null for none.
   final String? benchtopName;
   final VoidCallback onDone;
@@ -1391,6 +1765,8 @@ class _EditPanel extends StatelessWidget {
     required this.onAppliances,
     required this.onBenchtop,
     required this.benchtopName,
+    required this.modules,
+    required this.kindOf,
     required this.onDone,
   });
 
@@ -1472,37 +1848,16 @@ class _EditPanel extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _JoineryModuleButton(
-                  type: 'base_800',
-                  label: 'Base 800',
-                  dims: '800 mm',
-                  icon: Icons.view_agenda_outlined,
-                  onAdd: () => onAdd('base_800'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'base_600',
-                  label: 'Base 600',
-                  dims: '600 mm',
-                  icon: Icons.crop_square_rounded,
-                  onAdd: () => onAdd('base_600'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'wall_600',
-                  label: 'Wall 600',
-                  dims: '600 mm',
-                  icon: Icons.table_rows_outlined,
-                  onAdd: () => onAdd('wall_600'),
-                ),
-                const SizedBox(width: 8),
-                _JoineryModuleButton(
-                  type: 'tall_600',
-                  label: 'Tall 600',
-                  dims: '2100 mm',
-                  icon: Icons.view_sidebar_outlined,
-                  onAdd: () => onAdd('tall_600'),
-                ),
+                for (var i = 0; i < modules.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  _JoineryModuleButton(
+                    type: modules[i].type,
+                    label: modules[i].label,
+                    dims: _moduleDims(modules[i], kindOf(modules[i].type)),
+                    icon: _moduleIcon(kindOf(modules[i].type)),
+                    onAdd: () => onAdd(modules[i].type),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1689,6 +2044,22 @@ class _SummaryTile extends StatelessWidget {
     );
   }
 }
+
+/// The size worth showing on a tray button: the height of full-height units,
+/// the width of everything else.
+String _moduleDims(CatalogModule m, String kind) {
+  final tall = kind == 'tall' || kind == 'oven' || kind == 'fridge';
+  return '${(tall ? m.heightMm : m.widthMm).round()} mm';
+}
+
+IconData _moduleIcon(String kind) => switch (kind) {
+      'wall' => Icons.table_rows_outlined,
+      'tall' => Icons.view_sidebar_outlined,
+      'corner' => Icons.turn_right_outlined,
+      'drawer' => Icons.table_chart_outlined,
+      'filler' => Icons.horizontal_rule_rounded,
+      _ => Icons.view_agenda_outlined,
+    };
 
 class _JoineryModuleButton extends StatelessWidget {
   final String type;

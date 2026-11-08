@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { NO_PICTURE } from './picture';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
 import type { CabinetData } from '../layout/model';
@@ -14,6 +15,8 @@ interface CabinetMeshProps {
   isSelected: boolean;
   finish: CabinetFinish;
   doorStyle: DoorStyle;
+  /** The benchtop chosen, if any (changes the worktop's look). */
+  benchtop?: string | null;
   /** Room height in metres (rangehood chimneys run up to it). */
   ceiling: number;
   onSelect: (id: string) => void;
@@ -24,13 +27,14 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
   isSelected,
   finish,
   doorStyle,
+  benchtop = null,
   ceiling,
   onSelect,
 }) => {
   const { kind, width, height, depth, isWallMounted, mount, hood } = cabinet;
   const object = useMemo(
-    () => buildCabinet({ kind, w: width, h: height, d: depth, isWall: isWallMounted, mount, hood }, finish, doorStyle, ceiling),
-    [kind, width, height, depth, isWallMounted, mount, hood, finish, doorStyle, ceiling],
+    () => buildCabinet({ kind, w: width, h: height, d: depth, isWall: isWallMounted, mount, hood }, finish, doorStyle, ceiling, benchtop),
+    [kind, width, height, depth, isWallMounted, mount, hood, finish, doorStyle, ceiling, benchtop],
   );
   useEffect(() => () => disposeCabinet(object), [object]);
 
@@ -58,7 +62,7 @@ export const CabinetMesh: React.FC<CabinetMeshProps> = ({
     >
       <primitive object={object} />
       {outline && (
-        <lineSegments geometry={outline.edges} position={[0, outline.y, 0.01]}>
+        <lineSegments geometry={outline.edges} position={[0, outline.y, 0.01]} userData={NO_PICTURE}>
           <lineBasicMaterial color="#A25F41" />
         </lineSegments>
       )}

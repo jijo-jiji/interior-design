@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { createPlankOakTexture, createPlasterWallTexture } from './materials';
+import { finishSet, useTextureVersion } from './finishTextures';
 import { wallsFor } from './floorPlan';
 import type { FloorPlan, RoomView } from './floorPlan';
 
@@ -116,6 +117,18 @@ export const RoomShell: React.FC<RoomShellProps> = ({
     [showPlan, floorPlan, roomView, widthMm, shape, returnMm],
   );
 
+  // The floor's real planks, once they have decoded (the drawn ones stand in
+  // until then); the textures are shared, so their repeat is set here.
+  const textureVersion = useTextureVersion();
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  const floorSet = useMemo(() => finishSet('floor_oak'), [textureVersion]);
+  useLayoutEffect(() => {
+    if (!floorSet) return;
+    for (const t of [floorSet.map, floorSet.normalMap, floorSet.roughnessMap]) {
+      t?.repeat.set(floorWidth / floorSet.tile, floorLength / floorSet.tile);
+    }
+  }, [floorSet, floorWidth, floorLength]);
+
   // Set seamless texture repeats
   floorMap.repeat.set(5, 5);
   floorBump.repeat.set(5, 5);
@@ -130,14 +143,27 @@ export const RoomShell: React.FC<RoomShellProps> = ({
         receiveShadow
       >
         <planeGeometry args={[floorWidth, floorLength]} />
-        <meshStandardMaterial
-          map={floorMap}
-          bumpMap={floorBump}
-          bumpScale={0.008}
-          roughness={0.42}
-          metalness={0.04}
-          color="#D4C0A8"
-        />
+        {floorSet ? (
+          <meshStandardMaterial
+            key="floor-textured"
+            map={floorSet.map}
+            normalMap={floorSet.normalMap}
+            normalScale={[0.6, 0.6]}
+            roughnessMap={floorSet.roughnessMap}
+            roughness={floorSet.roughnessMap ? 1 : 0.42}
+            metalness={0.02}
+          />
+        ) : (
+          <meshStandardMaterial
+            key="floor-drawn"
+            map={floorMap}
+            bumpMap={floorBump}
+            bumpScale={0.008}
+            roughness={0.42}
+            metalness={0.04}
+            color="#D4C0A8"
+          />
+        )}
       </mesh>
 
       {/* ── Main Back Wall (Continuous Architectural Backdrop) ──────── */}

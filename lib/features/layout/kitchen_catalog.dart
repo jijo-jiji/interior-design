@@ -1,12 +1,15 @@
-/// PLACEHOLDER catalog and design rules for the kitchen layout generator.
+/// The sizes and design rules the kitchen layout generator works from.
 ///
-/// Every number in this file is a stand-in until SS Love's designer returns
-/// `notes/SS-Love-designer-checklist.xlsx`. The generator reads nothing else,
-/// so replacing these values with the designer's real module list, sizes and
-/// rules is the only change needed to make its suggestions match how they
-/// actually design. Later this becomes tenant-scoped catalog data loaded from
-/// the backend instead of a Dart constant.
+/// They come from the catalogue ([PriceCatalog.current], the `layout`
+/// section): the designer edits them in the Studio and the app syncs them from
+/// the office server. [KitchenCatalog.placeholder] and
+/// [KitchenRules.placeholder] below are the sample values, kept as fixed
+/// numbers the generator's tests are written against. Every number is a
+/// stand-in until SS Love's designer returns
+/// `notes/SS-Love-designer-checklist.xlsx`.
 library;
+
+import '../catalog/price_catalog.dart';
 
 enum ModuleKind { base, drawer, sink, hob, tall, corner, wall, filler }
 
@@ -60,6 +63,33 @@ class KitchenCatalog {
   final bool isPlaceholder;
 
   double get wallBandTopMm => wallMountMm + wallHeightMm;
+
+  /// The sizes of [catalog]'s `layout` section.
+  factory KitchenCatalog.from(PriceCatalog catalog) {
+    final l = catalog.layout;
+    return KitchenCatalog(
+      baseDoorWidthsMm: l.baseDoorWidthsMm,
+      drawerWidthsMm: l.drawerWidthsMm,
+      sinkWidthsMm: l.sinkWidthsMm,
+      hobWidthsMm: l.hobWidthsMm,
+      tallWidthMm: l.tallWidthMm,
+      wallWidthsMm: l.wallWidthsMm,
+      cornerSizeMm: l.cornerSizeMm,
+      baseHeightMm: l.baseHeightMm,
+      baseDepthMm: l.baseDepthMm,
+      counterHeightMm: l.counterHeightMm,
+      wallHeightMm: l.wallHeightMm,
+      wallDepthMm: l.wallDepthMm,
+      wallMountMm: l.wallMountMm,
+      tallHeightMm: l.tallHeightMm,
+      tallDepthMm: l.tallDepthMm,
+      isPlaceholder: catalog.isPlaceholder,
+    );
+  }
+
+  /// What the app is using now (see `CatalogRepository`).
+  static KitchenCatalog get current =>
+      KitchenCatalog.from(PriceCatalog.current);
 
   /// Sizes match the existing `CABINET_SPECS` in `assets/3d/index.html` so
   /// generated layouts look the same as manually placed cabinets.
@@ -119,6 +149,29 @@ class KitchenRules {
 
   /// How far the sink may move off the window centre to make the run fit.
   final double maxSinkShiftFromWindowMm;
+
+  /// The rules of [catalog]'s `layout.rules` section.
+  factory KitchenRules.from(PriceCatalog catalog) {
+    final r = catalog.layout.rules;
+    double v(String key, double fallback) =>
+        (r[key] as num?)?.toDouble() ?? fallback;
+    const d = KitchenRules.placeholder;
+    return KitchenRules(
+      minSinkToHobMm: v('min_sink_to_hob_mm', d.minSinkToHobMm),
+      minHobSideCounterMm: v('min_hob_side_counter_mm', d.minHobSideCounterMm),
+      minSinkToTallMm: v('min_sink_to_tall_mm', d.minSinkToTallMm),
+      minFillerMm: v('min_filler_mm', d.minFillerMm),
+      maxFillerMm: v('max_filler_mm', d.maxFillerMm),
+      scribeToleranceMm: v('scribe_tolerance_mm', d.scribeToleranceMm),
+      doorClearanceMm: v('door_clearance_mm', d.doorClearanceMm),
+      windowClearanceMm: v('window_clearance_mm', d.windowClearanceMm),
+      maxSinkShiftFromWindowMm:
+          v('max_sink_shift_from_window_mm', d.maxSinkShiftFromWindowMm),
+    );
+  }
+
+  /// What the app is using now (see `CatalogRepository`).
+  static KitchenRules get current => KitchenRules.from(PriceCatalog.current);
 
   static const placeholder = KitchenRules(
     minSinkToHobMm: 600,

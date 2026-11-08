@@ -10,59 +10,15 @@
    ──────────────────────────────────────────────────────────────────────────── */
 import * as THREE from 'three';
 import type { CabinetKind } from '../layout/model';
+import { BENCHTOP_LOOKS, STYLE_FINISHES } from './finishes';
+import type { CabinetFinish, FinishSpec, FrontFinish } from './finishes';
+import { STONE_TILE, WOOD_TILE, finishSet, microSet, onTexturesChanged } from './finishTextures';
 
-export type CabinetFinish = 'japandi' | 'nordic' | 'minimalist' | 'industrial';
 /** Door face. Handles come from the finish, as in the sales app. */
 export type DoorStyle = 'slab' | 'shaker' | 'fluted';
 
-interface FrontFinish {
-  color: number;
-  wood: boolean;
-  roughness: number;
-}
-interface FinishSpec {
-  base: FrontFinish;
-  wall: FrontFinish;
-  tall: FrontFinish;
-  top: { color: number; roughness: number };
-  handle: { kind: 'bar' | 'knob' | 'groove'; color: number; metalness: number; roughness: number };
-  plinth: number;
-}
-
-export const STYLE_FINISHES: Record<CabinetFinish, FinishSpec> = {
-  japandi: {
-    base: { color: 0xe2c49c, wood: true, roughness: 0.62 },
-    wall: { color: 0xf1ece3, wood: false, roughness: 0.55 },
-    tall: { color: 0xe2c49c, wood: true, roughness: 0.62 },
-    top: { color: 0xf6f2ec, roughness: 0.22 },
-    handle: { kind: 'bar', color: 0xc9a24f, metalness: 0.9, roughness: 0.32 },
-    plinth: 0x3b3027,
-  },
-  minimalist: {
-    base: { color: 0x40454e, wood: false, roughness: 0.78 },
-    wall: { color: 0xf4f4f1, wood: false, roughness: 0.6 },
-    tall: { color: 0x40454e, wood: false, roughness: 0.78 },
-    top: { color: 0xfafaf8, roughness: 0.18 },
-    handle: { kind: 'groove', color: 0x121316, metalness: 0.2, roughness: 0.7 },
-    plinth: 0x1d1f23,
-  },
-  nordic: {
-    base: { color: 0xa7b5a0, wood: false, roughness: 0.66 },
-    wall: { color: 0xf3f2ed, wood: false, roughness: 0.6 },
-    tall: { color: 0xead6b4, wood: true, roughness: 0.6 },
-    top: { color: 0xebe6dc, roughness: 0.3 },
-    handle: { kind: 'knob', color: 0xb7bcc2, metalness: 0.85, roughness: 0.35 },
-    plinth: 0x4a4f48,
-  },
-  industrial: {
-    base: { color: 0x7a5a44, wood: true, roughness: 0.55 },
-    wall: { color: 0x36383e, wood: false, roughness: 0.5 },
-    tall: { color: 0x7a5a44, wood: true, roughness: 0.55 },
-    top: { color: 0x55575d, roughness: 0.36 },
-    handle: { kind: 'bar', color: 0x1b1b1d, metalness: 0.6, roughness: 0.45 },
-    plinth: 0x18191c,
-  },
-};
+export { STYLE_FINISHES };
+export type { CabinetFinish, FinishSpec, FrontFinish };
 
 const PLINTH_H = 0.1;
 const PLINTH_SET = 0.06;
@@ -71,8 +27,6 @@ const GAP = 0.003;
 const TOP_T = 0.04;
 const TOP_OVER = 0.02;
 const ARM_D = 0.6;
-const WOOD_TILE = 0.6;
-const STONE_TILE = 1.2;
 const TALL_KINDS = new Set<CabinetKind>(['tall', 'oven', 'fridge']);
 
 export interface CabinetSpec {
@@ -158,7 +112,7 @@ interface Materials {
   base: THREE.MeshStandardMaterial;
   wall: THREE.MeshStandardMaterial;
   tall: THREE.MeshStandardMaterial;
-  top: THREE.MeshStandardMaterial;
+  top: THREE.MeshPhysicalMaterial;
   handle: THREE.MeshStandardMaterial;
   plinth: THREE.MeshStandardMaterial;
   reveal: THREE.MeshStandardMaterial;
@@ -169,11 +123,79 @@ interface Materials {
   led: THREE.MeshBasicMaterial;
 }
 
-const materialCache = new Map<CabinetFinish, Materials>();
+const materialCache = new Map<string, Materials>();
+/** What each cached set of materials is dressed for, to dress it again when a
+ *  texture arrives. */
+const dressing = new Map<Materials, { fin: FinishSpec; benchtop: string | null }>();
 let shared: Pick<Materials, 'reveal' | 'steel' | 'basin' | 'glass' | 'burner' | 'led'> | null = null;
 
-function materialsFor(finish: CabinetFinish): Materials {
-  const cached = materialCache.get(finish);
+/** A front: a real finish's own colours, relief and gloss, or a flat colour
+ *  with a faint micro texture (painted, laminate). Until a texture has decoded
+ *  a wood front shows the grain the page draws itself. */
+function setFront(mat: THREE.MeshStandardMaterial, f: FrontFinish) {
+  const set = f.tex ? finishSet(f.tex) : null;
+  if (set) {
+    mat.color.setHex(0xffffff);
+    mat.map = set.map;
+    mat.normalMap = set.normalMap;
+    mat.normalScale.set(0.8, 0.8);
+    mat.roughnessMap = set.roughnessMap;
+    mat.roughness = set.roughnessMap ? 1 : f.roughness;
+  } else {
+    const micro = f.wood ? null : microSet();
+    mat.color.setHex(f.color);
+    mat.map = f.wood ? woodTexture() : null;
+    mat.normalMap = micro ? micro.normalMap : null;
+    mat.normalScale.set(0.08, 0.08);
+    mat.roughnessMap = micro ? micro.roughnessMap : null;
+    mat.roughness = micro?.roughnessMap ? Math.min(1, f.roughness / 0.62) : f.roughness;
+  }
+  mat.needsUpdate = true;
+}
+
+/** The worktop: the style's own, or the benchtop chosen. */
+function setTop(top: THREE.MeshPhysicalMaterial, fin: FinishSpec, benchtop: string | null) {
+  const look = benchtop ? BENCHTOP_LOOKS[benchtop] : undefined;
+  const spec = look ?? fin.top;
+  const set = spec.tex ? finishSet(spec.tex) : null;
+  if (set) {
+    top.color.setHex(0xffffff);
+    top.map = set.map;
+    top.normalMap = set.normalMap;
+    top.normalScale.set(0.7, 0.7);
+    top.roughnessMap = set.roughnessMap;
+    // The roughness map holds the real gloss; polished stone also gets a clear coat.
+    top.roughness = set.roughnessMap ? 1 : spec.roughness;
+    top.clearcoat = spec.roughness < 0.3 ? 0.35 : 0.08;
+  } else {
+    const micro = look ? microSet() : null;
+    top.color.setHex(spec.color);
+    top.map = look ? null : stoneTexture();
+    top.normalMap = micro ? micro.normalMap : null;
+    top.normalScale.set(0.06, 0.06);
+    top.roughnessMap = micro ? micro.roughnessMap : null;
+    top.roughness = micro?.roughnessMap ? Math.min(1, spec.roughness / 0.62) : spec.roughness;
+    top.clearcoat = look ? 0 : 0.3;
+  }
+  top.needsUpdate = true;
+}
+
+function dress(m: Materials, fin: FinishSpec, benchtop: string | null) {
+  setFront(m.base, fin.base);
+  setFront(m.wall, fin.wall);
+  setFront(m.tall, fin.tall);
+  setTop(m.top, fin, benchtop);
+}
+
+// Textures decode in the background: when one arrives, every set of materials
+// takes it.
+onTexturesChanged(() => {
+  for (const [m, { fin, benchtop }] of dressing) dress(m, fin, benchtop);
+});
+
+function materialsFor(finish: CabinetFinish, benchtop: string | null): Materials {
+  const key = `${finish}|${benchtop ?? ''}`;
+  const cached = materialCache.get(key);
   if (cached) return cached;
   const fin = STYLE_FINISHES[finish] ?? STYLE_FINISHES.japandi;
   const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(o);
@@ -185,18 +207,18 @@ function materialsFor(finish: CabinetFinish): Materials {
     burner: std({ color: 0x55575b, metalness: 0.4, roughness: 0.55 }),
     led: new THREE.MeshBasicMaterial({ color: 0xfff0d2 }),
   };
-  const front = (f: FrontFinish) =>
-    std({ color: f.color, roughness: f.roughness, metalness: 0.02, map: f.wood ? woodTexture() : null });
   const m: Materials = {
-    base: front(fin.base),
-    wall: front(fin.wall),
-    tall: front(fin.tall),
-    top: std({ map: stoneTexture(), color: fin.top.color, roughness: fin.top.roughness, metalness: 0 }),
+    base: std({ metalness: 0.02 }),
+    wall: std({ metalness: 0.02 }),
+    tall: std({ metalness: 0.02 }),
+    top: new THREE.MeshPhysicalMaterial({ metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.14 }),
     handle: std({ color: fin.handle.color, metalness: fin.handle.metalness, roughness: fin.handle.roughness }),
     plinth: std({ color: fin.plinth, roughness: 0.9 }),
     ...shared,
   };
-  materialCache.set(finish, m);
+  dress(m, fin, benchtop);
+  dressing.set(m, { fin, benchtop });
+  materialCache.set(key, m);
   return m;
 }
 
@@ -238,9 +260,11 @@ export function buildCabinet(
   finish: CabinetFinish,
   doorStyle: DoorStyle,
   ceiling: number,
+  /** The benchtop chosen (a key of the catalogue's benchtop options), if any. */
+  benchtop: string | null = null,
 ): THREE.Group {
   const group = new THREE.Group();
-  const M = materialsFor(finish);
+  const M = materialsFor(finish, benchtop);
   const handleKind = (STYLE_FINISHES[finish] ?? STYLE_FINISHES.japandi).handle.kind;
   const add: Add = (geo, mat, x, y, z, cast = true) => {
     const mesh = new THREE.Mesh(geo, mat);

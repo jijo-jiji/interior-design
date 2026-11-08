@@ -44,6 +44,15 @@ class AppConfig {
   /// Signed proposal PDF for a finalised quote.
   static String pdfEndpoint(String quoteId) => '$backendBaseUrl/pdf/$quoteId';
 
+  /// Where a design's pictures are posted before its quote is sent.
+  static String picturesUploadEndpoint(String quoteId) =>
+      '$backendBaseUrl/api/projects/$quoteId/pictures';
+
+  /// The page the client opens to see (and save) the pictures of their
+  /// design. Like [portalUrl], reachable only from the office network.
+  static String picturesPageUrl(String quoteId) =>
+      '$backendBaseUrl/pictures/$quoteId';
+
   /// Client-facing 3D proposal the customer can open on their own phone.
   /// Reachable only from the same network as the backend.
   static String portalUrl(String quoteId) => '$backendBaseUrl/view/$quoteId';

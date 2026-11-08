@@ -1,70 +1,186 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    Commercial pricing.
 
-   The studio used to price layouts with its own hard-coded table (plus an
-   invented benchtop line and a door-style multiplier, minus installation
-   labour), so the figure on screen disagreed with the quote the client signed.
-   Everything here mirrors `create_quote` in backend/main.py and takes its rates
-   from GET /api/catalog, so the studio and the PDF agree.
+   The same rules as the office server (backend/catalog.py) and the sales app
+   (lib/features/viewer/models/cpq_engine.dart), reading the same catalogue
+   (GET /api/catalog), so the figure in the studio, on the tablet and on the
+   PDF the client signs is one figure. test/fixtures/pricing_cases.json holds
+   the cases all three must agree on.
+
+   unit price = module price                     if the type is a fixed module
+              = at_ref + (width - ref_width) / 100 * per_100mm   if its family has a rule
+              = unknown_module_price             otherwise
+   then x the finish multiplier, rounded to the sen.
    ──────────────────────────────────────────────────────────────────────────── */
 
-export interface Catalog {
-  cabinets: Record<string, number>;
-  styles: Record<string, number>;
-  style_names: Record<string, string>;
-  labour_rate_per_cabinet: number;
-  gst_rate: number;
-  obstacle_allowances: Record<string, number>;
-  benchtops: Record<string, number>;
-  benchtop_names: Record<string, string>;
+export interface StyleOption {
+  name: string;
+  multiplier: number;
 }
 
-/** A corner unit carries benchtop along both wings (900mm each). */
-const CORNER_BENCHTOP_METRES = 1.8;
+export interface BenchtopOption {
+  name: string;
+  rate_per_m: number;
+}
 
-/** Which modules carry benchtop over them. Mirrored in backend/main.py and
- *  lib/features/viewer/models/cpq_engine.dart — drift fails the contract test. */
-const BENCHTOP_TYPE_PREFIXES = ['base', 'corner', 'sink', 'cooktop', 'dishwasher'];
+export interface CatalogModule {
+  type: string;
+  label: string;
+  section: 'cabinet' | 'appliance';
+  width_mm: number;
+  height_mm: number;
+  depth_mm: number;
+  mount_mm: number;
+  price: number;
+}
 
-/** Appliance modules are described as such on the quote, not as "Cabinet —". */
-const APPLIANCE_TYPE_PREFIXES = ['sink', 'cooktop', 'dishwasher', 'oven', 'fridge', 'rangehood'];
+export interface PriceRule {
+  at_ref: number;
+  ref_width_mm: number;
+  per_100mm: number;
+}
 
-/** Used only until /api/catalog answers (or if the backend is unreachable). */
-export const FALLBACK_CATALOG: Catalog = {
-  cabinets: {
-    base_800: 420,
-    base_600: 340,
-    wall_600: 280,
-    tall_600: 620,
-    corner_900: 580,
-    // Appliance modules: cabinetry, cutouts and services for each unit.
-    sink_600: 480,
-    cooktop_600: 520,
-    dishwasher_600: 360,
-    oven_tower_600: 1450,
-    fridge_recess_700: 390,
-    rangehood_900: 690,
-  },
-  styles: { japandi: 1.0, minimalist: 1.08, nordic: 1.12, industrial: 1.18 },
-  style_names: {
-    japandi: 'Japandi Natural',
-    minimalist: 'Modern Minimalist',
-    nordic: 'Warm Nordic',
-    industrial: 'Industrial Luxe',
-  },
-  labour_rate_per_cabinet: 120,
-  gst_rate: 0.08,
-  obstacle_allowances: { window: -50, door: -80 },
-  benchtops: { quartz_calacatta: 380, granite_black: 480, laminate_matte: 160 },
-  benchtop_names: {
-    quartz_calacatta: 'Calacatta Engineered Quartz',
-    granite_black: 'Nero Absolute Granite',
-    laminate_matte: 'Ultra-Matte Mineral Laminate',
-  },
-};
+export interface Family {
+  id: string;
+  label: string;
+  prefixes: string[];
+  group: 'base' | 'wall' | 'tall' | 'corner';
+  /** How the 3D view draws it. */
+  kind:
+    | 'base'
+    | 'drawer'
+    | 'sink'
+    | 'hob'
+    | 'tall'
+    | 'corner'
+    | 'wall'
+    | 'filler'
+    | 'dishwasher'
+    | 'oven'
+    | 'fridge'
+    | 'hood';
+  benchtop: 'width' | 'fixed' | 'none';
+  benchtop_m: number;
+  labour: boolean;
+  appliance: boolean;
+  price: PriceRule | null;
+}
 
-/** Backend fallback for a cabinet type that is not in the catalog. */
-const UNKNOWN_CABINET_PRICE = 300;
+export interface LayoutRules {
+  min_sink_to_hob_mm: number;
+  min_hob_side_counter_mm: number;
+  min_sink_to_tall_mm: number;
+  min_filler_mm: number;
+  max_filler_mm: number;
+  scribe_tolerance_mm: number;
+  door_clearance_mm: number;
+  window_clearance_mm: number;
+  max_sink_shift_from_window_mm: number;
+}
+
+export interface Layout {
+  base_door_widths_mm: number[];
+  drawer_widths_mm: number[];
+  sink_widths_mm: number[];
+  hob_widths_mm: number[];
+  tall_width_mm: number;
+  wall_widths_mm: number[];
+  corner_size_mm: number;
+  base_height_mm: number;
+  base_depth_mm: number;
+  counter_height_mm: number;
+  wall_height_mm: number;
+  wall_depth_mm: number;
+  wall_mount_mm: number;
+  tall_height_mm: number;
+  tall_depth_mm: number;
+  rules: LayoutRules;
+}
+
+/** The catalogue document, as the office server stores it. */
+export interface Catalog {
+  schema_version: 1;
+  version: number;
+  updated_at?: string | null;
+  name: string;
+  /** True while the numbers are samples. */
+  is_placeholder: boolean;
+  currency: string;
+  currency_symbol: string;
+  tax: { label: string; rate: number };
+  labour_rate_per_cabinet: number;
+  unknown_module_price: number;
+  obstacle_allowances: Record<string, number>;
+  style_options: Record<string, StyleOption>;
+  benchtop_options: Record<string, BenchtopOption>;
+  modules: CatalogModule[];
+  families: Family[];
+  layout: Layout;
+}
+
+/** Keys the server adds to its answer (flat maps for older clients, and
+ *  whether saving needs the admin key): never sent back when saving. */
+export const SERVER_ONLY_KEYS = [
+  'cabinets',
+  'styles',
+  'style_names',
+  'benchtops',
+  'benchtop_names',
+  'gst_rate',
+  'requires_admin_key',
+] as const;
+
+export interface ServedCatalog extends Catalog {
+  requires_admin_key?: boolean;
+}
+
+/** The longest-prefix family of a module type, if any. */
+export function familyFor(catalog: Catalog, type: string): Family | undefined {
+  let best: Family | undefined;
+  let bestLength = -1;
+  for (const family of catalog.families) {
+    for (const prefix of family.prefixes) {
+      if (type.startsWith(prefix) && prefix.length > bestLength) {
+        best = family;
+        bestLength = prefix.length;
+      }
+    }
+  }
+  return best;
+}
+
+/** What a family's rule charges for a module [widthMm] wide (never below 0). */
+export function rulePrice(rule: PriceRule, widthMm?: number): number {
+  const width = widthMm ? widthMm : rule.ref_width_mm;
+  return Math.max(0, rule.at_ref + ((width - rule.ref_width_mm) / 100) * rule.per_100mm);
+}
+
+/** The list price of one module, before the finish multiplier. */
+export function unitPrice(catalog: Catalog, type: string, widthMm?: number): number {
+  const fixed = catalog.modules.find((m) => m.type === type);
+  if (fixed) return fixed.price;
+  const rule = familyFor(catalog, type)?.price;
+  if (rule) return rulePrice(rule, widthMm);
+  return catalog.unknown_module_price;
+}
+
+export function benchtopMetresFor(catalog: Catalog, type: string, widthMm?: number): number {
+  const family = familyFor(catalog, type);
+  if (!family || family.benchtop === 'none') return 0;
+  if (family.benchtop === 'fixed') return family.benchtop_m;
+  const width = widthMm ? widthMm : (family.price?.ref_width_mm ?? 600);
+  return width / 1000;
+}
+
+/** Style options as the flat maps the panels read. */
+export const styleNames = (c: Catalog) =>
+  Object.fromEntries(Object.entries(c.style_options).map(([k, v]) => [k, v.name]));
+export const styleMultipliers = (c: Catalog) =>
+  Object.fromEntries(Object.entries(c.style_options).map(([k, v]) => [k, v.multiplier]));
+export const benchtopRates = (c: Catalog) =>
+  Object.fromEntries(Object.entries(c.benchtop_options).map(([k, v]) => [k, v.rate_per_m]));
+export const benchtopNames = (c: Catalog) =>
+  Object.fromEntries(Object.entries(c.benchtop_options).map(([k, v]) => [k, v.name]));
 
 export interface QuoteLine {
   description: string;
@@ -82,7 +198,7 @@ export interface QuoteTotals {
 
 export interface PricedCabinet {
   type: string;
-  /** Width in metres — only needed to measure the benchtop run. */
+  /** Width in metres. */
   width?: number;
 }
 
@@ -99,16 +215,14 @@ const titleCase = (s: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ');
 
-/** Benchtop runs over base units (their own width) and corners (both wings). */
-export function benchtopLinearMetres(cabinets: PricedCabinet[]): number {
+const mmOf = (cab: PricedCabinet): number | undefined =>
+  cab.width === undefined ? undefined : Math.round(cab.width * 1000);
+
+/** Benchtop over base units (their own width), corners (both wings), and
+ *  whatever else the catalogue says carries a worktop. */
+export function benchtopLinearMetres(cabinets: PricedCabinet[], catalog: Catalog): number {
   let metres = 0;
-  for (const cab of cabinets) {
-    if (cab.type.startsWith('corner')) {
-      metres += CORNER_BENCHTOP_METRES;
-    } else if (BENCHTOP_TYPE_PREFIXES.some((prefix) => cab.type.startsWith(prefix))) {
-      metres += cab.width ?? 0;
-    }
-  }
+  for (const cab of cabinets) metres += benchtopMetresFor(catalog, cab.type, mmOf(cab));
   return Math.round(metres * 1000) / 1000;
 }
 
@@ -120,45 +234,51 @@ export function priceLayout(
   benchtopMaterial?: string | null,
 ): QuoteTotals {
   const lineItems: QuoteLine[] = [];
-  const multiplier = catalog.styles[style] ?? 1.0;
-  const styleLabel = catalog.style_names[style] ?? 'Japandi Natural';
+  const option = catalog.style_options[style];
+  const multiplier = option?.multiplier ?? 1.0;
+  const styleLabel = option?.name ?? 'Japandi Natural';
 
-  // One line per cabinet type, in first-seen order (matches Counter semantics).
-  const counts = new Map<string, number>();
+  // One line per type and width, in first-seen order; each unit price is
+  // rounded to the sen before it is multiplied (as the server does).
+  const groups = new Map<string, { type: string; widthMm?: number; qty: number }>();
   for (const cab of cabinets) {
-    counts.set(cab.type, (counts.get(cab.type) ?? 0) + 1);
+    const widthMm = mmOf(cab);
+    const key = `${cab.type}|${widthMm ?? 0}`;
+    const seen = groups.get(key);
+    if (seen) seen.qty += 1;
+    else groups.set(key, { type: cab.type, widthMm, qty: 1 });
   }
 
-  for (const [type, qty] of counts) {
-    const unit = round2((catalog.cabinets[type] ?? UNKNOWN_CABINET_PRICE) * multiplier);
-    const kind = APPLIANCE_TYPE_PREFIXES.some((p) => type.startsWith(p))
-      ? 'Appliance'
-      : 'Cabinet';
+  for (const { type, widthMm, qty } of groups.values()) {
+    const unit = round2(unitPrice(catalog, type, widthMm) * multiplier);
+    const kind = familyFor(catalog, type)?.appliance ? 'Appliance' : 'Cabinet';
+    // "Filler Base 75": a type with no size in its name shows its width.
+    const name = titleCase(type) + (widthMm && !/\d/.test(type) ? ` ${widthMm}` : '');
     lineItems.push({
-      description: `${kind} — ${titleCase(type)} (${styleLabel})`,
+      description: `${kind} — ${name} (${styleLabel})`,
       qty,
       unit_price: unit,
       total: round2(unit * qty),
     });
   }
 
-  if (cabinets.length > 0) {
+  const labourCount = cabinets.filter((c) => familyFor(catalog, c.type)?.labour ?? true).length;
+  if (labourCount > 0) {
     lineItems.push({
       description: 'Installation Labour',
-      qty: cabinets.length,
+      qty: labourCount,
       unit_price: catalog.labour_rate_per_cabinet,
-      total: round2(catalog.labour_rate_per_cabinet * cabinets.length),
+      total: round2(catalog.labour_rate_per_cabinet * labourCount),
     });
   }
 
   // Benchtop, priced per linear metre of run and without the style multiplier.
-  const benchtopRate = benchtopMaterial ? catalog.benchtops[benchtopMaterial] : undefined;
-  const metres = benchtopLinearMetres(cabinets);
-  if (benchtopRate && metres > 0) {
-    const benchtopTotal = round2(benchtopRate * metres);
-    const label = catalog.benchtop_names[benchtopMaterial!] ?? 'Benchtop';
+  const benchtop = benchtopMaterial ? catalog.benchtop_options[benchtopMaterial] : undefined;
+  const metres = benchtopLinearMetres(cabinets, catalog);
+  if (benchtop && benchtop.rate_per_m > 0 && metres > 0) {
+    const benchtopTotal = round2(benchtop.rate_per_m * metres);
     lineItems.push({
-      description: `Benchtop — ${label} (${metres.toFixed(2)} lm @ RM${benchtopRate.toFixed(0)}/m)`,
+      description: `Benchtop — ${benchtop.name} (${metres.toFixed(2)} lm @ ${catalog.currency_symbol}${benchtop.rate_per_m.toFixed(0)}/m)`,
       qty: 1,
       unit_price: benchtopTotal,
       total: benchtopTotal,
@@ -177,8 +297,8 @@ export function priceLayout(
     }
   }
 
-  const subtotal = round2(lineItems.reduce((sum, li) => sum + li.total, 0));
-  const gst = round2(subtotal * catalog.gst_rate);
+  const subtotal = Math.max(0, round2(lineItems.reduce((sum, li) => sum + li.total, 0)));
+  const gst = round2(subtotal * catalog.tax.rate);
 
   return { lineItems, subtotal, gst, total: round2(subtotal + gst) };
 }

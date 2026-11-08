@@ -298,6 +298,7 @@ window._OrbitControls = OrbitControls;
 const MM = 0.001; // 1mm in Three.js scene units (1 unit = 1 metre)
 
 let scene, camera, renderer, controls;
+let keyLight = null, fillLight = null; // the lights a rendered picture adjusts
 let placedCabinets = [];
 let cabinetCount = 0;
 let currentWallDepth = 0.15; // default 150mm depth
@@ -337,7 +338,8 @@ function initScene() {
 
   // ── Daylight: soft sky fill + one warm key light (window side) with shadows.
   // Most of the soft light and all reflections come from buildEnvironment().
-  scene.add(new THREE.HemisphereLight(0xfffaf2, 0xc9b8a4, 0.35));
+  fillLight = new THREE.HemisphereLight(0xfffaf2, 0xc9b8a4, 0.35);
+  scene.add(fillLight);
 
   const dir = new THREE.DirectionalLight(0xfff0dc, 1.5);
   dir.position.set(3.5, 6.5, 5);
@@ -348,6 +350,7 @@ function initScene() {
   dir.shadow.radius = 3;
   Object.assign(dir.shadow.camera, { near: 0.1, far: 30, left: -8, right: 8, top: 6, bottom: -2 });
   scene.add(dir);
+  keyLight = dir;
 
   // ── Wide-plank oak floor: per-plank tone and grain
   const oakTexture = canvasTexture(1024, (g, n) => {
@@ -379,17 +382,16 @@ function initScene() {
   });
   oakTexture.repeat.set(12, 12);
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 30),
-    new THREE.MeshStandardMaterial({
-      map: oakTexture,
-      roughness: 0.62,
-      metalness: 0.0,
-    })
-  );
+  floorMaterial = new THREE.MeshStandardMaterial({
+    map: oakTexture,
+    roughness: 0.62,
+    metalness: 0.0,
+  });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
+  floorMesh = floor;
 
   setupCabinetDrag();
   initSnapGuide();
@@ -884,10 +886,10 @@ function updateSnapGuide(show, x, y, h) {
 // textures can replace woodTexture() / stoneTexture() later.
 const STYLE_FINISHES = {
   japandi: {
-    base: { color: 0xe2c49c, wood: true, roughness: 0.62 },   // light oak
+    base: { color: 0xe2c49c, wood: true, tex: 'oak_light', roughness: 0.62 },   // light oak
     wall: { color: 0xf1ece3, wood: false, roughness: 0.55 },  // warm white
-    tall: { color: 0xe2c49c, wood: true, roughness: 0.62 },
-    top: { color: 0xf6f2ec, roughness: 0.22 },                // warm white quartz
+    tall: { color: 0xe2c49c, wood: true, tex: 'oak_light', roughness: 0.62 },
+    top: { color: 0xf6f2ec, tex: 'quartz_warm', roughness: 0.22 },              // warm white quartz
     handle: { kind: 'bar', color: 0xc9a24f, metalness: 0.9, roughness: 0.32 }, // brushed brass
     plinth: 0x3b3027,
   },
@@ -895,23 +897,23 @@ const STYLE_FINISHES = {
     base: { color: 0x40454e, wood: false, roughness: 0.78 },  // matte charcoal
     wall: { color: 0xf4f4f1, wood: false, roughness: 0.6 },
     tall: { color: 0x40454e, wood: false, roughness: 0.78 },
-    top: { color: 0xfafaf8, roughness: 0.18 },                // snow quartz
+    top: { color: 0xfafaf8, tex: 'quartz_snow', roughness: 0.18 },              // snow quartz
     handle: { kind: 'groove', color: 0x121316, metalness: 0.2, roughness: 0.7 }, // handleless
     plinth: 0x1d1f23,
   },
   nordic: {
     base: { color: 0xa7b5a0, wood: false, roughness: 0.66 },  // soft sage
     wall: { color: 0xf3f2ed, wood: false, roughness: 0.6 },
-    tall: { color: 0xead6b4, wood: true, roughness: 0.6 },    // birch
-    top: { color: 0xebe6dc, roughness: 0.3 },                 // light terrazzo
+    tall: { color: 0xead6b4, wood: true, tex: 'birch', roughness: 0.6 },    // birch
+    top: { color: 0xebe6dc, tex: 'terrazzo', roughness: 0.3 },                 // light terrazzo
     handle: { kind: 'knob', color: 0xb7bcc2, metalness: 0.85, roughness: 0.35 }, // satin nickel
     plinth: 0x4a4f48,
   },
   industrial: {
-    base: { color: 0x7a5a44, wood: true, roughness: 0.55 },   // dark walnut
+    base: { color: 0x7a5a44, wood: true, tex: 'walnut', roughness: 0.55 },   // dark walnut
     wall: { color: 0x36383e, wood: false, roughness: 0.5 },   // graphite
-    tall: { color: 0x7a5a44, wood: true, roughness: 0.55 },
-    top: { color: 0x55575d, roughness: 0.36 },                // dark slate
+    tall: { color: 0x7a5a44, wood: true, tex: 'walnut', roughness: 0.55 },
+    top: { color: 0x55575d, tex: 'slate_dark', roughness: 0.36 },                // dark slate
     handle: { kind: 'bar', color: 0x1b1b1d, metalness: 0.6, roughness: 0.45 }, // black steel
     plinth: 0x18191c,
   },
@@ -919,8 +921,91 @@ const STYLE_FINISHES = {
 
 const TEX = {};
 const MAT = {};
-const WOOD_TILE = 0.6;  // metres of front per texture repeat
-const STONE_TILE = 1.2;
+let WOOD_TILE = 0.6;  // metres of front per texture repeat
+let STONE_TILE = 1.2;
+
+// ── Finish textures ──────────────────────────────────────────────────────────
+// Photographs (or stand-ins made by tool/gen_finish_textures.py) of the real
+// finishes: a colour map, and where the finish has relief or uneven gloss a
+// normal map and a roughness map. The app sends them after the page loads
+// (registerFinishTextures, then registerFinishFile for each file, then
+// finishTexturesReady), as data URLs, so they work offline. Without them the
+// page falls back on the textures it draws itself.
+const FINISH = { manifest: null, files: {}, cache: {}, loading: 0, waiting: [] };
+
+window.registerFinishTextures = function(manifest) {
+  try { FINISH.manifest = typeof manifest === 'string' ? JSON.parse(manifest) : manifest; } catch (e) { return; }
+  // One tile size per kind keeps every cabinet's grain the same scale.
+  const sizes = Object.values(FINISH.manifest.textures || {});
+  const wood = sizes.find(t => t.kind === 'wood'), stone = sizes.find(t => t.kind === 'stone');
+  if (wood) WOOD_TILE = wood.tile_m;
+  if (stone) STONE_TILE = stone.tile_m;
+};
+window.registerFinishFile = function(name, dataUrl) { FINISH.files[name] = dataUrl; };
+window.finishTexturesReady = function() {
+  applyFinishTextures();
+};
+
+// A texture from a registered file, loading in the background. Null if the
+// file never arrived.
+function finishMap(file, { color = false, normal = false } = {}) {
+  if (!file || !FINISH.files[file]) return null;
+  if (FINISH.cache[file]) return FINISH.cache[file];
+  const tex = new THREE.Texture();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  if (color && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  FINISH.cache[file] = tex;
+  FINISH.loading++;
+  const img = new Image();
+  const done = () => {
+    FINISH.loading--;
+    if (FINISH.loading === 0) {
+      // Everything asked for has arrived: put it on the materials.
+      applyFinishTextures();
+      FINISH.waiting.splice(0).forEach(fn => fn());
+    }
+    invalidate();
+  };
+  img.onload = () => { tex.image = img; tex.needsUpdate = true; done(); };
+  img.onerror = () => { delete FINISH.cache[file]; done(); };
+  img.src = FINISH.files[file];
+  return tex;
+}
+
+// Runs [fn] when every texture asked for so far has finished decoding.
+function whenTexturesSettled(fn) {
+  if (FINISH.loading === 0) fn(); else FINISH.waiting.push(fn);
+}
+
+// The maps of one texture id, or null.
+function finishSet(id) {
+  const t = FINISH.manifest && FINISH.manifest.textures && FINISH.manifest.textures[id];
+  if (!t) return null;
+  // Ask for all three maps at once; use the set once the colour has decoded
+  // (a texture with no image yet would show black).
+  const map = finishMap(t.albedo, { color: true });
+  const normalMap = finishMap(t.normal), roughnessMap = finishMap(t.roughness);
+  if (!map || !map.image) return null;
+  return {
+    map,
+    normalMap: normalMap && normalMap.image ? normalMap : null,
+    roughnessMap: roughnessMap && roughnessMap.image ? roughnessMap : null,
+    tile: t.tile_m,
+    tileH: t.tile_h_m,
+    kind: t.kind,
+  };
+}
+
+// The close-up look of a matte painted or laminate front: faint relief and
+// uneven gloss, used with a flat colour.
+function microSet() {
+  const m = FINISH.manifest && FINISH.manifest.micro;
+  if (!m) return null;
+  const normalMap = finishMap(m.normal), roughnessMap = finishMap(m.roughness);
+  if (!normalMap || !normalMap.image) return null;
+  return { normalMap, roughnessMap: roughnessMap && roughnessMap.image ? roughnessMap : null };
+}
 
 function seededRandom(seed) {
   let s = seed;
@@ -991,7 +1076,7 @@ function initMaterials() {
   MAT.base = std({ metalness: 0.02 });
   MAT.wall = std({ metalness: 0.02 });
   MAT.tall = std({ metalness: 0.02 });
-  MAT.top = std({ map: TEX.stone, metalness: 0.0 });
+  MAT.top = new THREE.MeshPhysicalMaterial({ map: TEX.stone, metalness: 0.0, clearcoat: 0.3, clearcoatRoughness: 0.14 });
   MAT.handle = std({});
   MAT.plinth = std({ roughness: 0.9 });
   MAT.reveal = std({ color: 0x14120f, roughness: 1 });
@@ -1004,23 +1089,102 @@ function initMaterials() {
 }
 
 function setFront(mat, f) {
-  mat.color.setHex(f.color);
-  mat.roughness = f.roughness;
-  mat.map = f.wood ? TEX.wood : null;
+  const set = f.tex && finishSet(f.tex);
+  if (set) {
+    // A real finish: its own colours, relief and gloss.
+    mat.color.setHex(0xffffff);
+    mat.map = set.map;
+    mat.normalMap = set.normalMap;
+    mat.normalScale.set(0.8, 0.8);
+    mat.roughnessMap = set.roughnessMap;
+    mat.roughness = set.roughnessMap ? 1 : f.roughness;
+  } else {
+    // Painted or laminate: a flat colour with a faint micro texture.
+    const micro = microSet();
+    mat.color.setHex(f.color);
+    mat.map = !FINISH.manifest && f.wood ? TEX.wood : null;
+    mat.normalMap = micro ? micro.normalMap : null;
+    mat.normalScale.set(0.08, 0.08);
+    mat.roughnessMap = micro ? micro.roughnessMap : null;
+    mat.roughness = micro && micro.roughnessMap ? Math.min(1, f.roughness / 0.62) : f.roughness;
+  }
   mat.needsUpdate = true;
+}
+
+// Worktop looks chosen as a benchtop (the keys of the catalogue's benchtop
+// options); anything else keeps the style's own worktop.
+const BENCHTOP_LOOKS = {
+  quartz_calacatta: { tex: 'calacatta', color: 0xffffff, roughness: 0.18 },
+  granite_black: { tex: 'granite_black', color: 0xffffff, roughness: 0.2 },
+  laminate_matte: { tex: null, color: 0xd9d5cc, roughness: 0.72 },
+};
+let benchtopKey = null;
+
+function applyTop(fin) {
+  const look = benchtopKey && BENCHTOP_LOOKS[benchtopKey];
+  const spec = look || fin.top;
+  const set = spec.tex && finishSet(spec.tex);
+  const top = MAT.top;
+  if (set) {
+    top.color.setHex(0xffffff);
+    top.map = set.map;
+    top.normalMap = set.normalMap;
+    top.normalScale.set(0.7, 0.7);
+    top.roughnessMap = set.roughnessMap;
+    // The roughness map holds the real gloss; polished stone also gets a clear coat.
+    top.roughness = set.roughnessMap ? 1 : spec.roughness;
+    top.clearcoat = spec.roughness < 0.3 ? 0.35 : 0.08;
+  } else {
+    const micro = look ? microSet() : null;
+    top.color.setHex(spec.color);
+    top.map = look ? null : TEX.stone;
+    top.normalMap = micro ? micro.normalMap : null;
+    top.normalScale.set(0.06, 0.06);
+    top.roughnessMap = micro ? micro.roughnessMap : null;
+    top.roughness = micro && micro.roughnessMap ? Math.min(1, spec.roughness / 0.62) : spec.roughness;
+    top.clearcoat = look ? 0 : 0.3;
+  }
+  top.needsUpdate = true;
 }
 
 function applyFinishMaterials(fin) {
   setFront(MAT.base, fin.base);
   setFront(MAT.wall, fin.wall);
   setFront(MAT.tall, fin.tall);
-  MAT.top.color.setHex(fin.top.color);
-  MAT.top.roughness = fin.top.roughness;
+  applyTop(fin);
   MAT.handle.color.setHex(fin.handle.color);
   MAT.handle.metalness = fin.handle.metalness;
   MAT.handle.roughness = fin.handle.roughness;
   MAT.plinth.color.setHex(fin.plinth);
 }
+
+// The floor of the room: wide planks, once their textures have arrived.
+let floorMaterial = null, floorMesh = null;
+function applyFloorTextures() {
+  if (!floorMaterial) return;
+  const set = finishSet('floor_oak');
+  if (!set) return;
+  floorMaterial.map = set.map;
+  floorMaterial.normalMap = set.normalMap;
+  floorMaterial.normalScale.set(0.6, 0.6);
+  floorMaterial.roughnessMap = set.roughnessMap;
+  floorMaterial.roughness = 1;
+  for (const t of [set.map, set.normalMap, set.roughnessMap]) if (t) t.repeat.set(30 / set.tile, 30 / set.tile);
+  floorMaterial.needsUpdate = true;
+}
+
+// Called when the textures have been handed over, and on a style change.
+function applyFinishTextures() {
+  applyFinishMaterials(currentFinish());
+  applyFloorTextures();
+  invalidate();
+}
+
+window.setBenchtop = function(key) {
+  benchtopKey = (typeof key === 'string' && BENCHTOP_LOOKS[key]) ? key : null;
+  applyTop(currentFinish());
+  invalidate();
+};
 
 function currentFinish() {
   return STYLE_FINISHES[currentArchetypeId] || STYLE_FINISHES.japandi;
@@ -1034,12 +1198,13 @@ function boxGeo(w, h, d, tile) {
   const g = new THREE.BoxGeometry(w, h, d);
   if (!tile) return g;
   const uv = g.attributes.uv;
-  const offset = ((uvSeed++ * 0.6180339) % 1);
+  const offset = ((uvSeed * 0.6180339) % 1);
+  const offsetV = ((uvSeed++ * 0.7548777) % 1);
   const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; // +x −x +y −y +z −z
   for (let f = 0; f < 6; f++) {
     for (let k = 0; k < 4; k++) {
       const i = f * 4 + k;
-      uv.setXY(i, uv.getX(i) * dims[f][0] / tile + offset, uv.getY(i) * dims[f][1] / tile);
+      uv.setXY(i, uv.getX(i) * dims[f][0] / tile + offset, uv.getY(i) * dims[f][1] / tile + offsetV);
     }
   }
   return g;
@@ -1094,6 +1259,28 @@ const KIND_OF_TYPE = {
 };
 // Full-height units: no worktop, tall-cabinet finish.
 const TALL_KINDS = new Set(['tall', 'oven', 'fridge']);
+
+// The catalogue (prices and sizes live on the office server and are edited in
+// the Studio) is the source of module sizes. Flutter sends the modules it is
+// pricing with; the specs above are what the page falls back on without it.
+// Merged, not replaced: a spec keeps flags the catalogue doesn't carry (the
+// cooktop's `hood: false`).
+window.setCatalogModules = function(json) {
+  let modules;
+  try { modules = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return; }
+  if (!Array.isArray(modules)) return;
+  for (const m of modules) {
+    if (!m || !m.type || !(m.width_mm > 0) || !(m.height_mm > 0) || !(m.depth_mm > 0)) continue;
+    const mount = Math.max(0, m.mount_mm || 0);
+    CABINET_SPECS[m.type] = {
+      ...(CABINET_SPECS[m.type] || {}),
+      w: m.width_mm * MM, h: m.height_mm * MM, d: m.depth_mm * MM,
+      isWall: mount > 0, mountH: mount * MM,
+      label: m.label || m.type,
+    };
+    if (m.kind) KIND_OF_TYPE[m.type] = m.kind;
+  }
+};
 
 function specFromEntry(c) {
   const known = CABINET_SPECS[c.cabinet_type];
@@ -1206,7 +1393,7 @@ function buildCabinetParts(group, spec) {
       buildApplianceFront(add, handle, (a + b) / 2, (ya + yb) / 2, b - a - GAP, yb - ya - GAP, front);
       continue;
     }
-    add(boxGeo(b - a - GAP, yb - ya - GAP, FRONT_T, WOOD_TILE), fm, (a + b) / 2, (ya + yb) / 2, front - FRONT_T / 2);
+    addFrontPanel(add, fm, (a + b) / 2, (ya + yb) / 2, b - a - GAP, yb - ya - GAP, front - FRONT_T / 2);
     addHandle(add, a + GAP / 2, b - GAP / 2, ya + GAP / 2, yb - GAP / 2, front, handle, isWall);
   }
 
@@ -1219,7 +1406,518 @@ function buildCabinetParts(group, spec) {
 
   // Warm LED strip under wall cabinets
   if (isWall) add(boxGeo(w - 0.04, 0.006, 0.016), MAT.led, 0, bottom - 0.003, front - 0.05, false);
+
+  // A cornice along the top of framed wall units.
+  if (isWall && doorStyle !== 'slab') {
+    add(boxGeo(w + 0.012, 0.03, 0.03, WOOD_TILE), fm, 0, h / 2 + 0.015, front - 0.005);
+    add(boxGeo(w + 0.03, 0.022, 0.05, WOOD_TILE), fm, 0, h / 2 + 0.041, front - 0.015);
+  }
 }
+
+// ── Backsplash ───────────────────────────────────────────────────────────────
+// Tile on the wall between the worktop and the wall units, wherever there are
+// base units: it follows the cabinets (and stops at a window), so it is
+// rebuilt when they change. 'none' leaves the bare wall.
+const BACKSPLASHES = { subway: 'tile_subway', hex: 'tile_hex' };
+let backsplashKind = 'subway';
+let backsplashGroup = null, backsplashSignature = '';
+const backsplashMaterials = {};
+
+function backsplashMaterial(kind) {
+  let m = backsplashMaterials[kind];
+  if (!m) m = backsplashMaterials[kind] = new THREE.MeshPhysicalMaterial({ color: 0xf1f0ec, roughness: 0.2, clearcoat: 0.4, clearcoatRoughness: 0.1 });
+  const set = finishSet(BACKSPLASHES[kind]);
+  if (set && m.map !== set.map) {
+    m.color.setHex(0xffffff);
+    m.map = set.map;
+    m.normalMap = set.normalMap;
+    m.normalScale.set(0.9, 0.9);
+    m.roughnessMap = set.roughnessMap;
+    m.roughness = 1;
+    m.userData.tile = [set.tile, set.tileH || set.tile];
+    m.needsUpdate = true;
+  }
+  return m;
+}
+
+// The stretches of wall to tile: [along-wall start, end] for the main wall
+// (scene x) and the side wall of an L (scene z), from the base units' extents.
+function backsplashRuns() {
+  const main = [], side = [];
+  for (const c of placedCabinets) {
+    const spec = c.userData.spec;
+    if (!spec || spec.isWall || TALL_KINDS.has(spec.kind)) continue;
+    if (c.userData.run === 'return') {
+      const z = c.position.z;
+      side.push([z - spec.w / 2, z + spec.w / 2]);
+    } else {
+      main.push([c.position.x - spec.w / 2, c.position.x + spec.w / 2]);
+    }
+  }
+  const merge = list => {
+    list.sort((a, b) => a[0] - b[0]);
+    const out = [];
+    for (const r of list) {
+      if (out.length && r[0] <= out[out.length - 1][1] + 0.002) out[out.length - 1][1] = Math.max(out[out.length - 1][1], r[1]);
+      else out.push([r[0], r[1]]);
+    }
+    return out;
+  };
+  return { main: merge(main), side: merge(side) };
+}
+
+// Cuts [lo, hi] spans out of [a, b] intervals.
+function cutSpans(runs, cuts) {
+  let out = runs;
+  for (const [lo, hi] of cuts) {
+    out = out.flatMap(([a, b]) => (hi <= a || lo >= b) ? [[a, b]] : [[a, Math.min(b, lo)], [Math.max(a, hi), b]].filter(([x, y]) => y - x > 0.02));
+  }
+  return out;
+}
+
+function updateBacksplash(force) {
+  const sig = backsplashKind + '|' + currentWallW + '|' + placedCabinets.map(c => `${c.userData.id}:${c.position.x.toFixed(3)}:${c.position.z.toFixed(3)}:${c.userData.run}:${c.userData.spec && c.userData.spec.w}`).join(',') + '|' + FINISH.loading + '|' + (finishSet(BACKSPLASHES[backsplashKind] || '') ? 1 : 0);
+  if (!force && sig === backsplashSignature) return;
+  backsplashSignature = sig;
+  if (backsplashGroup) {
+    scene.remove(backsplashGroup);
+    backsplashGroup.traverse(o => o.geometry && o.geometry.dispose());
+    backsplashGroup = null;
+  }
+  if (!BACKSPLASHES[backsplashKind] || placedCabinets.length === 0) return;
+  const mat = backsplashMaterial(backsplashKind);
+  const [tileW, tileH] = mat.userData.tile || [0.6, 0.6];
+  const y0 = 0.89, y1 = (CABINET_SPECS.wall_600 && CABINET_SPECS.wall_600.mountH) || 1.4;
+  const { main, side } = backsplashRuns();
+  // Windows that reach into the tiled band break the run.
+  const cuts = ((scenePayload.obstacles || []).filter(o => o.type === 'window' &&
+    o.distance_from_floor_mm * MM < y1 && (o.distance_from_floor_mm + o.height_mm) * MM > y0)
+    .map(o => [o.distance_from_left_mm * MM - currentWallW / 2, (o.distance_from_left_mm + o.width_mm) * MM - currentWallW / 2]));
+  const group = new THREE.Group();
+  const strip = (len, onWall) => {
+    const g = new THREE.PlaneGeometry(len, y1 - y0);
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / tileW, uv.getY(i) * (y1 - y0) / tileH);
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.receiveShadow = true;
+    mesh.userData.isBacksplash = true;
+    onWall(mesh);
+    group.add(mesh);
+  };
+  for (const [a, b] of cutSpans(main, cuts)) {
+    strip(b - a, m => m.position.set((a + b) / 2, (y0 + y1) / 2, currentWallDepth + 0.0015));
+  }
+  if (side.length) {
+    for (const [a, b] of side) {
+      strip(b - a, m => { m.rotation.y = Math.PI / 2; m.position.set(-currentWallW / 2 + 0.0015, (y0 + y1) / 2, (a + b) / 2); });
+    }
+  }
+  backsplashGroup = group;
+  scene.add(group);
+}
+
+window.setBacksplash = function(kind) {
+  backsplashKind = BACKSPLASHES[kind] ? kind : 'none';
+  updateBacksplash(true);
+  invalidate();
+};
+
+// ── Decor ────────────────────────────────────────────────────────────────────
+// Everyday things on the worktops (plates, jars, a plant, a chopping board…)
+// so a picture looks lived in. They are drawn from simple shapes, are not
+// cabinets (nothing selects them, nothing prices them) and are NOT part of
+// what is sold: the quote says so when they are shown.
+let decorOn = true;
+let decorGroup = null, decorSignature = '';
+const decorMaterials = {};
+function decorMat(name) {
+  if (decorMaterials[name]) return decorMaterials[name];
+  const phys = o => new THREE.MeshPhysicalMaterial(o);
+  const table = {
+    ceramic: () => phys({ color: 0xf3efe7, roughness: 0.32, clearcoat: 0.4 }),
+    stone: () => phys({ color: 0xb9b2a6, roughness: 0.6 }),
+    terracotta: () => phys({ color: 0xb4663f, roughness: 0.85 }),
+    soil: () => phys({ color: 0x2b2219, roughness: 1 }),
+    leaf: () => phys({ color: 0x4a7d3e, roughness: 0.7, side: THREE.DoubleSide }),
+    leafDark: () => phys({ color: 0x2f5e30, roughness: 0.7, side: THREE.DoubleSide }),
+    glass: () => phys({ color: 0xdce8ec, roughness: 0.06, transparent: true, opacity: 0.32, depthWrite: false }),
+    beans: () => phys({ color: 0x3d2a1e, roughness: 0.9 }),
+    steel: () => phys({ color: 0xc9ccd0, roughness: 0.22, metalness: 0.9 }),
+    black: () => phys({ color: 0x1c1b1a, roughness: 0.5 }),
+    wood: () => phys({ color: 0xc89a62, roughness: 0.6 }),
+    woodDark: () => phys({ color: 0x6b4a30, roughness: 0.6 }),
+    apple: () => phys({ color: 0xb3261e, roughness: 0.4, clearcoat: 0.5 }),
+    lemon: () => phys({ color: 0xe6c229, roughness: 0.5 }),
+    lime: () => phys({ color: 0x7aa33a, roughness: 0.5 }),
+    orange: () => phys({ color: 0xe07b1a, roughness: 0.5 }),
+  };
+  return (decorMaterials[name] = table[name]());
+}
+
+function decorMesh(geo, mat, x, y, z, rot) {
+  const m = new THREE.Mesh(geo, decorMat(mat));
+  m.position.set(x, y, z);
+  if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+// A thin shell of revolution from [radius, height] points (outer wall, then back down the inner wall).
+function lathe(points, segments = 28) {
+  return new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), segments);
+}
+
+const PROPS = {
+  plates() {
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) g.add(decorMesh(lathe([[0.07, i * 0.016], [0.125, i * 0.016 + 0.014], [0.12, i * 0.016 + 0.016], [0.07, i * 0.016 + 0.003]]), 'ceramic', 0, 0.002, 0));
+    return g;
+  },
+  bowl() {
+    const g = new THREE.Group();
+    g.add(decorMesh(lathe([[0, 0], [0.045, 0], [0.095, 0.03], [0.13, 0.085], [0.125, 0.088], [0.09, 0.04], [0, 0.012]]), 'stone', 0, 0, 0));
+    const fruit = [['apple', 0.045, -0.04, 0.0], ['lemon', 0.04, 0.035, -0.02], ['orange', 0.045, 0.0, 0.04], ['lime', 0.035, 0.05, 0.04], ['apple', 0.04, -0.03, 0.05]];
+    for (const [mat, r, x, z] of fruit) g.add(decorMesh(new THREE.SphereGeometry(r, 18, 14), mat, x, 0.05 + r * 0.6, z));
+    return g;
+  },
+  jars() {
+    const g = new THREE.Group();
+    [[-0.075, 0.2, 0.05], [0, 0.16, 0.05], [0.075, 0.12, 0.045]].forEach(([x, h, r], i) => {
+      g.add(decorMesh(new THREE.CylinderGeometry(r, r, h, 24), 'glass', x, h / 2, 0));
+      g.add(decorMesh(new THREE.CylinderGeometry(r * 0.88, r * 0.88, h * 0.62, 20), i === 1 ? 'ceramic' : 'beans', x, h * 0.31 + 0.003, 0));
+      g.add(decorMesh(new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.022, 24), 'steel', x, h + 0.011, 0));
+    });
+    return g;
+  },
+  plant() {
+    const g = new THREE.Group();
+    g.add(decorMesh(new THREE.CylinderGeometry(0.07, 0.055, 0.12, 24), 'terracotta', 0, 0.06, 0));
+    g.add(decorMesh(new THREE.CylinderGeometry(0.066, 0.066, 0.01, 24), 'soil', 0, 0.118, 0));
+    const leaf = new THREE.SphereGeometry(1, 10, 8);
+    for (let i = 0; i < 9; i++) {
+      const a = i / 9 * Math.PI * 2, tilt = 0.25 + 0.5 * ((i * 37) % 10) / 10, len = 0.14 + 0.1 * (((i * 53) % 10) / 10);
+      const m = decorMesh(leaf, i % 2 ? 'leaf' : 'leafDark', Math.cos(a) * 0.03, 0.12 + len * 0.45, Math.sin(a) * 0.03);
+      m.scale.set(0.022, len * 0.5, 0.008);
+      m.rotation.set(Math.sin(a) * tilt, a, -Math.cos(a) * tilt);
+      g.add(m);
+    }
+    return g;
+  },
+  board() {
+    const g = new THREE.Group();
+    const b = decorMesh(new THREE.BoxGeometry(0.34, 0.2, 0.02), 'wood', 0, 0.1, 0, [-0.3, 0, 0]);
+    g.add(b);
+    g.add(decorMesh(new THREE.CylinderGeometry(0.014, 0.014, 0.022, 14), 'woodDark', 0, 0.17, 0.012, [Math.PI / 2 - 0.3, 0, 0]));
+    return g;
+  },
+  crock() {
+    const g = new THREE.Group();
+    g.add(decorMesh(lathe([[0, 0], [0.058, 0], [0.062, 0.14], [0.058, 0.14], [0.054, 0.012], [0, 0.012]]), 'ceramic', 0, 0, 0));
+    const sticks = [['wood', 0.3, -0.02, 0.01, 0.1], ['steel', 0.27, 0.025, -0.01, -0.12], ['woodDark', 0.31, 0, 0.02, 0.0], ['wood', 0.25, 0.015, 0.025, -0.28], ['black', 0.28, -0.03, -0.015, 0.2]];
+    for (const [mat, len, x, z, lean] of sticks) {
+      g.add(decorMesh(new THREE.CylinderGeometry(0.006, 0.006, len, 8), mat, x + lean * 0.05, 0.1 + len / 2 - 0.04, z, [0, 0, -lean]));
+      g.add(decorMesh(new THREE.SphereGeometry(0.026, 12, 8), mat, x + lean * 0.05 + lean * 0.14, 0.1 + len - 0.03, z, [0, 0, -lean]));
+      g.children[g.children.length - 1].scale.set(1, 1.5, 0.3);
+    }
+    return g;
+  },
+  kettle() {
+    const g = new THREE.Group();
+    g.add(decorMesh(lathe([[0, 0], [0.095, 0], [0.105, 0.04], [0.092, 0.15], [0.05, 0.19], [0, 0.195]]), 'steel', 0, 0, 0));
+    g.add(decorMesh(new THREE.CylinderGeometry(0.012, 0.02, 0.1, 10), 'steel', 0.11, 0.12, 0, [0, 0, -0.9]));
+    g.add(decorMesh(new THREE.TorusGeometry(0.075, 0.009, 8, 20, Math.PI), 'black', 0, 0.19, 0, [0, 0, 0]));
+    return g;
+  },
+  knives() {
+    const g = new THREE.Group();
+    g.add(decorMesh(new THREE.BoxGeometry(0.1, 0.17, 0.14), 'woodDark', 0, 0.085, 0, [0, 0, 0]));
+    g.children[0].rotation.x = 0;
+    for (let i = 0; i < 4; i++) g.add(decorMesh(new THREE.BoxGeometry(0.014, 0.075, 0.026), 'black', -0.033 + i * 0.022, 0.2, 0.02 + 0.0, [-0.22, 0, 0]));
+    return g;
+  },
+};
+const DECOR_ORDER = ['crock', 'board', 'plant', 'jars', 'bowl', 'plates', 'kettle', 'knives'];
+
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+function updateDecor(force) {
+  const sig = (decorOn ? 'on' : 'off') + '|' + currentWallW + '|' + placedCabinets.map(c => `${c.userData.id}:${c.position.x.toFixed(2)}:${c.position.z.toFixed(2)}:${c.userData.run}:${c.userData.spec && c.userData.spec.kind}`).join(',');
+  if (!force && sig === decorSignature) return;
+  decorSignature = sig;
+  if (decorGroup) {
+    scene.remove(decorGroup);
+    decorGroup.traverse(o => o.geometry && o.geometry.dispose());
+    decorGroup = null;
+  }
+  if (!decorOn || placedCabinets.length === 0) return;
+  const group = new THREE.Group();
+  const spots = placedCabinets
+    .filter(c => c.userData.spec && !c.userData.spec.isWall && ['base', 'drawer', 'dishwasher'].includes(c.userData.spec.kind) && c.userData.spec.w >= 0.4)
+    .sort((a, b) => a.position.x - b.position.x || a.position.z - b.position.z);
+  const top = 0.89 + 0.001;
+  const place = (c, name, h, along, back) => {
+    const prop = PROPS[name]();
+    if (c.userData.run === 'return') {
+      prop.position.set(-currentWallW / 2 + back, top, c.position.z + along);
+      prop.rotation.y = Math.PI / 2 + 0.3 * (((h >>> 5) % 7) / 7 - 0.5);
+    } else {
+      prop.position.set(c.position.x + along, top, currentWallDepth + back);
+      prop.rotation.y = 0.5 * (((h >>> 5) % 7) / 7 - 0.5);
+    }
+    group.add(prop);
+  };
+  spots.forEach((c, i) => {
+    const h = hashString(c.userData.id);
+    if (i % 4 === 3) return; // leave some worktop bare
+    const spec = c.userData.spec;
+    const name = DECOR_ORDER[((h >>> 3) + i) % DECOR_ORDER.length];
+    const front = name === 'plates' || name === 'bowl';
+    const room = Math.max(0, spec.w - 0.4);
+    if (spec.w >= 0.75 && !front) {
+      // A wide unit holds two: one at the back, a low one in front or beside.
+      place(c, name, h, -room * 0.35, 0.14);
+      place(c, front ? 'jars' : 'bowl', h >>> 2, room * 0.3, 0.3);
+    } else {
+      place(c, name, h, (((h >>> 8) % 100) / 100 - 0.5) * room * 0.6, front ? 0.3 : 0.14);
+    }
+  });
+  decorGroup = group;
+  scene.add(group);
+}
+
+window.setDecor = function(on) {
+  decorOn = !!on;
+  updateDecor(true);
+  invalidate();
+};
+
+// ── Light mood ───────────────────────────────────────────────────────────────
+// 'day' is the bright, even light the page has always had. 'evening' is warm:
+// the sky dims and turns amber, and the LED strips under the wall units
+// light the worktop and the backsplash.
+let mood = 'day';
+let moodLights = [], moodSignature = '';
+const MOODS = {
+  day: { background: 0xfaf7f2, key: 1, fill: 1, exposure: 1.12, led: 0xfff4e0, ledPower: 0.4 },
+  evening: { background: 0xf0e4d2, key: 0.3, fill: 0.55, exposure: 1.05, led: 0xffcf8a, ledPower: 1.0 },
+};
+let baseKey = null, baseFill = null;
+
+function applyMood() {
+  const m = MOODS[mood];
+  scene.background = new THREE.Color(m.background);
+  if (scene.fog) scene.fog.color.setHex(m.background);
+  if (baseKey === null && keyLight) { baseKey = keyLight.intensity; baseFill = fillLight.intensity; }
+  if (keyLight) { keyLight.intensity = baseKey * m.key; keyLight.color.setHex(mood === 'evening' ? 0xffd9b0 : 0xfff0dc); }
+  if (fillLight) fillLight.intensity = baseFill * m.fill;
+  renderer.toneMappingExposure = m.exposure;
+  if (MAT.led) MAT.led.color.setHex(m.led);
+  moodSignature = '';
+  updateMoodLights(true);
+  updateRoom(true);
+  invalidate();
+}
+
+// One warm point light under each wall unit (at most six, spread along the run).
+function updateMoodLights(force) {
+  const m = MOODS[mood];
+  const walls = placedCabinets.filter(c => c.userData.spec && c.userData.spec.isWall && c.userData.spec.kind !== 'hood');
+  const sig = mood + '|' + walls.map(c => `${c.position.x.toFixed(2)}:${c.position.z.toFixed(2)}:${c.userData.run}`).join(',');
+  if (!force && sig === moodSignature) return;
+  moodSignature = sig;
+  for (const l of moodLights) { scene.remove(l); l.dispose && l.dispose(); }
+  moodLights = [];
+  if (!m.ledPower || walls.length === 0) return;
+  const step = Math.max(1, Math.ceil(walls.length / 6));
+  walls.forEach((c, i) => {
+    if (i % step !== 0) return;
+    const spec = c.userData.spec;
+    const light = new THREE.PointLight(m.led, m.ledPower * 1.6, 1.6, 2);
+    const y = c.position.y - spec.h / 2 - 0.03;
+    if (c.userData.run === 'return') light.position.set(c.position.x + spec.d / 2 - 0.12, y, c.position.z);
+    else light.position.set(c.position.x, y, c.position.z + spec.d / 2 - 0.12);
+    scene.add(light);
+    moodLights.push(light);
+  });
+}
+
+window.setMood = function(next) {
+  mood = MOODS[next] ? next : 'day';
+  applyMood();
+};
+
+// ── The room ─────────────────────────────────────────────────────────────────
+// A room round the kitchen wall: a bounded floor, side walls, a ceiling with
+// downlights, skirting. The walls and the ceiling are single-sided planes that
+// face into the room, so from outside they vanish (a cutaway, like a dolls'
+// house) and from inside they are there: the camera in a picture can sit in
+// the room or look in from the side. They cast no shadow, so the room is lit
+// as if it had large windows; the ceiling is self-lit white.
+let roomOn = true;
+// A picture is always of the kitchen in its room, even while the screen shows
+// the floor plan's own walls (the Room / House views).
+let roomCapture = false;
+const roomShown = () => roomOn && (roomView === 'kitchen' || roomCapture);
+let roomGroup = null, roomSignature = '', roomLights = [];
+// How far the room runs out from the wall: far enough to hold an L's side wall with
+// room to spare, short enough that a picture isn't mostly wall.
+const roomDepth = (D, returnLen) => Math.max(3.6, D + returnLen + 1.3);
+let roomWallMaterial = null, roomCeilingMaterial = null;
+
+function roomMaterials() {
+  if (!roomWallMaterial) {
+    roomWallMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f3ed, roughness: 0.85 });
+    roomCeilingMaterial = new THREE.MeshBasicMaterial({ color: 0xece8e0 });
+  }
+  const style = STYLE_ARCHETYPES[currentArchetypeId];
+  if (style) roomWallMaterial.color.setHex(style.wallColor);
+  roomCeilingMaterial.color.setHex(mood === 'evening' ? 0xd9cdbb : 0xece8e0);
+  return [roomWallMaterial, roomCeilingMaterial];
+}
+
+function updateRoom(force) {
+  const wall = scenePayload.wall || {};
+  const returnLen = wall.shape === 'lShape' ? (wall.return_mm || 0) * MM : 0;
+  const shown = roomShown();
+  const sig = [shown, currentWallW, currentWallH, currentWallDepth, returnLen, mood, currentArchetypeId].join('|');
+  if (!force && sig === roomSignature) return;
+  roomSignature = sig;
+  if (roomGroup) {
+    scene.remove(roomGroup);
+    roomGroup.traverse(o => o.geometry && o.geometry.dispose());
+    roomGroup = null;
+  }
+  for (const l of roomLights) scene.remove(l);
+  roomLights = [];
+  if (floorMesh) floorMesh.visible = !shown;
+  if (!shown || !scene) return;
+
+  const [wallMat, ceilingMat] = roomMaterials();
+  const W = currentWallW, H = currentWallH, D = currentWallDepth, depth = roomDepth(D, returnLen);
+  const group = new THREE.Group();
+  group.userData.isRoom = true;
+  const plane = (w, h, mat, place) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.receiveShadow = mat !== ceilingMat;
+    m.castShadow = false;
+    place(m);
+    group.add(m);
+    return m;
+  };
+
+  // The floor: wide enough to run under an L's side wall; the planks keep the
+  // same scale as the 30 m floor they replace.
+  const x0 = -W / 2 - (returnLen > 0 ? D : 0), x1 = W / 2, fw = x1 - x0, fd = depth;
+  const floor = plane(fw, fd, floorMaterial, m => {
+    m.rotation.x = -Math.PI / 2;
+    m.position.set((x0 + x1) / 2, 0, fd / 2);
+  });
+  const uv = floor.geometry.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * fw / 30, uv.getY(i) * fd / 30);
+  floor.receiveShadow = true;
+
+  // Side walls, facing into the room. A side wall starts where the kitchen's
+  // own wall (or an L's side wall) ends.
+  const zLeft = D + returnLen, zRight = D;
+  plane(depth - zLeft, H, wallMat, m => { m.rotation.y = Math.PI / 2; m.position.set(-W / 2, H / 2, (zLeft + depth) / 2); });
+  plane(depth - zRight, H, wallMat, m => { m.rotation.y = -Math.PI / 2; m.position.set(W / 2, H / 2, (zRight + depth) / 2); });
+
+  // The ceiling, facing down.
+  plane(W, depth - D, ceilingMat, m => { m.rotation.x = Math.PI / 2; m.position.set(0, H, (D + depth) / 2); });
+
+  // Skirting along the back wall and the side walls (the cabinets hide most of it).
+  const skirt = (len, place) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.09, 0.014), wallMat);
+    m.receiveShadow = true;
+    place(m);
+    group.add(m);
+  };
+  skirt(W, m => m.position.set(0, 0.045, D + 0.007));
+  skirt(depth - zRight, m => { m.rotation.y = -Math.PI / 2; m.position.set(W / 2 - 0.007, 0.045, (zRight + depth) / 2); });
+  skirt(depth - zLeft, m => { m.rotation.y = Math.PI / 2; m.position.set(-W / 2 + 0.007, 0.045, (zLeft + depth) / 2); });
+
+  // Recessed downlights in two rows.
+  const across = Math.max(2, Math.round(W / 1.3));
+  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 3.0, 2.6) });
+  lamp.userData.lamp = true;
+  const trim = new THREE.MeshStandardMaterial({ color: 0xd9d6d0, roughness: 0.5 });
+  const spots = [];
+  for (let r = 0; r < 2; r++) {
+    for (let i = 0; i < across; i++) {
+      const x = -W / 2 + (i + 0.5) * W / across, z = D + 0.9 + r * 1.7;
+      spots.push([x, z]);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.055, 24), lamp);
+      disc.rotation.x = Math.PI / 2; disc.position.set(x, H - 0.003, z);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.055, 0.075, 24), trim);
+      ring.rotation.x = Math.PI / 2; ring.position.set(x, H - 0.002, z);
+      group.add(disc, ring);
+    }
+  }
+  roomGroup = group;
+  scene.add(group);
+
+  // In the evening the downlights are on too: two real lights over the worktop.
+  if (mood === 'evening') {
+    for (const [x, z] of [spots[0], spots[spots.length - across - 1] || spots[spots.length - 1]]) {
+      const light = new THREE.PointLight(0xffd9a8, 1.1, 5, 2);
+      light.position.set(x, H - 0.15, z);
+      scene.add(light);
+      roomLights.push(light);
+    }
+  }
+}
+
+window.setRoom = function(on) {
+  roomOn = !!on;
+  updateRoom(true);
+  invalidate();
+};
+
+// ── Door styles ──────────────────────────────────────────────────────────────
+// 'slab' is a flat front. 'shaker' is a frame round a recessed panel. 'raised'
+// is a frame round a panel that steps up from it. [z] is the middle of the
+// front's thickness, as for a slab.
+let doorStyle = 'slab';
+function addFrontPanel(add, fm, cx, cy, w, h, z) {
+  const rail = Math.min(0.072, w * 0.22, h * 0.22);
+  if (doorStyle === 'slab' || rail < 0.035) {
+    add(boxGeo(w, h, FRONT_T, WOOD_TILE), fm, cx, cy, z);
+    return;
+  }
+  const raised = doorStyle === 'raised';
+  const t = FRONT_T;
+  const inner = [w - 2 * rail, h - 2 * rail];
+  // The panel, set back from the face of the frame.
+  add(boxGeo(w, h, t * 0.45, WOOD_TILE), fm, cx, cy, z - t * 0.275);
+  // The frame: rails across the top and bottom, stiles between them.
+  add(boxGeo(w, rail, t, WOOD_TILE), fm, cx, cy + h / 2 - rail / 2, z);
+  add(boxGeo(w, rail, t, WOOD_TILE), fm, cx, cy - h / 2 + rail / 2, z);
+  add(boxGeo(rail, inner[1], t, WOOD_TILE), fm, cx - w / 2 + rail / 2, cy, z);
+  add(boxGeo(rail, inner[1], t, WOOD_TILE), fm, cx + w / 2 - rail / 2, cy, z);
+  if (raised) {
+    // Two steps up from the recess: a broad shoulder and a smaller field.
+    add(boxGeo(inner[0] - 0.008, inner[1] - 0.008, t * 0.62, WOOD_TILE), fm, cx, cy, z - t * 0.07);
+    add(boxGeo(inner[0] - 0.05, inner[1] - 0.05, t * 0.72, WOOD_TILE), fm, cx, cy, z - t * 0.02);
+  } else {
+    // A fine lip where the frame meets the panel.
+    add(boxGeo(inner[0] + 0.006, 0.006, t * 0.62, WOOD_TILE), fm, cx, cy + inner[1] / 2 + 0.003, z - t * 0.07);
+    add(boxGeo(inner[0] + 0.006, 0.006, t * 0.62, WOOD_TILE), fm, cx, cy - inner[1] / 2 - 0.003, z - t * 0.07);
+  }
+}
+
+window.setDoorStyle = function(style) {
+  const next = ['slab', 'shaker', 'raised'].includes(style) ? style : 'slab';
+  if (next === doorStyle) return;
+  doorStyle = next;
+  placedCabinets.forEach(rebuildCabinet);
+  if (selectedCabinet && selectionBox) selectionBox.setFromObject(selectedCabinet);
+  invalidate();
+};
 
 // Stainless appliance fronts: ovens get a black glass window under a control
 // strip and a bar handle; fridge doors get a vertical bar by the door split.
@@ -1792,6 +2490,10 @@ function animate() {
   if (selectionBox && selectionBox.visible && selectedCabinet) {
     selectionBox.setFromObject(selectedCabinet);
   }
+  updateBacksplash();
+  updateDecor();
+  updateMoodLights();
+  updateRoom();
   renderer.render(scene, camera);
 }
 
@@ -1946,6 +2648,7 @@ function buildHouse(plan) {
 /** 'kitchen', 'room' or 'house'. */
 window.setRoomView = function(view) {
   roomView = view;
+  updateRoom();
   if (houseGroup) {
     houseGroup.visible = view !== 'kitchen';
     for (const o of houseGroup.children) o.visible = view === 'house' || !o.userData.houseOnly;
@@ -1989,6 +2692,665 @@ window.setRoomView = function(view) {
   camera.position.set(sx, dist * Math.sin(elevation), sz + dist * Math.cos(elevation));
   controls.update();
   invalidate();
+};
+
+// ── Pictures of the design ──────────────────────────────────────────────────
+// What goes in the quote PDF and the client's message: the kitchen as a
+// picture, from the front and from an angle, at one size whatever the screen
+// is. They use their own cameras (the viewer's view isn't touched) and leave
+// out the editing aids (selection box, snap guide, the plan around the room).
+let PICTURE_W = 1600, PICTURE_H = 1000; // `let`: tests render smaller pictures
+
+// Where the pictures are taken from: a direction from the kitchen's centre
+// (x to the right, y up, z toward the viewer). The L-shape's return wall is
+// on the left, so the angled view looks in from the right.
+function pictureViews() {
+  const dirOf = (azimuthDeg, elevationDeg) => {
+    const az = azimuthDeg * Math.PI / 180, el = elevationDeg * Math.PI / 180;
+    return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  };
+  return [
+    { name: 'front', dir: dirOf(0, 4) },
+    { name: 'angle', dir: dirOf(34, 14) },
+  ];
+}
+
+// What the pictures must hold: the walls, every cabinet, doors and windows.
+function designBox() {
+  const box = new THREE.Box3();
+  for (const o of scene.children) {
+    if (o.userData.isWall || o.userData.isObstacleMarker) box.expandByObject(o);
+  }
+  for (const c of placedCabinets) box.expandByObject(c);
+  return box;
+}
+
+// How far back a camera must be, looking along -dir at target, for every
+// corner of the box to be in frame with a margin.
+function pictureDistance(cam, target, dir, corners) {
+  const p = new THREE.Vector3();
+  const fits = d => {
+    cam.position.copy(target).addScaledVector(dir, d);
+    cam.lookAt(target);
+    cam.updateMatrixWorld(true);
+    return corners.every(c => {
+      p.copy(c).project(cam);
+      return Math.abs(p.x) <= 0.95 && Math.abs(p.y) <= 0.95 && p.z < 1;
+    });
+  };
+  let lo = 0.3, hi = 1;
+  while (!fits(hi) && hi < 80) hi *= 1.5;
+  for (let i = 0; i < 16; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid; else lo = mid;
+  }
+  return hi;
+}
+
+// A rendered picture takes the canvas for a while; nothing else may use it then.
+let renderBusy = false, renderCancelled = false;
+window.cancelRender = function() { renderCancelled = true; };
+
+// Takes the pictures. Returns [{ name, data }] (data: a JPEG data URL) and
+// tells the app, which waits for the pictures when a quote is sent.
+window.capturePictures = function(requestId) {
+  const images = [];
+  const box = designBox();
+  if (renderBusy) {
+    notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
+    return images;
+  }
+  // Textures still decoding: take the pictures when they are on the materials.
+  if (FINISH.loading > 0) {
+    whenTexturesSettled(() => window.capturePictures(requestId));
+    return images;
+  }
+  if (!box.isEmpty() && renderer && scene) {
+    updateBacksplash();
+    updateDecor();
+    updateMoodLights();
+    roomCapture = true;
+    updateRoom();
+    const prevRatio = renderer.getPixelRatio();
+    const prevSize = renderer.getSize(new THREE.Vector2());
+    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    try {
+      hidden.forEach(o => { o.visible = false; });
+      renderer.setPixelRatio(1);
+      renderer.setSize(PICTURE_W, PICTURE_H, false);
+      const cam = new THREE.PerspectiveCamera(38, PICTURE_W / PICTURE_H, 0.05, 200);
+      const target = box.getCenter(new THREE.Vector3());
+      const corners = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        corners.push(new THREE.Vector3(x, y, z));
+      }
+      for (const view of pictureViews()) {
+        // The distance first: finding it moves the camera.
+        const distance = pictureDistance(cam, target, view.dir, corners);
+        cam.position.copy(target).addScaledVector(view.dir, distance);
+        cam.lookAt(target);
+        cam.updateMatrixWorld(true);
+        renderer.render(scene, cam);
+        images.push({ name: view.name, data: renderer.domElement.toDataURL('image/jpeg', 0.9) });
+      }
+    } catch (e) {
+      console.error('capturePictures error:', e);
+    } finally {
+      hidden.forEach(o => { o.visible = true; });
+      roomCapture = false;
+      updateRoom();
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(prevSize.x, prevSize.y, false);
+      onResize();
+      invalidate();
+    }
+  }
+  notifyFlutter({ event: 'pictures', request_id: requestId || null, images: images.map(i => i.data), names: images.map(i => i.name) });
+  return images;
+};
+
+// ── Rendered pictures ───────────────────────────────────────────────────────
+// The live view is lit by one shadow-casting light and a flat fill, so it
+// looks like a model. A rendered picture is built from many frames of the
+// same view, each lit from a different part of the sky and with the sun
+// nudged a little, then averaged: shadows go soft, corners and the underside
+// of wall cabinets darken the way they do in a real room, and edges are
+// smoothed. Slower (a few seconds), so it is asked for, not automatic.
+const halton = (i, base) => {
+  let f = 1, r = 0;
+  while (i > 0) { f /= base; r += f * (i % base); i = Math.floor(i / base); }
+  return r;
+};
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+
+// How the rendered look is balanced; tuned by eye against the live view.
+const RENDER_LOOK = {
+  sky: 2.4,            // each frame's sky light (the average is what's seen)
+  skyColor: 0xe8f0ff,
+  sun: 0.9,            // the key light, as a share of its live strength
+  fill: 0.04,          // the flat hemisphere fill, as a share
+  env: 0.2,            // reflections and ambient from the environment map
+  sunSpread: 0.7,      // metres the sun moves about its place (softens its shadow)
+  skyMinHeight: 0.16,  // lowest sky direction used (0 is the horizon)
+  exposure: 1.3,       // brightness, as a multiple of the live view's
+};
+
+window.RENDER_LOOK = RENDER_LOOK; // adjustable while tuning
+
+function showRenderProgress(text) {
+  let el = document.getElementById('render-overlay');
+  if (!text) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'render-overlay';
+    el.setAttribute('role', 'status');
+    Object.assign(el.style, {
+      position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
+      padding: '10px 18px', borderRadius: '12px', background: 'rgba(36,31,27,.86)', color: '#fff',
+      font: '600 14px system-ui, sans-serif', zIndex: 50, pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+}
+
+// One rendered picture from [cam]: [samples] frames averaged.
+async function renderStill(cam, W, H, samples, label, onProgress) {
+  const gl = renderer.getContext();
+  const acc = new Float32Array(W * H * 4);
+  const px = new Uint8Array(W * H * 4);
+  const box = designBox();
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const center = sphere.center, radius = sphere.radius * 1.15;
+
+  // A sky light that moves to a new place in the sky every frame.
+  const look = mood === 'evening' ? { ...RENDER_LOOK, sky: 1.5, skyColor: 0xffe3c4, sun: 0.4, env: 0.16, exposure: 1.5 } : RENDER_LOOK;
+  const sky = new THREE.DirectionalLight(look.skyColor, look.sky);
+  sky.castShadow = true;
+  sky.shadow.mapSize.set(2048, 2048);
+  sky.shadow.bias = -0.0005;
+  sky.shadow.normalBias = 0.02;
+  Object.assign(sky.shadow.camera, { left: -radius, right: radius, top: radius, bottom: -radius, near: 0.1, far: radius * 5 });
+  sky.target.position.copy(center);
+  scene.add(sky, sky.target);
+
+  // The live lighting, turned down so the sky shapes the picture.
+  const keyBase = keyLight.position.clone(), keyStrength = keyLight.intensity, fillStrength = fillLight.intensity;
+  keyLight.intensity = keyStrength * look.sun;
+  fillLight.intensity = fillStrength * look.fill;
+  const envScaled = [];
+  const seen = new Set();
+  scene.traverse(o => {
+    for (const m of [].concat(o.material || [])) {
+      if (m && !seen.has(m) && 'envMapIntensity' in m) { seen.add(m); envScaled.push([m, m.envMapIntensity]); m.envMapIntensity *= look.env; }
+    }
+  });
+  const fog = scene.fog; scene.fog = null;
+  const exposureBefore = renderer.toneMappingExposure;
+  renderer.toneMappingExposure = exposureBefore * look.exposure;
+
+  try {
+    for (let i = 0; i < samples; i++) {
+      // Sky: a cosine-weighted direction over the hemisphere.
+      const u = halton(i + 1, 2), v = halton(i + 1, 3);
+      const r = Math.sqrt(u), phi = 2 * Math.PI * v;
+      const dir = new THREE.Vector3(r * Math.cos(phi), Math.max(Math.sqrt(1 - u), RENDER_LOOK.skyMinHeight), r * Math.sin(phi)).normalize();
+      sky.position.copy(center).addScaledVector(dir, radius * 2.5);
+      // The sun moves a little about its place.
+      keyLight.position.copy(keyBase).add(new THREE.Vector3(
+        (halton(i + 1, 5) - 0.5) * 2 * RENDER_LOOK.sunSpread,
+        (halton(i + 1, 7) - 0.5) * RENDER_LOOK.sunSpread,
+        (halton(i + 1, 11) - 0.5) * 2 * RENDER_LOOK.sunSpread));
+      // The view moves less than a pixel, so edges average out.
+      cam.setViewOffset(W, H, halton(i + 1, 13) - 0.5, halton(i + 1, 17) - 0.5, W, H);
+      renderer.render(scene, cam);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      for (let k = 0; k < px.length; k++) acc[k] += px[k];
+      if (i % 3 === 2) {
+        showRenderProgress(`${label} ${Math.round(100 * (i + 1) / samples)}%`);
+        if (onProgress) onProgress((i + 1) / samples);
+        await nextFrame();
+        if (renderCancelled) throw new Error('cancelled');
+      }
+    }
+  } finally {
+    cam.clearViewOffset();
+    scene.remove(sky, sky.target);
+    sky.dispose();
+    keyLight.position.copy(keyBase);
+    keyLight.intensity = keyStrength;
+    fillLight.intensity = fillStrength;
+    envScaled.forEach(([m, v]) => { m.envMapIntensity = v; });
+    scene.fog = fog;
+    renderer.toneMappingExposure = exposureBefore;
+  }
+
+  // The average, top row first (readPixels is bottom-up).
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const from = (H - 1 - y) * W * 4, to = y * W * 4;
+    for (let x = 0; x < W * 4; x++) image.data[to + x] = Math.round(acc[from + x] / samples);
+  }
+  g.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// ── True lighting: path tracing ─────────────────────────────────────────────
+// The render above fakes bounced light by averaging many skies. This one
+// follows light paths on the graphics chip (three-gpu-pathtracer, bundled in
+// pathtracer.min.js and handed over by the app as window.PathTracerLib), so the
+// light really bounces: the oak tints the wall beside it, corners darken, the
+// LED strips light the tile. It needs WebGL 2 with float render targets; when
+// the device lacks them the app gets the sky-averaged render instead.
+const PATH_LOOK = {
+  day: {
+    skyTop: 0x9fc4f0, skyBottom: 0xfff4e2, sky: 0.7, sun: 4.2, sunColor: 0xfff0dc,
+    strip: 12, down: 0, exposure: 0.58, bounces: 5,
+  },
+  evening: {
+    skyTop: 0x59486a, skyBottom: 0xffcf99, sky: 0.32, sun: 0.0, sunColor: 0xffd9b0,
+    strip: 38, down: 260, exposure: 0.95, bounces: 5,
+  },
+};
+window.PATH_LOOK = PATH_LOOK; // adjustable while tuning
+
+// The graphics chip's name, where the browser says (it helps to read a test).
+function gpuName() {
+  try {
+    const gl = renderer.getContext();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+  } catch (e) { return ''; }
+}
+
+function pathTracerAvailable() {
+  try {
+    if (!window.PathTracerLib || !renderer) return false;
+    const gl = renderer.getContext();
+    return typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext &&
+      !!renderer.extensions.get('EXT_color_buffer_float');
+  } catch (e) { return false; }
+}
+window.pathTracerAvailable = pathTracerAvailable;
+
+// What the picture's tone curve does to a value (ACES, then gamma), so the
+// backdrop can be set to a radiance that comes out as the colour we want.
+function pathTone(x, exposure) {
+  x *= exposure;
+  const v = Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+  return Math.pow(v, 1 / 2.2);
+}
+function pathBackdrop(hex, exposure) {
+  const want = new THREE.Color(hex).convertLinearToSRGB(); // the colour as a picture shows it
+  const solve = target => {
+    let lo = 0, hi = 400;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (pathTone(mid, exposure) < target) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
+  return new THREE.Color(solve(want.r), solve(want.g), solve(want.b));
+}
+
+// Puts the scene in a form the path tracer reads (the live scene's own lights,
+// self-lit "basic" materials and environment mean nothing to it) and returns
+// the function that puts everything back.
+function preparePathScene(look, backdrop) {
+  const undo = [];
+  const added = [];
+
+  // Standard stand-ins for the basic (self-lit) materials: the ceiling, the
+  // downlight discs and the LED strips.
+  const standIn = new Map();
+  const evening = mood === 'evening';
+  const swap = m => {
+    if (!m || !m.isMeshBasicMaterial) return m;
+    let s = standIn.get(m);
+    if (!s) {
+      s = new THREE.MeshStandardMaterial({ color: m.color.clone(), roughness: 0.9, metalness: 0, side: m.side });
+      s.userData = m.userData;
+      if (m === MAT.led) {
+        s.emissive.copy(m.color); s.emissiveIntensity = evening ? 2.2 : 0.6;
+      } else if (m.userData && m.userData.lamp) {
+        s.color.set(0xffffff); s.emissive.set(0xfff0d8); s.emissiveIntensity = evening ? 6 : 0.8;
+      }
+      standIn.set(m, s);
+    }
+    return s;
+  };
+  scene.traverse(o => {
+    if (o.isMesh) {
+      const was = o.material;
+      o.material = Array.isArray(was) ? was.map(swap) : swap(was);
+      undo.push(() => { o.material = was; });
+    } else if (o.isLight && o.visible) {
+      o.visible = false;
+      undo.push(() => { o.visible = true; });
+    }
+  });
+
+  // The sun (the key light's own place), the sky, and the backdrop.
+  scene.updateMatrixWorld(true);
+  if (look.sun > 0 && keyLight) {
+    const sun = new THREE.DirectionalLight(look.sunColor, look.sun);
+    sun.position.copy(keyLight.getWorldPosition(new THREE.Vector3()));
+    sun.target.position.copy(keyLight.target.getWorldPosition(new THREE.Vector3()));
+    scene.add(sun, sun.target); added.push(sun, sun.target);
+  }
+  const sky = new window.PathTracerLib.GradientEquirectTexture(32);
+  sky.topColor.set(look.skyTop); sky.bottomColor.set(look.skyBottom); sky.update();
+  const env = scene.environment, bg = scene.background, envI = scene.environmentIntensity;
+  scene.environment = sky; scene.environmentIntensity = look.sky; scene.background = backdrop;
+  undo.push(() => { scene.environment = env; scene.background = bg; scene.environmentIntensity = envI; sky.dispose(); });
+
+  // Area lights where the page has glowing things: a light for each LED
+  // strip (facing down) and each downlight. Glowing geometry alone would
+  // light the room only by chance, and speckle.
+  const strip = new THREE.Vector3(), axis = new THREE.Vector3(), side = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const faceDown = (light, long) => {
+    // With local +z up and x along the strip, the tracer lights downwards.
+    side.crossVectors(up, long).normalize();
+    light.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(long, side, up));
+  };
+  placedCabinets.forEach(c => {
+    c.traverse(o => {
+      if (!o.isMesh || o.material !== standIn.get(MAT.led) || !o.geometry.parameters) return;
+      const w = o.geometry.parameters.width || 0.3;
+      o.getWorldPosition(strip);
+      axis.set(1, 0, 0).transformDirection(o.matrixWorld);
+      const light = new THREE.RectAreaLight(MOODS[mood].led, look.strip, w, 0.05);
+      light.position.copy(strip).add(new THREE.Vector3(0, -0.02, 0));
+      faceDown(light, axis.clone());
+      scene.add(light); added.push(light);
+    });
+  });
+  if (look.down > 0 && roomGroup) {
+    roomGroup.children.forEach(o => {
+      if (!(o.isMesh && o.material.userData && o.material.userData.lamp && o.geometry.type === 'CircleGeometry')) return;
+      const light = new THREE.RectAreaLight(0xffe2bd, look.down, 0.11, 0.11);
+      light.isCircular = true;
+      o.getWorldPosition(light.position); light.position.y -= 0.01;
+      faceDown(light, new THREE.Vector3(1, 0, 0));
+      scene.add(light); added.push(light);
+    });
+  }
+  undo.push(() => { added.forEach(o => scene.remove(o)); });
+
+  return () => { for (let i = undo.length - 1; i >= 0; i--) undo[i](); standIn.forEach(m => m.dispose()); };
+}
+
+// Tone maps what the path tracer has accumulated, then (lightly) denoises it,
+// both in picture colours, and returns a JPEG data URL.
+function pathFinish(pt, W, H, look, denoise) {
+  const lib = window.PathTracerLib;
+  const targets = [];
+  const fsq = new lib.FullScreenQuad(new THREE.ShaderMaterial({
+    uniforms: { map: { value: pt.target.texture }, exposure: { value: look.exposure } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform float exposure; varying vec2 vUv;
+      void main(){
+        vec3 x = texture2D(map, vUv).rgb * exposure;
+        vec3 c = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+        gl_FragColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
+      }`,
+    depthTest: false, depthWrite: false,
+  }));
+  // Isolated bright or dark dots (a path that happened to find a light, or
+  // missed one) are not edges, so the edge-preserving filter would keep them.
+  // A pixel that differs sharply from the middle value of its 3x3 neighbours
+  // AND has fewer than two neighbours like itself takes that middle value: a
+  // fine line or an edge has neighbours like itself (along it), a speckle has
+  // none.
+  const despeckle = new lib.FullScreenQuad(new THREE.ShaderMaterial({
+    uniforms: { map: { value: null }, texel: { value: new THREE.Vector2(1 / W, 1 / H) }, limit: { value: denoise.despeckle ?? 0.1 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform vec2 texel; uniform float limit; varying vec2 vUv;
+      float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+      void main(){
+        vec3 c[9]; float l[9];
+        for (int i = 0; i < 9; i++) {
+          vec2 o = vec2(float(i - (i / 3) * 3 - 1), float(i / 3 - 1));
+          c[i] = texture2D(map, vUv + o * texel).rgb; l[i] = lum(c[i]);
+        }
+        vec3 here = c[4]; float hereL = l[4];
+        float alike = 0.0;
+        for (int i = 0; i < 9; i++) if (i != 4 && abs(l[i] - hereL) < limit * 0.6) alike += 1.0;
+        // The middle of nine: selection sort, five rounds.
+        for (int i = 0; i < 5; i++) {
+          int m = i;
+          for (int j = i + 1; j < 9; j++) if (l[j] < l[m]) m = j;
+          float tl = l[i]; l[i] = l[m]; l[m] = tl;
+          vec3 tc = c[i]; c[i] = c[m]; c[m] = tc;
+        }
+        gl_FragColor = vec4(abs(hereL - l[4]) > limit && alike < 2.0 ? c[4] : here, 1.0);
+      }`,
+    depthTest: false, depthWrite: false,
+  }));
+  const mk = () => { const t = new THREE.WebGLRenderTarget(W, H, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); targets.push(t); return t; };
+  const toned = mk(), cleaned = mk(), clean = mk();
+  const before = renderer.getRenderTarget(), autoClear = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.setRenderTarget(toned); fsq.render(renderer);
+  const dn = new lib.DenoiseMaterial();
+  Object.assign(dn.uniforms.sigma, { value: denoise.sigma });
+  dn.uniforms.threshold.value = denoise.threshold;
+  dn.uniforms.kSigma.value = denoise.kSigma;
+  const useDespeckle = (denoise.despeckle ?? 0.1) > 0;
+  if (useDespeckle) {
+    despeckle.material.uniforms.map.value = toned.texture;
+    renderer.setRenderTarget(cleaned); despeckle.render(renderer);
+  }
+  dn.uniforms.map.value = (useDespeckle ? cleaned : toned).texture;
+  const dq = new lib.FullScreenQuad(dn);
+  renderer.setRenderTarget(clean); dq.render(renderer);
+  renderer.setRenderTarget(before); renderer.autoClear = autoClear;
+  const px = new Uint8Array(W * H * 4);
+  renderer.readRenderTargetPixels(denoise.on ? clean : (useDespeckle ? cleaned : toned), 0, 0, W, H, px);
+  fsq.material.dispose(); despeckle.material.dispose(); despeckle.dispose(); dn.dispose(); dq.dispose(); fsq.dispose();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) image.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+  g.putImageData(image, 0, 0);
+  targets.forEach(t => t.dispose());
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+window.__pathFinish = pathFinish; // for the tests
+
+// How hard to smooth for the samples a picture got: the fewer, the noisier,
+// so the harder (a slow device that stopped at its time limit gets a softer
+// picture, not a speckled one).
+function pathDenoiseFor(samples) {
+  if (samples >= 128) return { sigma: 2, kSigma: 2, threshold: 0.05, despeckle: 0.12 };
+  if (samples >= 48) return { sigma: 2.5, kSigma: 2, threshold: 0.06, despeckle: 0.1 };
+  if (samples >= 24) return { sigma: 2.5, kSigma: 2, threshold: 0.07, despeckle: 0.1 };
+  return { sigma: 3, kSigma: 2, threshold: 0.1, despeckle: 0.06 };
+}
+
+// One picture, path traced: up to [samples] samples or [seconds] seconds, then
+// tone mapped and lightly denoised on the graphics chip. Returns a JPEG data URL.
+async function renderPathStill(pt, cam, W, H, opts, label, onProgress) {
+  const look = PATH_LOOK[mood] || PATH_LOOK.day;
+  const backdrop = pathBackdrop(MOODS[mood].background, look.exposure);
+  const restore = preparePathScene(look, backdrop);
+  try {
+    pt.bounces = look.bounces;
+    pt.setScene(scene, cam);
+    window.__pathLights = pt._pathTracer.material.lights.count; // for the tests
+    const tiles = pt.tiles.x * pt.tiles.y;
+    let done = 0;
+    // Wait for the shader to build, then sample.
+    pt.renderSample();
+    while (pt.isCompiling) {
+      showRenderProgress(`${label}: preparing`);
+      await nextFrame();
+      if (renderCancelled) throw new Error('cancelled');
+      pt.renderSample();
+    }
+    const budget = opts.seconds * 1000, started2 = performance.now();
+    // Reading one pixel back waits for the graphics chip. gl.finish() doesn't
+    // (the draws are only queued), and a loop that runs ahead of the chip
+    // would make the progress and the time limit mean nothing.
+    const probe = new Float32Array(4);
+    while (pt.samples < opts.samples) {
+      for (let k = 0; k < tiles; k++) pt.renderSample();
+      renderer.readRenderTargetPixels(pt.target, 0, 0, 1, 1, probe);
+      done = pt.samples;
+      const elapsed = performance.now() - started2;
+      const fraction = Math.min(1, Math.max(done / opts.samples, elapsed / budget));
+      showRenderProgress(`${label} ${Math.round(100 * fraction)}%`);
+      if (onProgress) onProgress(fraction);
+      await nextFrame();
+      if (renderCancelled) throw new Error('cancelled');
+      if (elapsed > budget && done >= opts.minSamples) break;
+    }
+
+    const dataUrl = pathFinish(pt, W, H, look,
+      opts.denoise.auto ? Object.assign(pathDenoiseFor(pt.samples), opts.denoise) : opts.denoise);
+    window.__lastPathSamples = pt.samples;
+    return dataUrl;
+  } finally {
+    restore();
+  }
+}
+
+function makePathTracer(W, H) {
+  const pt = new window.PathTracerLib.WebGLPathTracer(renderer);
+  pt.renderDelay = 0; pt.minSamples = 0; pt.fadeDuration = 0;
+  pt.rasterizeScene = false; pt.renderToCanvas = false; pt.dynamicLowRes = false;
+  pt.filterGlossyFactor = 0.4;
+  const t = pathTiles(W, H);
+  pt.tiles.set(t, t);
+  return pt;
+}
+
+// Frees the graphics memory a path tracer holds (its own dispose() leaves the
+// scene's data textures behind).
+function disposePathTracer(pt) {
+  const seen = new Set();
+  const free = v => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return;
+    seen.add(v);
+    if (typeof v.dispose === 'function') { try { v.dispose(); } catch (e) { /* already gone */ } }
+    if (v.tex) free(v.tex);
+  };
+  for (const tracer of [pt._pathTracer, pt._lowResPathTracer]) {
+    if (!tracer) continue;
+    const m = tracer.material;
+    if (m && m.uniforms) for (const key in m.uniforms) free(m.uniforms[key].value);
+    for (const key of ['bvh', 'textures', 'materials', 'lights', 'iesProfiles', 'attributesArray', 'materialIndexAttribute', 'envMapInfo', 'stratifiedTexture', 'stratifiedSamplerCombined']) free(m && m[key]);
+    try { tracer.dispose(); } catch (e) { /* not fully built */ }
+  }
+  if (pt._quad && pt._quad.material) { try { pt._quad.material.dispose(); } catch (e) { /* ignore */ } }
+  if (pt._colorBackground) free(pt._colorBackground);
+}
+
+// How many tiles a picture is traced in per sample: a long single draw can
+// make a phone's graphics chip give up, so big pictures go in pieces.
+function pathTiles(W, H) {
+  const px = W * H;
+  return px > 900000 ? 4 : px > 300000 ? 2 : 1;
+}
+
+// Rendered pictures of the design (front and angled), one after the other.
+// Resolves with [{ name, data }] and tells the app, as capturePictures does.
+window.renderPictures = async function(requestId, options) {
+  options = options || {};
+  // engine 'path': true lighting (path tracing), if this device can; else the
+  // sky-averaged render, and the app is told it fell back.
+  const wantPath = options.engine === 'path';
+  const usePath = wantPath && pathTracerAvailable();
+  const samples = usePath
+    ? Math.max(8, Math.min(2000, options.samples || 300))
+    : Math.max(4, Math.min(200, options.samples || 40));
+  const pathOptions = {
+    samples,
+    minSamples: Math.min(samples, options.minSamples || 12),
+    seconds: Math.max(10, Math.min(900, options.seconds || 120)),
+    denoise: Object.assign({ on: true, auto: true }, options.denoise || {}),
+  };
+  let pt = null;
+  const images = [];
+  const pathStats = { samples: [], seconds: [] }; // what a path-traced picture reached
+  let cancelled = false;
+  if (renderBusy) {
+    notifyFlutter({ event: 'pictures', request_id: requestId || null, busy: true, images: [], names: [] });
+    return images;
+  }
+  const box = designBox();
+  if (!box.isEmpty() && renderer && scene && keyLight) {
+    renderBusy = true;
+    renderCancelled = false;
+    // Textures still decoding: wait, so the render shows the real finishes.
+    await new Promise(resolve => whenTexturesSettled(resolve));
+    updateBacksplash();
+    updateDecor();
+    updateMoodLights();
+    roomCapture = true;
+    updateRoom();
+    const prevRatio = renderer.getPixelRatio();
+    const prevSize = renderer.getSize(new THREE.Vector2());
+    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    const canvasEl = renderer.domElement;
+    const wasHidden = canvasEl.style.visibility;
+    try {
+      hidden.forEach(o => { o.visible = false; });
+      canvasEl.style.visibility = 'hidden';
+      renderer.setPixelRatio(1);
+      renderer.setSize(PICTURE_W, PICTURE_H, false);
+      const cam = new THREE.PerspectiveCamera(38, PICTURE_W / PICTURE_H, 0.05, 200);
+      const target = box.getCenter(new THREE.Vector3());
+      const corners = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        corners.push(new THREE.Vector3(x, y, z));
+      }
+      const views = pictureViews().filter(v => !(options && options.only) || options.only === v.name);
+      if (usePath) pt = makePathTracer(PICTURE_W, PICTURE_H);
+      for (let n = 0; n < views.length; n++) {
+        const view = views[n];
+        const distance = pictureDistance(cam, target, view.dir, corners);
+        cam.position.copy(target).addScaledVector(view.dir, distance);
+        cam.lookAt(target);
+        cam.updateMatrixWorld(true);
+        const label = `Rendering picture ${n + 1} of ${views.length}`;
+        const progress = fraction => notifyFlutter({ event: 'render_progress', request_id: requestId || null, fraction: (n + fraction) / views.length });
+        const started = performance.now();
+        const data = usePath
+          ? await renderPathStill(pt, cam, PICTURE_W, PICTURE_H, pathOptions, label, progress)
+          : await renderStill(cam, PICTURE_W, PICTURE_H, samples, label, progress);
+        if (usePath) {
+          pathStats.samples.push(Math.round(window.__lastPathSamples));
+          pathStats.seconds.push(Math.round((performance.now() - started) / 100) / 10);
+        }
+        images.push({ name: view.name, data });
+      }
+    } catch (e) {
+      if (e && e.message === 'cancelled') { cancelled = true; images.length = 0; }
+      else console.error('renderPictures error:', e);
+    } finally {
+      if (pt) { if (options.keep) window.__pt = pt; else disposePathTracer(pt); }
+      renderBusy = false;
+      showRenderProgress(null);
+      canvasEl.style.visibility = wasHidden;
+      hidden.forEach(o => { o.visible = true; });
+      roomCapture = false;
+      updateRoom();
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(prevSize.x, prevSize.y, false);
+      onResize();
+      invalidate();
+    }
+  }
+  notifyFlutter({
+    event: 'pictures', request_id: requestId || null, rendered: true, cancelled,
+    engine: usePath ? 'path' : 'sky', fell_back: wantPath && !usePath,
+    stats: usePath && !cancelled ? { samples: pathStats.samples, seconds: pathStats.seconds, gpu: gpuName() } : null,
+    images: images.map(i => i.data), names: images.map(i => i.name),
+  });
+  return images;
 };
 
 // ── Toast ──────────────────────────────────────────────────────────────────

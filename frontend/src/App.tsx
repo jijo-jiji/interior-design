@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SceneCanvas } from './canvas/SceneCanvas';
 import type { CameraView } from './canvas/SceneCanvas';
+import { pictureFileName } from './canvas/picture';
+import type { PictureFn } from './canvas/picture';
+import { whenTexturesSettled } from './canvas/finishTextures';
 import { readFloorPlan } from './canvas/floorPlan';
 import type { FloorPlan, RoomView } from './canvas/floorPlan';
 import type { CabinetFinish, DoorStyle } from './canvas/cabinetBuilder';
@@ -11,10 +14,12 @@ import type { ProjectItem } from './components/ProjectPipelineDrawer';
 import { JoineryInspector } from './components/JoineryInspector';
 import type { InspectorTab, SaveState } from './components/JoineryInspector';
 import { StudioToolbar } from './components/StudioToolbar';
+import { PriceListEditor } from './components/PriceListEditor';
 import type { CabinetData, ModuleType } from './layout/model';
 import { fromEntry, newModule, toEntry } from './layout/model';
-import { FALLBACK_CATALOG, benchtopLinearMetres, priceLayout } from './pricing';
-import type { Catalog } from './pricing';
+import { benchtopLinearMetres, benchtopNames, benchtopRates, priceLayout, styleMultipliers, styleNames } from './pricing';
+import type { ServedCatalog } from './pricing';
+import { FALLBACK_CATALOG } from './defaultCatalog';
 
 const DEMO_PROJECT_ID = 'QT-992AC14B';
 const NUDGE_M = 0.05;
@@ -50,6 +55,7 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const hasLoadedInitialProject = useRef(false);
+  const pictureRef = useRef<PictureFn | null>(null);
 
   // ─── Room ──────────────────────────────────────────────────────────────────
   /** The wall as stored, so saving keeps fields the studio doesn't edit
@@ -80,7 +86,8 @@ export const App: React.FC = () => {
   const [undoStack, setUndoStack] = useState<CabinetData[][]>([]);
 
   // ─── Pricing and saving ────────────────────────────────────────────────────
-  const [catalog, setCatalog] = useState<Catalog>(FALLBACK_CATALOG);
+  const [catalog, setCatalog] = useState<ServedCatalog>(FALLBACK_CATALOG);
+  const [isPriceListOpen, setIsPriceListOpen] = useState<boolean>(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -263,7 +270,7 @@ export const App: React.FC = () => {
     () => priceLayout(cabinets, openings, finish, catalog, benchtopMaterial),
     [cabinets, openings, finish, catalog, benchtopMaterial],
   );
-  const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets), [cabinets]);
+  const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets, catalog), [cabinets, catalog]);
 
   const handleSaveRevisions = useCallback(async () => {
     setSaveState('saving');
@@ -312,6 +319,19 @@ export const App: React.FC = () => {
     }
   }, [activeProjectId, benchtopMaterial, cabinets, fetchProjects, finish, returnMm, roomShape, totals, wallHeightMm, wallRecord, wallWidthMm]);
 
+  /** Downloads a picture of the 3D view as it is on screen, at a larger size. */
+  const handleSavePicture = useCallback(() => {
+    // Finishes still decoding would show as the drawn stand-ins: wait for them.
+    whenTexturesSettled(() => {
+      const picture = pictureRef.current?.();
+      if (!picture) return;
+      const link = document.createElement('a');
+      link.href = picture;
+      link.download = pictureFileName(activeProjectId);
+      link.click();
+    });
+  }, [activeProjectId]);
+
   const showPrice = useCallback(() => {
     setInspectorTab('price');
     setIsInspectorCollapsed(false);
@@ -339,6 +359,9 @@ export const App: React.FC = () => {
         isSyncing={isSyncing}
         isOffline={isOffline}
         onOpenPipeline={() => setIsPipelineOpen(true)}
+        onOpenPriceList={() => setIsPriceListOpen(true)}
+        onSavePicture={handleSavePicture}
+        canSavePicture={cameraView === 'orbit'}
       />
 
       <StudioToolbar
@@ -348,11 +371,20 @@ export const App: React.FC = () => {
         onDeleteSelected={() => selectedCabinetId && handleDeleteCabinet(selectedCabinetId)}
         onNudgeSelected={handleNudgeCabinet}
         hasSelected={selectedCabinetId !== null}
-        hotkeysEnabled={!isPipelineOpen}
+        hotkeysEnabled={!isPipelineOpen && !isPriceListOpen}
         onFit={() => setFitKey((k) => k + 1)}
         total={totals.total}
         onShowPrice={showPrice}
       />
+
+      {isPriceListOpen && (
+        <PriceListEditor
+          catalog={catalog}
+          onClose={() => setIsPriceListOpen(false)}
+          // Quotes in the studio use the new prices straight away.
+          onSaved={(saved) => setCatalog((current) => ({ ...saved, requires_admin_key: current.requires_admin_key }))}
+        />
+      )}
 
       <ProjectPipelineDrawer
         isOpen={isPipelineOpen}
@@ -374,12 +406,14 @@ export const App: React.FC = () => {
             selectedCabinetId={selectedCabinetId}
             finish={finish}
             doorStyle={doorStyle}
+            benchtop={benchtopMaterial}
             mood={lightingMood}
             cameraView={cameraView}
             fitKey={fitKey}
             onSelectCabinet={selectCabinet}
             floorPlan={floorPlan}
             roomView={roomView}
+            pictureRef={pictureRef}
           />
           {cameraView !== 'orbit' && (
             <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-surface/90 px-2 py-1 text-xs text-ink-soft">
@@ -405,15 +439,15 @@ export const App: React.FC = () => {
           onChangeReturn={handleChangeReturn}
           finish={finish}
           onSelectFinish={setFinish}
-          styleNames={catalog.style_names}
-          styleMultipliers={catalog.styles}
+          styleNames={styleNames(catalog)}
+          styleMultipliers={styleMultipliers(catalog)}
           doorStyle={doorStyle}
           onSelectDoorStyle={setDoorStyle}
           benchtopMaterial={benchtopMaterial}
           onSelectBenchtop={setBenchtopMaterial}
           benchtopMetres={benchtopMetres}
-          benchtopRates={catalog.benchtops}
-          benchtopNames={catalog.benchtop_names}
+          benchtopRates={benchtopRates(catalog)}
+          benchtopNames={benchtopNames(catalog)}
           cabinets={cabinets}
           selectedCabinetId={selectedCabinetId}
           onSelectCabinet={selectCabinet}
