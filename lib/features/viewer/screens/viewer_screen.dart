@@ -19,11 +19,13 @@ import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
 import '../models/cpq_engine.dart';
+import '../models/cabinet_choices.dart';
 import '../models/scene_look.dart';
 import '../scene/finish_textures.dart';
 import '../scene/scene_bridge.dart';
 import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
+import '../widgets/cabinet_card.dart';
 import '../widgets/closing_modal.dart';
 import '../widgets/pictures_sheet.dart';
 import 'proposal_preview_screen.dart';
@@ -112,6 +114,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   // Return-wall (L-shape) cabinets can be selected but not moved yet.
   bool _selectedMovable = true;
+
+  /// The cabinet whose card is open (a double tap on it in the 3D view).
+  String? _openId;
+
+  /// Undo and redo: the cabinets (and the layout they came from) before each
+  /// change to them.
+  final List<_Cabinets> _undo = [];
+  final List<_Cabinets> _redo = [];
+
+  /// The 3D view and the panel over its bottom, to frame a cabinet in the
+  /// part of the view the card leaves.
+  final _viewKey = GlobalKey();
+  final _panelKey = GlobalKey();
 
   /// Full view hides every control so the client sees the whole design.
   bool _controlsHidden = false;
@@ -479,7 +494,180 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         'replaceCabinets(${jsonEncode(jsonEncode(_placedCabinets))})');
   }
 
+  // ── Undo / redo ────────────────────────────────────────────────────────────
+
+  _Cabinets _snapshot() => (
+        cabinets: [for (final c in _placedCabinets) Map<String, dynamic>.of(c)],
+        variant: _activeVariantKey,
+      );
+
+  /// Called before the cabinets change, so the change can be undone.
+  void _remember() {
+    _undo.add(_snapshot());
+    if (_undo.length > 40) _undo.removeAt(0);
+    _redo.clear();
+  }
+
+  void _undoRedo({required bool undo}) {
+    final from = undo ? _undo : _redo;
+    if (from.isEmpty) return;
+    (undo ? _redo : _undo).add(_snapshot());
+    final back = from.removeLast();
+    setState(() {
+      _placedCabinets
+        ..clear()
+        ..addAll(back.cabinets);
+      _activeVariantKey = back.variant;
+      if (_openId != null && _cabinet(_openId!) == null) _openId = null;
+      _selectedId = _openId;
+      _selectedLabel = _openId == null ? null : _choices.nameOf(_cabinet(_openId!)!);
+    });
+    _pushCabinetsToScene().then((_) {
+      if (_openId != null) {
+        _focusOpen();
+      } else {
+        _scene.runJavaScript('unfocusCabinet()');
+      }
+    });
+    HapticFeedback.selectionClick();
+    _scheduleSave();
+  }
+
+  // ── The cabinet card ───────────────────────────────────────────────────────
+
+  Map<String, dynamic>? _cabinet(String id) {
+    for (final c in _placedCabinets) {
+      if (c['id'] == id) return c;
+    }
+    return null;
+  }
+
+  CabinetChoices get _choices => CabinetChoices(
+        catalog: _catalog,
+        cabinets: _placedCabinets,
+        wall: _wallData,
+        obstacles: _obstacles,
+      );
+
+  /// A double tap on a cabinet: its card opens and the camera goes to it.
+  void _openCard(String id) {
+    final record = _cabinet(id);
+    if (record == null) return;
+    setState(() {
+      _openId = id;
+      _selectedId = id;
+      _selectedLabel = _choices.nameOf(record);
+      _selectedMovable = record['run'] != 'return';
+    });
+    HapticFeedback.selectionClick();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focusOpen());
+  }
+
+  /// Takes the camera to the open cabinet, framed in the part of the view
+  /// the card doesn't cover.
+  void _focusOpen() {
+    final id = _openId;
+    if (id == null || !mounted) return;
+    var inset = 0.45;
+    final view = _viewKey.currentContext?.findRenderObject() as RenderBox?;
+    final panel = _panelKey.currentContext?.findRenderObject() as RenderBox?;
+    if (view != null && panel != null && view.hasSize && panel.hasSize) {
+      final viewTop = view.localToGlobal(Offset.zero).dy;
+      final panelTop = panel.localToGlobal(Offset.zero).dy;
+      inset = ((viewTop + view.size.height - panelTop) / view.size.height)
+          .clamp(0.0, 0.7);
+    }
+    _scene.runJavaScript(
+        'focusCabinet(${jsonEncode(id)}, ${inset.toStringAsFixed(3)})');
+  }
+
+  void _closeCard() {
+    setState(() {
+      _openId = null;
+      _selectedId = null;
+      _selectedLabel = null;
+    });
+    _scene.runJavaScript('deselectCabinet(); unfocusCabinet()');
+  }
+
+  /// Turns the open cabinet into [choice], in its place.
+  void _pickChoice(CabinetChoice choice) {
+    final id = _openId;
+    if (id == null) return;
+    final next = _choices.swap(id, choice);
+    if (next == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+            content: Text(choice.problem ?? "That doesn't fit here.")));
+      return;
+    }
+    _remember();
+    setState(() {
+      _placedCabinets
+        ..clear()
+        ..addAll(next);
+      _activeVariantKey = null; // now the salesperson's own layout
+      _selectedLabel = choice.label;
+    });
+    _pushCabinetsToScene().then((_) => _focusOpen());
+    HapticFeedback.lightImpact();
+    _scheduleSave();
+  }
+
+  /// "+RM 80", "−RM 40" or "same price": what [next] does to the total.
+  /// Null while the price is hidden from the client.
+  String? _priceChange(List<Map<String, dynamic>>? next) {
+    if (!_priceVisible || next == null) return null;
+    final then = CPQEngine.calculate(
+      placedCabinets: next,
+      obstacles: _obstacles,
+      styleArchetype: _currentStyle,
+      benchtopMaterial: _benchtopMaterial,
+      catalog: _catalog,
+    ).totalPrice;
+    final change = (then - _cpqSummary.totalPrice).round();
+    if (change == 0) return 'same price';
+    return change > 0 ? '+${formatMoney(change)}' : '\u2212${formatMoney(-change)}';
+  }
+
+  Widget _buildCabinetCard(Map<String, dynamic> record) {
+    final choices = _choices;
+    final id = record['id'] as String;
+    List<CardOption> options(List<CabinetChoice> list) => [
+          for (final c in list)
+            CardOption(c,
+                priceChange:
+                    c.current || !c.fits ? null : _priceChange(choices.swap(id, c))),
+        ];
+    final type = record['cabinet_type'] as String? ?? '';
+    final width = (record['width_mm'] as num?)?.toDouble();
+    return CabinetCard(
+      name: choices.nameOf(record),
+      description: choices.describe(record),
+      size: choices.sizeOf(record),
+      price: _priceVisible
+          ? formatMoney(_catalog.unitPrice(type, width) *
+              _cpqSummary.materialMultiplier)
+          : null,
+      sizes: options(choices.sizesFor(id)),
+      types: options(choices.typesFor(id)),
+      movable: record['run'] != 'return',
+      onPick: _pickChoice,
+      onMove: (dx) {
+        _scene.runJavaScript('nudgeSelectedCabinet(${dx * 50}, true)');
+        HapticFeedback.selectionClick();
+      },
+      onRemove: () {
+        _scene.runJavaScript('removeSelectedCabinet()');
+        HapticFeedback.lightImpact();
+      },
+      onClose: _closeCard,
+    );
+  }
+
   void _selectVariant(LayoutVariant variant) {
+    if (variant.key != _activeVariantKey) _remember();
     setState(() {
       _activeVariantKey = variant.key;
       _placedCabinets
@@ -493,6 +681,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _clearLayout() {
+    _remember();
     final previous = List<Map<String, dynamic>>.from(_placedCabinets);
     final previousVariant = _activeVariantKey;
     setState(() {
@@ -600,12 +789,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         case 'render_progress':
           _renderProgress.value = (data['fraction'] as num?)?.toDouble();
         case 'cabinet_placed':
+          _remember();
           setState(() {
             _placedCabinets.add(data);
             _activeVariantKey = null; // now the salesperson's own layout
           });
           _scheduleSave();
         case 'cabinet_removed':
+          _remember();
+          if (_openId != null && _openId == data['id']) {
+            _openId = null;
+            _scene.runJavaScript('unfocusCabinet()');
+          }
           setState(() {
             _placedCabinets.removeWhere((c) => c['id'] == data['id']);
             _activeVariantKey = null;
@@ -619,6 +814,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           // Keep the saved position in sync with drags in the 3D view.
           final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
           if (i >= 0) {
+            _remember();
             setState(() {
               _placedCabinets[i] = {
                 ..._placedCabinets[i],
@@ -634,6 +830,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             _selectedLabel = data['label'] as String?;
             _selectedMovable = data['movable'] as bool? ?? true;
           });
+        case 'cabinet_opened':
+          final id = data['id'];
+          if (id is String) _openCard(id);
         case 'cabinet_deselected':
           setState(() {
             _selectedId = null;
@@ -1361,6 +1560,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       appBar: AppBar(
         title: Text(_clientName.isEmpty ? '3D design' : _clientName),
         actions: [
+          // Undo and redo for every change to the cabinets: a layout
+          // switched, a cabinet added, moved, resized, swapped or removed.
+          IconButton(
+            tooltip: 'Undo',
+            onPressed: _sceneLoaded && !_rendering && _undo.isNotEmpty
+                ? () => _undoRedo(undo: true)
+                : null,
+            icon: const Icon(Icons.undo_rounded),
+          ),
+          IconButton(
+            tooltip: 'Redo',
+            onPressed: _sceneLoaded && !_rendering && _redo.isNotEmpty
+                ? () => _undoRedo(undo: false)
+                : null,
+            icon: const Icon(Icons.redo_rounded),
+          ),
           IconButton(
             tooltip: 'Look: doors, backsplash, decor, room and light',
             onPressed: _sceneLoaded && !_rendering ? _showLookSheet : null,
@@ -1384,6 +1599,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         ],
       ),
       body: Stack(
+        key: _viewKey,
         children: [
           // ── 3D view ─────────────────────────────────────────────────────
           _scene.buildView(),
@@ -1487,9 +1703,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               bottom: 14,
               child: PointerShield(
                 child: Column(
+                  key: _panelKey,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_editing)
+                    if (_openId != null && _cabinet(_openId!) != null)
+                      _buildCabinetCard(_cabinet(_openId!)!)
+                    else if (_editing)
                       _EditPanel(
                         selectedLabel: _selectedLabel,
                         selectedMovable: _selectedMovable,
@@ -1498,6 +1717,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         onSelectAdjacent: _selectAdjacent,
                         onMove: _nudgeSelected,
                         onRemoveSelected: _removeSelected,
+                        onOpenSelected: () {
+                          final id = _selectedId;
+                          if (id != null) _openCard(id);
+                        },
                         onClearAll: _clearLayout,
                         onAppliances: _showApplianceSheet,
                         onBenchtop: _showBenchtopSheet,
@@ -1703,6 +1926,14 @@ class _LayoutVariantBar extends StatelessWidget {
               ),
             ],
           ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Double-tap a cabinet to see it and change it.',
+              style: context.textTheme.bodySmall
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
+            ),
+          ),
           if (variants.isNotEmpty)
             Row(
               children: [
@@ -1733,6 +1964,9 @@ class _EditPanel extends StatelessWidget {
   final ValueChanged<int> onSelectAdjacent;
   final ValueChanged<int> onMove;
   final VoidCallback onRemoveSelected;
+
+  /// Opens the selected cabinet's card (as a double tap on it does).
+  final VoidCallback onOpenSelected;
   final VoidCallback onClearAll;
   final VoidCallback onAppliances;
   final VoidCallback onBenchtop;
@@ -1755,6 +1989,7 @@ class _EditPanel extends StatelessWidget {
     required this.onSelectAdjacent,
     required this.onMove,
     required this.onRemoveSelected,
+    required this.onOpenSelected,
     required this.onClearAll,
     required this.onAppliances,
     required this.onBenchtop,
@@ -1794,7 +2029,9 @@ class _EditPanel extends StatelessWidget {
           ),
           Text(
             switch ((selected, selectedMovable)) {
-              (null, _) => 'Tap a cabinet in the view, or use Pick.',
+              (null, _) =>
+                'Tap a cabinet to select it, or use Pick. Double-tap one to '
+                    'see it and change it.',
               (_, true) => '$selected selected. Drag it, or use Move.',
               (_, false) =>
                 "$selected selected. Corner-wall cabinets can't be moved yet.",
@@ -1833,6 +2070,16 @@ class _EditPanel extends StatelessWidget {
                         onNudge: (dx, _) => onMove(dx),
                       ),
                     ],
+                  ),
+                // The way into the card without a double tap.
+                if (selected != null)
+                  OutlinedButton.icon(
+                    onPressed: onOpenSelected,
+                    icon: const Icon(Icons.tune_rounded, size: 18),
+                    label: const Text('Change'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(48, 44),
+                    ),
                   ),
               ],
             ),
@@ -2126,3 +2373,6 @@ class _JoineryModuleButton extends StatelessWidget {
     );
   }
 }
+
+/// The cabinets at one moment, and the layout (A, B, C) they came from.
+typedef _Cabinets = ({List<Map<String, dynamic>> cabinets, String? variant});

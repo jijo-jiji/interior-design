@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:static_trace/features/catalog/default_catalog.g.dart';
 import 'package:static_trace/features/catalog/price_catalog.dart';
+import 'package:static_trace/features/viewer/models/cabinet_choices.dart';
 import 'package:static_trace/features/viewer/screens/viewer_screen.dart';
 import 'package:static_trace/features/viewer/utils/offline_store.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
@@ -137,7 +138,7 @@ void main() {
     await tester.tap(find.text('Edit'));
     await tester.pump();
     expect(
-        find.text('Tap a cabinet in the view, or use Pick.'), findsOneWidget);
+        find.textContaining('Double-tap one to see it and change it.'), findsOneWidget);
     // Nothing selected yet: nothing to move.
     expect(find.byTooltip('Move right'), findsNothing);
 
@@ -327,6 +328,187 @@ void main() {
       expect(after['catalog_version'], 1);
       expect(after['total_price'], before['total_price']);
       await forgetDraft(tester);
+    });
+  });
+
+  group('the cabinet card', () {
+    /// The cabinets the app last sent the page.
+    List<Map<String, dynamic>> lastLayout() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('replaceCabinets('));
+      final arg = call.substring('replaceCabinets('.length, call.length - 1);
+      return [
+        for (final c in jsonDecode(jsonDecode(arg) as String) as List) c as Map<String, dynamic>,
+      ];
+    }
+
+    // A 600 base unit (layout B's first one is 300 mm against the wall end).
+    Map<String, dynamic> firstBase() => lastLayout().firstWhere(
+        (c) => c['kind'] == 'base' && c['run'] == 'main' && (c['width_mm'] as num) >= 500);
+
+    CabinetChoices choicesNow() => CabinetChoices(
+          catalog: PriceCatalog.current,
+          cabinets: lastLayout(),
+          wall: (jsonDecode(payload) as Map)['wall'] as Map<String, dynamic>,
+          obstacles: (jsonDecode(payload) as Map)['obstacles'] as List,
+        );
+
+    Future<Map<String, dynamic>> openFirstBase(WidgetTester tester) async {
+      final base = firstBase();
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label'], 'movable': true});
+      await tester.pump();
+      await tester.pump();
+      return base;
+    }
+
+    testWidgets('a double tap opens it: what it is, and the camera goes to it', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      expect(find.textContaining('Floor unit with'), findsOneWidget);
+      expect(find.textContaining('mm'), findsWidgets);
+      expect(find.text('Size'), findsOneWidget);
+      expect(find.text('Change to'), findsOneWidget);
+      expect(find.text('Remove'), findsOneWidget);
+      // The camera goes to it, framed above the card.
+      final focus = page().javaScript.lastWhere((c) => c.startsWith('focusCabinet('));
+      expect(focus, startsWith('focusCabinet("${base['id']}", 0.'));
+      final inset = double.parse(focus.split(', ').last.replaceAll(')', ''));
+      expect(inset, inInclusiveRange(0.2, 0.7));
+      // The layouts bar gives way to the card.
+      expect(find.text('Sample layouts'), findsNothing);
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      expect(page().javaScript.last, 'deselectCabinet(); unfocusCabinet()');
+      expect(find.text('Size'), findsNothing);
+      expect(find.text('Sample layouts'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('changes it in place to another size; undo and redo bring it back', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final before = lastLayout();
+      // A width that fits where it stands.
+      final to = choicesNow().sizesFor(base['id'] as String).firstWhere((c) => c.fits && !c.current);
+      await tester.tap(find.widgetWithText(ChoiceChip, '${to.widthMm.round()}'));
+      await tester.pump();
+      await tester.pump();
+      final after = lastLayout();
+      final changed = after.firstWhere((c) => c['id'] == base['id']);
+      expect(changed['cabinet_type'], to.type);
+      expect(changed['width_mm'], to.widthMm);
+      expect(after.length, before.length, reason: 'nothing added or taken out');
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'),
+          reason: 'the camera stays on it');
+      expect(find.text('Size'), findsOneWidget, reason: 'the card stays open');
+      expect(find.textContaining('your changes'), findsNothing, reason: 'the card covers the layouts bar');
+
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout().firstWhere((c) => c['id'] == base['id'])['width_mm'], base['width_mm']);
+      await tester.tap(find.byTooltip('Redo'));
+      await tester.pump();
+      expect(lastLayout().firstWhere((c) => c['id'] == base['id'])['width_mm'], to.widthMm);
+      await finish(tester);
+    });
+
+    testWidgets('another unit in its place: drawers instead of doors', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final drawers = choicesNow().typesFor(base['id'] as String).firstWhere((c) => c.kind == 'drawer');
+      expect(drawers.fits, isTrue);
+      await tester.tap(find.widgetWithText(ChoiceChip, drawers.label));
+      await tester.pump();
+      final changed = lastLayout().firstWhere((c) => c['id'] == base['id']);
+      expect(changed['kind'], 'drawer');
+      expect(find.textContaining('3 drawers'), findsOneWidget, reason: 'the card says what it is now');
+      await finish(tester);
+    });
+
+    testWidgets('what does not fit is greyed out, and the card says why', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final all = [...choicesNow().sizesFor(base['id'] as String), ...choicesNow().typesFor(base['id'] as String)];
+      final refused = all.where((c) => !c.fits).toList();
+      expect(refused, isNotEmpty, reason: 'in a full layout something is too wide');
+      final chip = tester.widget<ChoiceChip>(find.ancestor(
+          of: find.text(refused.first.kind == 'base' ? '${refused.first.widthMm.round()}' : refused.first.label),
+          matching: find.byType(ChoiceChip)));
+      expect(chip.onSelected, isNull);
+      expect(find.textContaining('Greyed out: '), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('price changes show only once the price is shown', (tester) async {
+      await pumpViewer(tester);
+      await openFirstBase(tester);
+      expect(find.textContaining('RM'), findsNothing, reason: 'the client sees the design first');
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining(RegExp(r'[+−]RM |same price')), findsWidgets);
+      await finish(tester);
+    });
+
+    testWidgets('Remove takes it out and closes the card; undo puts it back', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      await tester.tap(find.text('Remove'));
+      await tester.pump();
+      expect(page().javaScript.last, 'removeSelectedCabinet()');
+      fromPage({'event': 'cabinet_removed', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      expect(find.text('Size'), findsNothing);
+      expect(page().javaScript, contains('unfocusCabinet()'));
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout().any((c) => c['id'] == base['id']), isTrue);
+      await finish(tester);
+    });
+
+    testWidgets('moving from the card works outside Edit mode', (tester) async {
+      await pumpViewer(tester);
+      await openFirstBase(tester);
+      await tester.tap(find.byTooltip('Move right'));
+      await tester.pump();
+      expect(page().javaScript.last, 'nudgeSelectedCabinet(50, true)');
+      await finish(tester);
+    });
+
+    testWidgets('without a double tap: Edit, pick a cabinet, Change', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      final base = firstBase();
+      fromPage({'event': 'cabinet_selected', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      await tester.tap(find.text('Change'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Size'), findsOneWidget);
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'));
+      await finish(tester);
+    });
+
+    testWidgets('switching layouts can be undone from the top bar', (tester) async {
+      await pumpViewer(tester);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.undo_rounded)).onPressed, isNull);
+      final b = lastLayout();
+      await tester.tap(find.textContaining('A · '));
+      await tester.pump();
+      expect(lastLayout(), isNot(equals(b)));
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout(), b);
+      expect(find.textContaining('your changes'), findsNothing, reason: 'back on layout B');
+      await finish(tester);
+    });
+
+    testWidgets('an unknown cabinet opens nothing', (tester) async {
+      await pumpViewer(tester);
+      fromPage({'event': 'cabinet_opened', 'id': 'nobody'});
+      await tester.pump();
+      expect(find.text('Size'), findsNothing);
+      await finish(tester);
     });
   });
 

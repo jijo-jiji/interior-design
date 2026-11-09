@@ -160,6 +160,32 @@ Picture button waits for them. The Studio's cabinet data
 (`frontend/src/canvas/finishes.ts`) is checked against the sales app's page
 by a test, so the two can't drift apart.
 
+### Changing a cabinet where it stands
+
+**Double-tap a cabinet** in the 3D view (in any mode) and its card opens: the
+camera glides round to it, framed above the card, and the card says what it
+is ("Floor unit with 2 doors · 600 × 850 × 600 mm"). From the card:
+
+- **Size:** the same unit in the other widths the price list makes (300 to
+  900 for a base unit). Its left end stays put (or its right end, if that is
+  what fits), so it doesn't have to be taken out and put back.
+- **Change to:** another unit in its place: drawers, a sink or hob unit or a
+  dishwasher for a base unit; an oven tower or fridge recess for a tall unit;
+  a rangehood for a wall unit.
+- What doesn't fit (its neighbours, the wall end, a door or a window with its
+  clearance are in the way) is greyed out, and the card says how much room
+  there is. Neighbours are never moved for you.
+- With the price shown, every choice says what it does to the total
+  ("+RM 80", "−RM 40", "same price"); while the client sees the design first,
+  it doesn't.
+- **Move** (50 mm a tap) and **Remove**; the close button takes the camera
+  back to where it was.
+
+A single tap only turns the view, so the client can't open anything by
+accident. Without a double tap: **Edit**, pick a cabinet, **Change**.
+**Undo** and **Redo** in the top bar take back any change to the cabinets: a
+layout switched, a cabinet added, moved, resized, swapped or removed.
+
 ### Look of the design (doors, backsplash, decor, room, light)
 
 The palette icon on the 3D screen changes how the design is dressed, in 3D

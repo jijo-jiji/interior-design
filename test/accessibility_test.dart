@@ -264,6 +264,52 @@ void main() {
     });
   });
 
+  // The card a double tap opens on a cabinet (sizes, other units, move,
+  // remove), over the 3D view.
+  group('3D view, a cabinet\'s card open', () {
+    Future<void> openCard(WidgetTester tester, {double scale = 1}) async {
+      await _pump(tester, _screens['3D view']!(), scale: scale);
+      final page = (WebViewPlatform.instance as FakeWebViewPlatform).lastController!;
+      final call = page.javaScript.lastWhere((c) => c.startsWith('replaceCabinets('));
+      final list = jsonDecode(jsonDecode(call.substring(16, call.length - 1)) as String) as List;
+      final base = list.cast<Map<String, dynamic>>().firstWhere(
+          (c) => c['kind'] == 'base' && (c['width_mm'] as num) >= 500,
+          orElse: () => list.first as Map<String, dynamic>);
+      page.sendFromPage('StaticTraceChannel',
+          jsonEncode({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label']}));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Remove'), findsOneWidget);
+    }
+
+    testWidgets('tap targets are at least 48x48 and labelled', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openCard(tester);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('text meets WCAG AA contrast', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openCard(tester);
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('lays out without overflow at 2x text size', (tester) async {
+      final errors = <String>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+      await openCard(tester, scale: 2);
+      FlutterError.onError = previous;
+      expect(errors, isEmpty);
+      await _finish(tester);
+    });
+  });
+
   // The pixel scan above covers this too; this pins the most important
   // button's colours directly.
   testWidgets('3D view: the Quote button label meets 4.5:1', (tester) async {

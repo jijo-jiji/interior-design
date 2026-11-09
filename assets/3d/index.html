@@ -2271,9 +2271,10 @@ window.removeSelectedCabinet = function() {
 // ── Moving and choosing without dragging (WCAG 2.5.7 and 2.1.1) ────────────
 // Flutter's Move left / Move right buttons. The same rules as a drag: a
 // main-wall cabinet slides along the wall and stays inside it.
-window.nudgeSelectedCabinet = function(dxMm) {
+window.nudgeSelectedCabinet = function(dxMm, fromCard) {
   const cab = selectedCabinet;
-  if (!cab || !editMode || cab.userData.run === 'return') return;
+  // The cabinet card moves the cabinet it is open on, in any mode.
+  if (!cab || (!editMode && !fromCard) || cab.userData.run === 'return') return;
   const spec = cab.userData.spec;
   const halfCabW = (spec ? spec.w : 0.6) / 2;
   const halfWallW = currentWallW / 2;
@@ -2301,6 +2302,191 @@ window.selectAdjacentCabinet = function(dir) {
   const n = ordered.length;
   const next = i < 0 ? (dir >= 0 ? 0 : n - 1) : (i + (dir >= 0 ? 1 : -1) + n) % n;
   selectCabinet(ordered[next]);
+};
+
+// ── Opening a cabinet: double tap, and the camera goes to it ───────────────
+// A double tap (or double click) on a cabinet opens it in any mode: it is
+// selected, the camera glides round to it, and the app shows its card. One
+// tap only looks around, so the client can turn the view without opening
+// anything. The camera goes back to where it was when the card closes.
+let lastTap = { t: 0, x: 0, y: 0, id: null };
+const DOUBLE_TAP_MS = 380, DOUBLE_TAP_PX = 30;
+
+// [at]: when the tap happened (the event's own time), not when the page got
+// to it: a busy frame can hold input back, and two quick taps must still
+// count as a double tap.
+function onTap(clientX, clientY, at) {
+  const hit = getHit(clientX, clientY);
+  const now = at || performance.now();
+  const id = hit ? hit.userData.id : null;
+  const again = now - lastTap.t < DOUBLE_TAP_MS &&
+    Math.hypot(clientX - lastTap.x, clientY - lastTap.y) < DOUBLE_TAP_PX;
+  if (hit && again && id === lastTap.id) {
+    lastTap = { t: 0, x: 0, y: 0, id: null };
+    openCabinet(hit);
+    return true;
+  }
+  lastTap = { t: now, x: clientX, y: clientY, id };
+  return false;
+}
+
+function openCabinet(cab) {
+  selectCabinet(cab);
+  // In the app, the app moves the camera once its card is up (it knows how
+  // much of the view the card covers); on its own the page does it here.
+  if (!document.body.classList.contains('is-native-app')) focusCameraOn(cab, viewInset);
+  notifyFlutter({
+    event: 'cabinet_opened',
+    id: cab.userData.id,
+    label: cab.userData.label || 'Cabinet',
+    movable: cab.userData.run !== 'return',
+  });
+}
+
+function cabinetById(id) {
+  return placedCabinets.find(c => c.userData.id === id) || null;
+}
+
+// The part of the screen under the app's card (0 to 0.7): the view is
+// shifted up so what the camera looks at sits in the part that shows.
+let viewInset = 0;
+function applyViewInset() {
+  if (!camera) return;
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  if (viewInset > 0) camera.setViewOffset(w, h, 0, viewInset * h / 2, w, h);
+  else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  invalidate();
+}
+window.setViewInset = function(fraction) {
+  viewInset = Math.max(0, Math.min(0.7, Number(fraction) || 0));
+  applyViewInset();
+};
+
+const reducedMotion = () =>
+  !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+// Where the camera was before the first focus, to go back to.
+let focusReturn = null;
+let cameraTween = null;
+
+function moveCamera(toPos, toTarget, ms = 480) {
+  if (cameraTween) cancelAnimationFrame(cameraTween.raf);
+  const fromPos = camera.position.clone(), fromTarget = controls.target.clone();
+  if (reducedMotion() || ms <= 0) {
+    camera.position.copy(toPos); controls.target.copy(toTarget);
+    controls.update(); invalidate();
+    cameraTween = null;
+    return;
+  }
+  const start = performance.now();
+  const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const step = () => {
+    const t = Math.min(1, (performance.now() - start) / ms), k = ease(t);
+    camera.position.lerpVectors(fromPos, toPos, k);
+    controls.target.lerpVectors(fromTarget, toTarget, k);
+    controls.update(); invalidate();
+    if (t < 1) cameraTween.raf = requestAnimationFrame(step); else cameraTween = null;
+  };
+  cameraTween = { raf: requestAnimationFrame(step) };
+}
+
+// From in front of the cabinet, a little above it, far enough back that the
+// cabinet and a little of its neighbours fill the part of the view that
+// shows. Straight on if nothing stands in the way, else turned or raised a
+// little (in an L the side-wall units can stand between the camera and a
+// main-wall unit): the first view in which nothing hides the cabinet.
+function focusPose(cab, inset) {
+  const box = new THREE.Box3().setFromObject(cab);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(cab.getWorldQuaternion(new THREE.Quaternion()));
+  facing.y = 0; facing.normalize();
+  const fromTarget = camera.position.clone().sub(controls.target);
+  const side = Math.sign(facing.x * fromTarget.z - facing.z * fromTarget.x) || 1;
+  // Width and height fitted separately: a tall unit on an upright phone
+  // needs the height, a wide one on a tablet the width.
+  const vHalf = camera.fov / 2 * Math.PI / 180;
+  const shownHalf = Math.atan(Math.tan(vHalf) * (1 - (inset || 0)));
+  const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+  const across = Math.max(size.x, size.z) / 2 + 0.3, up = size.y / 2 + 0.18;
+  const dist = Math.min(controls.maxDistance * 0.95,
+    Math.max(1.1, across / Math.tan(hHalf), up / Math.tan(shownHalf)) + Math.max(size.x, size.z) / 2);
+  const others = placedCabinets.filter(c => c !== cab).flatMap(g => g.children.filter(m => m.isMesh));
+  const ray = new THREE.Raycaster();
+  // Points that, seen, show the cabinet: first its front (the middle, and
+  // higher up); failing that its top (a corner unit's front sits behind the
+  // side run of the L, its top doesn't).
+  const reach = Math.max(size.x, size.z) / 2 * 0.9;
+  const front = center.clone().addScaledVector(facing, reach);
+  const fronts = [front, front.clone().setY(box.min.y + size.y * 0.75)];
+  const tops = [new THREE.Vector3(center.x, box.max.y - 0.01, center.z), front.clone().setY(box.max.y - 0.02)];
+  const poseAt = (azDeg, elDeg) => {
+    const dir = facing.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -side * azDeg * Math.PI / 180);
+    dir.multiplyScalar(Math.cos(elDeg * Math.PI / 180));
+    dir.y = Math.sin(elDeg * Math.PI / 180);
+    return center.clone().addScaledVector(dir.normalize(), dist);
+  };
+  const visible = (pos, m) => {
+    const to = m.clone().sub(pos), len = to.length();
+    ray.set(pos, to.normalize()); ray.far = len - 0.02;
+    return ray.intersectObjects(others, false).length === 0;
+  };
+  // The whole front (middle and higher up) must show; for the top, any of it.
+  const seen = (pos, marks) => marks === fronts
+    ? marks.every(m => visible(pos, m))
+    : marks.some(m => visible(pos, m));
+  const tries = [[18, 14], [0, 14], [-18, 14], [18, 30], [0, 30], [-18, 30], [-35, 24], [35, 24],
+    [0, 45], [-30, 45], [30, 45], [0, 62]];
+  for (const marks of [fronts, tops]) {
+    for (const [az, el] of tries) {
+      const pos = poseAt(az, el);
+      if (seen(pos, marks)) return { pos, target: center };
+    }
+  }
+  return { pos: poseAt(0, 45), target: center };
+}
+
+// A swipe just before keeps turning the view for a moment (damping); that
+// is finished at once, so the glide starts and ends where it should.
+function stopInertia() {
+  const damping = controls.enableDamping;
+  controls.enableDamping = false;
+  controls.update();
+  controls.enableDamping = damping;
+}
+
+function focusCameraOn(cab, inset) {
+  stopInertia();
+  if (!focusReturn) focusReturn = { pos: camera.position.clone(), target: controls.target.clone() };
+  const { pos, target } = focusPose(cab, inset);
+  moveCamera(pos, target);
+}
+
+/** Selects the cabinet [id] and takes the camera to it (the app's card is open on it). */
+window.focusCabinet = function(id, inset) {
+  const cab = cabinetById(id);
+  if (!cab) return false;
+  if (inset !== undefined) window.setViewInset(inset);
+  selectCabinet(cab);
+  focusCameraOn(cab, viewInset);
+  return true;
+};
+
+/** Selects the cabinet [id] without moving the camera. */
+window.selectCabinetById = function(id) {
+  const cab = cabinetById(id);
+  if (cab) selectCabinet(cab);
+  return !!cab;
+};
+
+/** The card closed: the camera goes back to where it was, and the view to full height. */
+window.unfocusCabinet = function() {
+  stopInertia();
+  window.setViewInset(0);
+  if (focusReturn) moveCamera(focusReturn.pos, focusReturn.target);
+  focusReturn = null;
 };
 
 // ── Touch & Mouse Drag with Magnetic Snapping ──────────────────────────────
@@ -2414,11 +2600,14 @@ function setupCabinetDrag() {
     }
   }
 
-  function onDragEnd(clientX, clientY) {
-    if (editMode && clientX !== undefined && clientY !== undefined) {
+  function onDragEnd(clientX, clientY, at) {
+    if (clientX !== undefined && clientY !== undefined) {
       const dx = clientX - touchStartX;
       const dy = clientY - touchStartY;
-      if (dx * dx + dy * dy < 25) {
+      // A tap (not a drag): a second tap on the same cabinet opens it.
+      const tapped = dx * dx + dy * dy < 25;
+      const opened = tapped && onTap(clientX, clientY, at);
+      if (editMode && tapped && !opened) {
         const hit = getHit(clientX, clientY);
         if (hit) selectCabinet(hit);
         else deselectCabinet();
@@ -2438,8 +2627,12 @@ function setupCabinetDrag() {
     controls.enabled = true;
   }
 
-  // Touch handlers
+  // Touch handlers. After a touch the browser also sends mouse events for
+  // it; those are ignored, or one tap would count twice.
+  let lastTouch = -1e9;
+  const fromTouch = () => performance.now() - lastTouch < 800;
   canvas.addEventListener('touchstart', e => {
+    lastTouch = performance.now();
     if (e.touches.length !== 1) return;
     onDragStart(e.touches[0].clientX, e.touches[0].clientY);
   }, { passive: true });
@@ -2450,19 +2643,26 @@ function setupCabinetDrag() {
   }, { passive: true });
 
   canvas.addEventListener('touchend', e => {
+    lastTouch = performance.now();
     const t = e.changedTouches[0];
-    onDragEnd(t?.clientX, t?.clientY);
+    onDragEnd(t?.clientX, t?.clientY, e.timeStamp);
   }, { passive: true });
 
-  // Mouse handlers (for web / desktop testing)
+  // Mouse handlers (the browser, and testing). A click that started on the
+  // view ends here even when nothing was dragged, so it can count as a tap.
+  let mouseDownOnView = false;
   canvas.addEventListener('mousedown', e => {
-    if (e.button === 0) onDragStart(e.clientX, e.clientY);
+    if (e.button !== 0 || fromTouch()) return;
+    mouseDownOnView = true;
+    onDragStart(e.clientX, e.clientY);
   });
   window.addEventListener('mousemove', e => {
     if (isDragging) onDragMove(e.clientX, e.clientY);
   });
   window.addEventListener('mouseup', e => {
-    if (isDragging) onDragEnd(e.clientX, e.clientY);
+    if (fromTouch()) { mouseDownOnView = false; return; }
+    if (isDragging || mouseDownOnView) onDragEnd(e.clientX, e.clientY, e.timeStamp);
+    mouseDownOnView = false;
   });
 }
 
@@ -2504,6 +2704,7 @@ function onResize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  applyViewInset();
   invalidate();
 }
 
