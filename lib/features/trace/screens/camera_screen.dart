@@ -1,23 +1,37 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import '../../../shared/platform/photo_flip.dart';
 import '../../../shared/theme.dart';
+import '../providers/wall_provider.dart';
+
+/// Within these, the phone counts as level and upright (degrees).
+const double kLevelRollDeg = 2;
+const double kLevelPitchDeg = 6;
 
 /// Layer 2 — The camera screen.
 /// Shows a live CameraPreview, captures the photo on tap,
 /// immediately disposes the controller, and navigates to TraceScreen.
-class CameraScreen extends StatefulWidget {
+class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({super.key});
 
   @override
-  State<CameraScreen> createState() => _CameraScreenState();
+  ConsumerState<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends ConsumerState<CameraScreen> {
   CameraController? _controller;
+  StreamSubscription<AccelerometerEvent>? _tiltSub;
+
+  /// How the phone is held right now, smoothed; null with no sensor.
+  final _tilt = ValueNotifier<CaptureTilt?>(null);
   List<CameraDescription> _cameras = [];
   bool _isInitialised = false;
   bool _isCapturing = false;
@@ -60,7 +74,9 @@ class _CameraScreenState extends State<CameraScreen> {
     // ── Use a LOCAL variable — never touch _controller until fully ready ──
     final controller = CameraController(
       back,
-      ResolutionPreset.high,
+      // 1080p: the corners are marked on this photo, and more pixels per
+      // millimetre means a more exact wall.
+      ResolutionPreset.veryHigh,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -84,6 +100,38 @@ class _CameraScreenState extends State<CameraScreen> {
       _controller = controller;
       _isInitialised = true;
     });
+    _startLevel();
+  }
+
+  /// The level bubble: from the accelerometer, only once the camera runs
+  /// (no camera, no point). Browsers are left out: most laptops have no
+  /// sensor, and phone browsers ask permission first.
+  void _startLevel() {
+    if (kIsWeb || _tiltSub != null) return;
+    _tiltSub =
+        accelerometerEventStream(samplingPeriod: SensorInterval.uiInterval)
+            .listen(_onTilt,
+                onError: (Object _) => _tilt.value = null,
+                cancelOnError: true);
+  }
+
+  void _onTilt(AccelerometerEvent e) {
+    final sideways = math.sqrt(e.x * e.x + e.y * e.y);
+    if (sideways + e.z.abs() < 1) return; // falling, or no real reading
+    // Upright, gravity reads along the phone's y axis; a clockwise turn
+    // moves it towards -x. Held sideways counts as level too.
+    var roll = math.atan2(-e.x, e.y) * 180 / math.pi;
+    roll -= 90 * (roll / 90).roundToDouble();
+    // The screen tipping back (camera looking down) moves gravity to +z.
+    final pitch = math.atan2(e.z, sideways) * 180 / math.pi;
+    final prev = _tilt.value;
+    const k = 0.2; // smoothing
+    _tilt.value = prev == null
+        ? CaptureTilt(rollDeg: roll, pitchDeg: pitch)
+        : CaptureTilt(
+            rollDeg: prev.rollDeg + k * (roll - prev.rollDeg),
+            pitchDeg: prev.pitchDeg + k * (pitch - prev.pitchDeg),
+          );
   }
 
   Future<void> _capture() async {
@@ -98,8 +146,12 @@ class _CameraScreenState extends State<CameraScreen> {
       final mirrored = kIsWeb &&
           _controller!.description.lensDirection != CameraLensDirection.back;
       final path = mirrored ? await unmirrorPhoto(file.path) : file.path;
+      // A new photo: corners start afresh; keep how the phone was held.
+      ref.read(wallSetupProvider.notifier).startPhoto(tilt: _tilt.value);
 
       // ── Immediately dispose — no more drift ──────────────────────────────
+      await _tiltSub?.cancel();
+      _tiltSub = null;
       await _controller!.dispose();
       _controller = null;
 
@@ -118,7 +170,11 @@ class _CameraScreenState extends State<CameraScreen> {
       final picker = ImagePicker();
       final XFile? file = await picker.pickImage(source: ImageSource.gallery);
       if (file == null) return;
+      // A new photo, held who knows how.
+      ref.read(wallSetupProvider.notifier).startPhoto();
 
+      await _tiltSub?.cancel();
+      _tiltSub = null;
       await _controller?.dispose();
       _controller = null;
 
@@ -169,6 +225,8 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
+    _tiltSub?.cancel();
+    _tilt.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -219,7 +277,9 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Stand back so the whole wall fits, then take the photo',
+                    'Fit the whole wall in, with all four corners showing. '
+                    'Keep people out of the shot.',
+                    textAlign: TextAlign.center,
                     style: context.textTheme.bodySmall
                         ?.copyWith(color: context.colors.onPrimary),
                   ),
@@ -232,6 +292,15 @@ class _CameraScreenState extends State<CameraScreen> {
               CustomPaint(
                 painter: _GridOverlayPainter(),
                 size: Size.infinite,
+              ),
+
+            // ── Level bubble ──────────────────────────────────────────────
+            if (_isInitialised)
+              ValueListenableBuilder<CaptureTilt?>(
+                valueListenable: _tilt,
+                builder: (context, tilt, _) => tilt == null
+                    ? const SizedBox.shrink()
+                    : _Level(tilt: tilt),
               ),
 
             // ── Capture and Gallery buttons ───────────────────────────────
@@ -302,7 +371,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// ── Wall framing guide & level overlay painter ────────────────────────────────
+// ── Wall framing guide ───────────────────────────────────────────────────────
 class _GridOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -354,18 +423,79 @@ class _GridOverlayPainter extends CustomPainter {
     canvas.drawLine(rect.bottomRight,
         rect.bottomRight - const Offset(0, bracketLen), wallFramePaint);
 
-    // Level crosshair target in center
-    final center = Offset(size.width / 2, size.height / 2);
-    final levelPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.4)
-      ..strokeWidth = 1.2;
-    canvas.drawLine(
-        center - const Offset(15, 0), center + const Offset(15, 0), levelPaint);
-    canvas.drawLine(
-        center - const Offset(0, 15), center + const Offset(0, 15), levelPaint);
-    canvas.drawCircle(center, 4, levelPaint);
   }
 
   @override
   bool shouldRepaint(_GridOverlayPainter oldDelegate) => false;
+}
+
+/// A horizon line that stays level with the room, and what to do about it.
+class _Level extends StatelessWidget {
+  const _Level({required this.tilt});
+
+  final CaptureTilt tilt;
+
+  @override
+  Widget build(BuildContext context) {
+    final rollOk = tilt.rollDeg.abs() <= kLevelRollDeg;
+    final pitchOk = tilt.pitchDeg.abs() <= kLevelPitchDeg;
+    final ok = rollOk && pitchOk;
+    final color = ok ? const Color(0xFF68D391) : Colors.amberAccent;
+    final message = ok
+        ? 'Level'
+        : !pitchOk
+            ? 'Hold the phone upright'
+            : 'Turn the phone level';
+
+    return IgnorePointer(
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // The horizon: turned against the phone, so it stays level.
+          Transform.rotate(
+            angle: -tilt.rollDeg * math.pi / 180,
+            child: Container(width: 160, height: 2, color: color),
+          ),
+          // Where level is, on the phone.
+          for (final dx in [-96.0, 96.0])
+            Transform.translate(
+              offset: Offset(dx, 0),
+              child: Container(width: 24, height: 2, color: Colors.white70),
+            ),
+          Positioned(
+            bottom: 132,
+            child: Semantics(
+              liveRegion: true,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      ok
+                          ? Icons.check_circle_rounded
+                          : Icons.screen_rotation_rounded,
+                      size: 16,
+                      color: color,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      message,
+                      style: context.textTheme.bodySmall
+                          ?.copyWith(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

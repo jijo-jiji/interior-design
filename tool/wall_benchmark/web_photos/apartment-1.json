@@ -1,0 +1,31 @@
+{
+  "photo_px": [
+    1280,
+    960
+  ],
+  "wall_corners_px": [
+    [
+      271,
+      207
+    ],
+    [
+      976,
+      172
+    ],
+    [
+      963,
+      648
+    ],
+    [
+      300,
+      637
+    ]
+  ],
+  "marked_by": "hand, from 4x zoom (about +-3 px)",
+  "source": {
+    "title": "File:Apartment Room 2025-10-06 1.jpg",
+    "licence": "CC BY-SA 4.0",
+    "author": "Yelderberry (talk)",
+    "page": "https://commons.wikimedia.org/wiki/File:Apartment_Room_2025-10-06_1.jpg"
+  }
+}

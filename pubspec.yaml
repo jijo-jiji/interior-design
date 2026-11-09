@@ -26,6 +26,12 @@ dependencies:
   url_launcher: ^6.3.2
   printing: ^5.14.3
   google_mlkit_text_recognition: ^0.16.0
+  # Already resolved through printing; used directly to read a photo's lens
+  # from its EXIF data. Held below 4.11: 4.11.0 calls an archive API that
+  # the archive version this app resolves doesn't have.
+  image: ">=4.10.1 <4.11.0"
+  sensors_plus: ^7.1.1
+  flutter_onnxruntime: 1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -37,6 +43,9 @@ flutter:
   assets:
     - assets/3d/
     - assets/3d/textures/
+    # The wall-corner model (tool/fetch_wall_model.py; not in git) and its
+    # licence. Without the model, corners are simply not suggested.
+    - assets/models/
   # Bundled so the app looks right offline (it used to download the font at
   # runtime). SIL Open Font License: assets/fonts/OFL.txt
   fonts:

@@ -83,3 +83,8 @@ backend/design_pictures/
 
 # Live catalogue and its version history (backend/catalog.py): per-installation data, seeded from assets/catalog/default_catalog.json
 /backend/catalog_store/
+backend/wall_photos/
+
+# The wall-corner model (27 MB): fetched by tool/fetch_wall_model.py
+assets/models/wall_depth.onnx
+assets/models/*.part

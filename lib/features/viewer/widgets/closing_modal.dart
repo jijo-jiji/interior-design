@@ -14,6 +14,7 @@ typedef QuoteConfirmCallback = Future<void> Function({
   required String clientEmail,
   required double depositAmount,
   required String? signatureBase64,
+  required bool keepWallPhoto,
 });
 
 /// The quote sheet at the end of the meeting.
@@ -32,6 +33,7 @@ class ClosingModal extends StatefulWidget {
     this.clientName = '',
     this.clientPhone = '',
     this.clientEmail = '',
+    this.askToKeepWallPhoto = false,
   });
 
   final List<Map<String, dynamic>> placedCabinets;
@@ -42,6 +44,10 @@ class ClosingModal extends StatefulWidget {
   final String clientPhone;
   final String clientEmail;
 
+  /// The room was measured from a photo of the wall: ask the client whether
+  /// the office may keep it.
+  final bool askToKeepWallPhoto;
+
   static Future<void> show(
     BuildContext context, {
     required List<Map<String, dynamic>> placedCabinets,
@@ -51,6 +57,7 @@ class ClosingModal extends StatefulWidget {
     String clientName = '',
     String clientPhone = '',
     String clientEmail = '',
+    bool askToKeepWallPhoto = false,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -64,6 +71,7 @@ class ClosingModal extends StatefulWidget {
         clientName: clientName,
         clientPhone: clientPhone,
         clientEmail: clientEmail,
+        askToKeepWallPhoto: askToKeepWallPhoto,
       ),
     );
   }
@@ -79,6 +87,7 @@ class _ClosingModalState extends State<ClosingModal> {
   final _depositController = TextEditingController();
   final _signatureController = SignatureController();
   bool _depositPaid = false;
+  bool _keepWallPhoto = true;
   bool _isSubmitting = false;
 
   @override
@@ -127,6 +136,7 @@ class _ClosingModalState extends State<ClosingModal> {
         clientEmail: _emailController.text.trim(),
         depositAmount: deposit,
         signatureBase64: sigBase64,
+        keepWallPhoto: widget.askToKeepWallPhoto && _keepWallPhoto,
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -342,6 +352,34 @@ class _ClosingModalState extends State<ClosingModal> {
                         labelText: 'Deposit amount *',
                         prefixIcon: Icon(Icons.payments_outlined),
                         prefixText: '${SalesConfig.currency} ',
+                      ),
+                    ),
+                  ],
+                  if (widget.askToKeepWallPhoto) ...[
+                    const SizedBox(height: 10),
+                    Material(
+                      color: AppTheme.surfaceRaised,
+                      clipBehavior: Clip.antiAlias,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: AppTheme.border),
+                      ),
+                      child: SwitchListTile.adaptive(
+                        value: _keepWallPhoto,
+                        activeColor: AppTheme.accent,
+                        contentPadding: const EdgeInsets.only(left: 8),
+                        title: Text(
+                          'Keep the wall photo',
+                          style: context.textTheme.labelLarge
+                              ?.copyWith(color: context.colors.onSurface),
+                        ),
+                        subtitle: Text(
+                          'On our office server, to help us measure more '
+                          'accurately. Never shared; deleted on request.',
+                          style: context.textTheme.bodySmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
+                        ),
+                        onChanged: (v) => setState(() => _keepWallPhoto = v),
                       ),
                     ),
                   ],

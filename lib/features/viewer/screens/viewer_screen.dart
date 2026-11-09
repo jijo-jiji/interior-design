@@ -23,6 +23,7 @@ import '../models/cabinet_choices.dart';
 import '../models/scene_look.dart';
 import '../scene/finish_textures.dart';
 import '../scene/scene_bridge.dart';
+import '../../trace/utils/wall_photo.dart';
 import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
 import '../widgets/cabinet_card.dart';
@@ -139,6 +140,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// (see FloorplanSizesScreen); null for rooms measured another way.
   Map<String, dynamic>? _floorPlan;
 
+  /// How the wall was measured on the photo (camera route): kept with the
+  /// design so it can be checked against a tape later.
+  Map<String, dynamic>? _capture;
+
+  /// Where that wall photo is on this phone, and whether the client let the
+  /// office keep it (asked on the quote sheet).
+  String? _wallPhotoPath;
+  bool _keepWallPhoto = true;
+
   /// 'kitchen', 'room' or 'house': how much of the plan the 3D shows.
   String _roomView = 'kitchen';
 
@@ -169,6 +179,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
       _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
       _floorPlan = parsed['floor_plan'] as Map<String, dynamic>?;
+      _capture = parsed['capture'] as Map<String, dynamic>?;
+      _wallPhotoPath = parsed['wall_photo_path'] as String?;
+      _keepWallPhoto = parsed['keep_wall_photo'] as bool? ?? true;
       _currentStyle = parsed['style_archetype'] as String? ?? 'japandi';
       _benchtopMaterial = parsed['benchtop_material'] as String?;
       _look = SceneLook.fromJson(parsed['scene']);
@@ -461,6 +474,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'wall': _wallData,
       'obstacles': _obstacles,
       if (_floorPlan != null) 'floor_plan': _floorPlan,
+      if (_capture != null) 'capture': _capture,
+      if (_capture != null) 'keep_wall_photo': _keepWallPhoto,
+      // On this phone only: lets a draft send its photo later.
+      if (_wallPhotoPath != null) 'wall_photo_path': _wallPhotoPath,
       'placed_cabinets': _placedCabinets,
       'salesperson_id': 'demo_agent_01',
       'style_archetype': summary.styleArchetype,
@@ -1225,6 +1242,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       clientName: _clientName,
       clientPhone: _clientPhone,
       clientEmail: _clientEmail,
+      askToKeepWallPhoto: _capture != null,
       onConfirm: _submitQuote,
     );
   }
@@ -1235,8 +1253,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     required String clientEmail,
     required double depositAmount,
     required String? signatureBase64,
+    required bool keepWallPhoto,
   }) async {
     _clientName = clientName;
+    if (_capture != null) _keepWallPhoto = keepWallPhoto;
     _clientPhone = clientPhone;
     _clientEmail = clientEmail;
     _depositPaid = depositAmount;
@@ -1247,10 +1267,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final record = _projectRecord(signatureBase64: signatureBase64);
     // The quote PDF and the client's page show the design as pictures.
     final pictures = _currentRender ?? await _capturePictures();
+    // The wall photo, with its corners, if the client agreed.
+    final path = _wallPhotoPath;
+    final wallPhoto = _capture != null && _keepWallPhoto && path != null
+        ? await wallPhotoDataUrl(path)
+        : null;
     final toSend = {
       ...record,
       if (pictures.isNotEmpty) 'design_images': pictures,
-    };
+      if (wallPhoto != null) 'wall_photo': wallPhoto,
+    }..remove('wall_photo_path');
 
     // Saved on the phone first, so nothing is lost if the network fails.
     // (Without the pictures: they are large, and a draft is saved often.)
@@ -1265,9 +1291,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       timeout: const Duration(seconds: 20),
     );
     if (reply == null || !reply.ok) {
-      // Waiting to be sent: keep the pictures with it when they fit.
-      if (pictures.isNotEmpty && DesignPictures.fitsOffline(pictures)) {
-        await OfflineStore.saveDraft(toSend);
+      // Waiting to be sent: keep the pictures and the wall photo with it
+      // when they fit. The photo's path stays too, in case they don't.
+      final keepPictures =
+          pictures.isNotEmpty && DesignPictures.fitsOffline(pictures);
+      final keepPhoto = wallPhoto != null &&
+          wallPhoto.length <= DesignPictures.maxBytesToKeepOffline;
+      if (keepPictures || keepPhoto) {
+        await OfflineStore.saveDraft({
+          ...record,
+          if (keepPictures) 'design_images': pictures,
+          if (keepPhoto) 'wall_photo': wallPhoto,
+        });
       }
     }
     // Only drop the device copy once the office has actually accepted it.
@@ -1365,7 +1400,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             onPressed: () {
               Navigator.pop(dialogContext);
               ref.read(consultationProvider.notifier).state = null;
-              context.go('/');
+              // Pop back to home rather than go('/'): the home screen waits
+              // on the routes it pushed and reloads when they close, so a
+              // quote saved offline shows as "to send" instead of "All sent".
+              final router = GoRouter.of(context);
+              while (router.canPop()) {
+                router.pop();
+              }
             },
             child: const Text('New client'),
           ),

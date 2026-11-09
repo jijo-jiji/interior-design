@@ -6,3 +6,7 @@
 -dontwarn com.google.mlkit.vision.text.devanagari.**
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -dontwarn com.google.mlkit.vision.text.korean.**
+
+# The wall-corner model runs on ONNX Runtime (flutter_onnxruntime), which R8
+# would otherwise strip: its Java classes are only reached from native code.
+-keep class ai.onnxruntime.** { *; }
