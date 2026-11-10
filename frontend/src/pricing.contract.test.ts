@@ -18,7 +18,8 @@ interface PricingCase {
   name: string;
   style_archetype: string;
   benchtop_material: string | null;
-  obstacles: { type: string }[];
+  obstacles: { type: string; work?: string }[];
+  wall_finish?: { kind: string; area_m2: number };
   placed_cabinets: { cabinet_type: string; width_mm: number }[];
   expected: { subtotal: number; gst: number; total_price: number };
 }
@@ -45,6 +46,7 @@ describe('Pricing contract — studio matches the backend quote', () => {
       testCase.style_archetype,
       FALLBACK_CATALOG,
       testCase.benchtop_material,
+      testCase.wall_finish ?? null,
     );
 
     expect(totals.subtotal).toBeCloseTo(testCase.expected.subtotal, 2);

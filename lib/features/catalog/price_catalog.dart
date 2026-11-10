@@ -138,6 +138,62 @@ class BenchtopOption {
   final double ratePerM;
 }
 
+/// Work to cut an opening into a solid wall and fit it (a hidden door, a
+/// door, a window): one price per opening, its usual size and the widths the
+/// wall card offers.
+class WallOpeningWork {
+  WallOpeningWork.fromJson(Map<String, dynamic> j)
+      : name = j['name'] as String,
+        price = _d(j['price']),
+        widthMm = _d(j['width_mm'], 800),
+        heightMm = _d(j['height_mm'], 2100),
+        sillMm = _d(j['sill_mm']),
+        widthsMm = [
+          for (final w in (j['widths_mm'] as List? ?? [j['width_mm'] ?? 800]))
+            (w as num).toDouble(),
+        ];
+
+  final String name;
+  final double price;
+  final double widthMm;
+  final double heightMm;
+
+  /// Height of its bottom edge from the floor (0 for a door).
+  final double sillMm;
+  final List<double> widthsMm;
+}
+
+/// A finish over the whole wall, priced per square metre.
+class WallFinishWork {
+  WallFinishWork.fromJson(Map<String, dynamic> j)
+      : name = j['name'] as String,
+        ratePerM2 = _d(j['rate_per_m2']);
+
+  final String name;
+  final double ratePerM2;
+}
+
+/// The wall work the sales app can quote: openings and finishes.
+class WallWork {
+  WallWork.fromJson(Map<String, dynamic> j)
+      : isPlaceholder = j['is_placeholder'] as bool? ?? true,
+        openings = {
+          for (final e in (j['openings'] as Map? ?? const {}).entries)
+            e.key as String:
+                WallOpeningWork.fromJson(e.value as Map<String, dynamic>),
+        },
+        finishes = {
+          for (final e in (j['finishes'] as Map? ?? const {}).entries)
+            e.key as String:
+                WallFinishWork.fromJson(e.value as Map<String, dynamic>),
+        };
+
+  /// True while these numbers are samples (separately from the cabinets').
+  final bool isPlaceholder;
+  final Map<String, WallOpeningWork> openings;
+  final Map<String, WallFinishWork> finishes;
+}
+
 /// Everything the layout generator works with: module widths and sizes, and
 /// the design rules.
 class LayoutSpec {
@@ -220,6 +276,10 @@ class PriceCatalog {
               ratePerM: _d((e.value as Map)['rate_per_m']),
             ),
         },
+        // A catalogue saved before wall work existed gets the sample's, as
+        // the server does, so a hidden door is never priced at nothing.
+        wallWork = WallWork.fromJson(
+            (j['wall_work'] ?? _sampleWallWork) as Map<String, dynamic>),
         modules = [
           for (final m in j['modules'] as List)
             CatalogModule.fromJson(m as Map<String, dynamic>),
@@ -235,6 +295,10 @@ class PriceCatalog {
   /// The sample catalogue shipped inside the app.
   factory PriceCatalog.builtIn() => PriceCatalog.fromJson(
       jsonDecode(kDefaultCatalogJson) as Map<String, dynamic>);
+
+  static Map<String, dynamic> get _sampleWallWork =>
+      (jsonDecode(kDefaultCatalogJson) as Map<String, dynamic>)['wall_work']
+          as Map<String, dynamic>;
 
   /// What the app prices and lays out with. Replaced when a newer catalogue
   /// arrives from the server (see `CatalogRepository`).
@@ -267,6 +331,7 @@ class PriceCatalog {
   final Map<String, double> obstacleAllowances;
   final Map<String, StyleOption> styleOptions;
   final Map<String, BenchtopOption> benchtopOptions;
+  final WallWork wallWork;
   final List<CatalogModule> modules;
   final List<CatalogFamily> families;
   final LayoutSpec layout;

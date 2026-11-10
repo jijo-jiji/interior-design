@@ -43,6 +43,7 @@ class CPQEngine {
     required String styleArchetype,
     String? benchtopMaterial,
     PriceCatalog? catalog,
+    Map<String, dynamic>? wallFinish,
   }) {
     final cat = catalog ?? PriceCatalog.current;
     final style = cat.styleOptions[styleArchetype];
@@ -99,9 +100,16 @@ class CPQEngine {
       obstacleAllowance += cat.obstacleAllowances[type] ?? 0;
     }
 
-    final subtotal =
-        _round2(cabinetsTotal + labourTotal + benchtopTotal + obstacleAllowance)
-            .clamp(0.0, double.infinity);
+    final wallLines = wallWorkLines(cat, obstacles, wallFinish);
+    final wallWorkTotal =
+        _round2(wallLines.fold(0.0, (sum, line) => sum + line.total));
+
+    final subtotal = _round2(cabinetsTotal +
+            labourTotal +
+            benchtopTotal +
+            obstacleAllowance +
+            wallWorkTotal)
+        .clamp(0.0, double.infinity);
     final gst = _round2(subtotal * cat.taxRate);
     final totalPrice = _round2(subtotal + gst);
 
@@ -118,6 +126,8 @@ class CPQEngine {
       benchtopMaterial: benchtop?.name,
       labourTotal: labourTotal,
       obstacleAllowance: obstacleAllowance,
+      wallWorkTotal: wallWorkTotal,
+      wallWorkLines: wallLines,
       subtotal: subtotal,
       gst: gst,
       totalPrice: totalPrice,
@@ -133,6 +143,62 @@ class CPQEngine {
 
   static String _typeOf(Map<String, dynamic> cab) =>
       cab['cabinet_type'] as String? ?? 'base_600';
+
+  /// The quote lines for openings to be made in the wall (an obstacle with a
+  /// `work` the catalogue lists: one line per kind, in first-seen order) and
+  /// the wall's finish (`{kind, area_m2}`, the area rounded to 0.01 m² before
+  /// it is priced). No finish multiplier; the same rule as the server's.
+  static List<QuoteLine> wallWorkLines(PriceCatalog cat, List<dynamic> obstacles,
+      Map<String, dynamic>? wallFinish) {
+    final lines = <QuoteLine>[];
+    final counts = <String, int>{};
+    for (final obs in obstacles) {
+      final work = obs is Map ? obs['work'] : null;
+      if (work is String && cat.wallWork.openings.containsKey(work)) {
+        counts[work] = (counts[work] ?? 0) + 1;
+      }
+    }
+    for (final e in counts.entries) {
+      final item = cat.wallWork.openings[e.key]!;
+      lines.add(QuoteLine(
+        description: 'Wall work \u2014 ${item.name}',
+        qty: e.value,
+        unitPrice: item.price,
+        total: _round2(item.price * e.value),
+      ));
+    }
+    if (wallFinish != null) {
+      final finish = cat.wallWork.finishes[wallFinish['kind']];
+      final area = _round2((wallFinish['area_m2'] as num?)?.toDouble() ?? 0);
+      if (finish != null && finish.ratePerM2 > 0 && area > 0) {
+        final total = _round2(finish.ratePerM2 * area);
+        lines.add(QuoteLine(
+          description: 'Wall finish \u2014 ${finish.name} '
+              '(${area.toStringAsFixed(2)} m\u00b2 @ '
+              '${cat.currencySymbol}${finish.ratePerM2.toStringAsFixed(0)}/m\u00b2)',
+          qty: 1,
+          unitPrice: total,
+          total: total,
+        ));
+      }
+    }
+    return lines;
+  }
+}
+
+/// One line of a quote, as the server prints it.
+class QuoteLine {
+  const QuoteLine({
+    required this.description,
+    required this.qty,
+    required this.unitPrice,
+    required this.total,
+  });
+
+  final String description;
+  final int qty;
+  final double unitPrice;
+  final double total;
 }
 
 class CPQSummary {
@@ -145,6 +211,10 @@ class CPQSummary {
   final String? benchtopMaterial;
   final double labourTotal;
   final double obstacleAllowance;
+
+  /// Openings to be made in the wall and its finish, and their lines.
+  final double wallWorkTotal;
+  final List<QuoteLine> wallWorkLines;
   final double subtotal;
   final double gst;
   final double totalPrice;
@@ -170,6 +240,8 @@ class CPQSummary {
     this.benchtopMaterial,
     required this.labourTotal,
     required this.obstacleAllowance,
+    this.wallWorkTotal = 0.0,
+    this.wallWorkLines = const [],
     required this.subtotal,
     required this.gst,
     required this.totalPrice,

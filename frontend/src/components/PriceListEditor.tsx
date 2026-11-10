@@ -11,15 +11,16 @@ import {
 import type { SaveOutcome, VersionInfo } from '../catalogEditor.ts';
 import type { Catalog, ServedCatalog } from '../pricing.ts';
 import { Checkbox, TextField } from './priceList/fields';
-import { ChargesSection, FamiliesSection, FinishesSection, LayoutSection, ModulesSection } from './priceList/sections';
+import { ChargesSection, FamiliesSection, FinishesSection, LayoutSection, ModulesSection, WallWorkSection } from './priceList/sections';
 import { ActionButton, SegmentedControl } from './ui';
 
-type Section = 'modules' | 'width' | 'finishes' | 'charges' | 'layout';
+type Section = 'modules' | 'width' | 'finishes' | 'wall' | 'charges' | 'layout';
 
 const SECTIONS: { value: Section; label: string; title: string }[] = [
   { value: 'modules', label: 'Modules', title: 'Cabinets and appliances: sizes and prices' },
   { value: 'width', label: 'Price by width', title: 'How other widths are priced' },
   { value: 'finishes', label: 'Finishes & benchtops', title: 'Finish multipliers and benchtop rates' },
+  { value: 'wall', label: 'Wall work', title: 'Openings cut into a wall, and wall finishes' },
   { value: 'charges', label: 'Installation & tax', title: 'Installation, deductions and tax' },
   { value: 'layout', label: 'Layout rules', title: 'Sizes and rules the layout suggestions follow' },
 ];
@@ -229,6 +230,7 @@ export const PriceListEditor: React.FC<PriceListEditorProps> = ({ catalog, onClo
           {section === 'modules' && <ModulesSection catalog={draft} edit={edit} />}
           {section === 'width' && <FamiliesSection catalog={draft} edit={edit} />}
           {section === 'finishes' && <FinishesSection catalog={draft} edit={edit} />}
+          {section === 'wall' && <WallWorkSection catalog={draft} edit={edit} />}
           {section === 'charges' && <ChargesSection catalog={draft} edit={edit} />}
           {section === 'layout' && <LayoutSection catalog={draft} edit={edit} />}
         </div>

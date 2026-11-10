@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:static_trace/features/catalog/default_catalog.g.dart';
+import 'package:static_trace/features/catalog/price_catalog.dart';
 import 'package:static_trace/features/viewer/models/cpq_engine.dart';
 
 void main() {
@@ -101,6 +105,67 @@ void main() {
       expect(summary.benchtopMaterial, 'Calacatta Engineered Quartz');
       expect(summary.subtotal, closeTo(1532.00, 0.01));
       expect(summary.totalPrice, closeTo(1654.56, 0.01));
+    });
+  });
+
+  group('Wall work (sample prices)', () {
+    test('an opening to be made is priced; one already there is not', () {
+      final summary = CPQEngine.calculate(
+        placedCabinets: [],
+        obstacles: [
+          {'type': 'window', 'width_mm': 1200.0, 'height_mm': 1100.0},
+          {'type': 'door', 'width_mm': 800.0, 'height_mm': 2100.0, 'work': 'hidden_door'},
+          {'type': 'door', 'width_mm': 800.0, 'height_mm': 2100.0, 'work': 'hidden_door'},
+        ],
+        styleArchetype: 'industrial',
+      );
+      expect(summary.wallWorkLines, hasLength(1));
+      final line = summary.wallWorkLines.single;
+      expect(line.description, 'Wall work \u2014 Hidden door, flush with the wall');
+      expect(line.qty, 2);
+      expect(line.total, 4800, reason: 'no finish multiplier on wall work');
+      expect(summary.wallWorkTotal, 4800);
+      // 4800 - 50 (window) - 80 - 80 (doors' allowances)
+      expect(summary.subtotal, closeTo(4590, 0.001));
+    });
+
+    test('the finish is priced on the area to the hundredth', () {
+      final summary = CPQEngine.calculate(
+        placedCabinets: [],
+        obstacles: [],
+        styleArchetype: 'japandi',
+        wallFinish: {'kind': 'tiles', 'area_m2': 6.254},
+      );
+      final line = summary.wallWorkLines.single;
+      expect(line.description,
+          'Wall finish \u2014 Wall tiles, supplied and laid (6.25 m\u00b2 @ RM140/m\u00b2)');
+      expect(line.total, 875);
+    });
+
+    test('an unknown finish or work, or no area, prices nothing', () {
+      for (final finish in [
+        {'kind': 'marble', 'area_m2': 5.0},
+        {'kind': 'paint', 'area_m2': 0},
+        {'kind': 'paint'},
+      ]) {
+        final summary = CPQEngine.calculate(
+          placedCabinets: [],
+          obstacles: [
+            {'type': 'door', 'work': 'archway'},
+          ],
+          styleArchetype: 'japandi',
+          wallFinish: finish,
+        );
+        expect(summary.wallWorkLines, isEmpty, reason: '$finish');
+      }
+    });
+
+    test('a catalogue saved before wall work existed prices with the samples', () {
+      final doc = jsonDecode(kDefaultCatalogJson) as Map<String, dynamic>
+        ..remove('wall_work');
+      final old = PriceCatalog.fromJson(doc);
+      expect(old.wallWork.openings['door']!.price, 1600);
+      expect(old.wallWork.finishes.keys, ['paint', 'tiles', 'panels']);
     });
   });
 }

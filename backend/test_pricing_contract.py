@@ -36,6 +36,7 @@ def price_case(case: dict):
         obstacles=case["obstacles"],
         style_archetype=case["style_archetype"],
         benchtop_material=case["benchtop_material"],
+        wall_finish=case.get("wall_finish"),
     )
     # price_quote is pure: no database write, no PDF.
     # Always the sample catalogue (not whatever has been edited on this

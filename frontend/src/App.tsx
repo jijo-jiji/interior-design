@@ -17,8 +17,8 @@ import { StudioToolbar } from './components/StudioToolbar';
 import { PriceListEditor } from './components/PriceListEditor';
 import type { CabinetData, ModuleType } from './layout/model';
 import { fromEntry, newModule, toEntry } from './layout/model';
-import { benchtopLinearMetres, benchtopNames, benchtopRates, priceLayout, styleMultipliers, styleNames } from './pricing';
-import type { ServedCatalog } from './pricing';
+import { benchtopLinearMetres, benchtopNames, benchtopRates, priceLayout, readWallFinish, styleMultipliers, styleNames } from './pricing';
+import type { ServedCatalog, WallFinishChoice } from './pricing';
 import { FALLBACK_CATALOG } from './defaultCatalog';
 
 const DEMO_PROJECT_ID = 'QT-992AC14B';
@@ -66,6 +66,9 @@ export const App: React.FC = () => {
   const [returnMm, setReturnMm] = useState<number>(2400);
   const [roomShape, setRoomShape] = useState<string>('singleWall');
   const [openings, setOpenings] = useState<WallOpening[]>([]);
+  // The wall's finish (paint, tiles, panels) the salesperson chose: priced
+  // here as on the quote. Not edited in the Studio.
+  const [wallFinish, setWallFinish] = useState<WallFinishChoice | null>(null);
   const [benchtopMaterial, setBenchtopMaterial] = useState<string | null>(null);
 
   // ─── Look and view ─────────────────────────────────────────────────────────
@@ -107,6 +110,7 @@ export const App: React.FC = () => {
     setWallHeightMm(Number(wall.height_mm) || 2400);
     setReturnMm(Number(wall.return_mm) || 2400);
     setOpenings(Array.isArray(proj.obstacles) ? proj.obstacles : []);
+    setWallFinish(readWallFinish(proj.wall_finish));
     setFloorPlan(readFloorPlan(proj.floor_plan));
     setRoomView('kitchen');
     setBenchtopMaterial(proj.benchtop_material ?? null);
@@ -267,8 +271,8 @@ export const App: React.FC = () => {
 
   // ─── Price (same formula as the backend quote) ─────────────────────────────
   const totals = useMemo(
-    () => priceLayout(cabinets, openings, finish, catalog, benchtopMaterial),
-    [cabinets, openings, finish, catalog, benchtopMaterial],
+    () => priceLayout(cabinets, openings, finish, catalog, benchtopMaterial, wallFinish),
+    [cabinets, openings, finish, catalog, benchtopMaterial, wallFinish],
   );
   const benchtopMetres = useMemo(() => benchtopLinearMetres(cabinets, catalog), [cabinets, catalog]);
 

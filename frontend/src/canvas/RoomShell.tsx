@@ -12,6 +12,8 @@ export interface WallOpening {
   distance_from_floor_mm?: number;
   width_mm?: number;
   height_mm?: number;
+  /** An opening to be made (sales app wall card): hidden_door, door, window. */
+  work?: string | null;
 }
 
 interface RoomShellProps {

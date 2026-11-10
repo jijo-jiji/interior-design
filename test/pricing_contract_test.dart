@@ -29,6 +29,7 @@ void main() {
           obstacles: testCase['obstacles'] as List,
           styleArchetype: testCase['style_archetype'] as String,
           benchtopMaterial: testCase['benchtop_material'] as String?,
+          wallFinish: (testCase['wall_finish'] as Map?)?.cast<String, dynamic>(),
         );
 
         expect(

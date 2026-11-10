@@ -217,6 +217,8 @@ describe('describing a refusal', () => {
     ['layout.rules.min_filler_mm', 'is larger than the maximum', 'Layout · min filler (mm): is larger than the maximum'],
     ['tax.rate', 'must be less than 0.5', 'Tax · rate: must be less than 0.5'],
     ['labour_rate_per_cabinet', 'must be 0 or more', 'installation per module: must be 0 or more'],
+    ['wall_work.openings.hidden_door.price', 'must be 0 or more', 'Opening “hidden door” · price: must be 0 or more'],
+    ['wall_work.finishes.tiles.rate_per_m2', 'must be 0 or more', 'Wall finish “tiles” · rate per square metre: must be 0 or more'],
   ])('%s', (where, message, expected) => {
     expect(describeProblem({ where, message }, SAMPLE)).toBe(expected);
   });

@@ -11,6 +11,7 @@
     "  npm test --prefix frontend",
     "  python backend/test_pricing_contract.py",
     "Changing a rate or a rule means changing the sample catalogue AND the expected values here, deliberately.",
+    "Wall work (openings with a `work` key, and `wall_finish`) is priced from the catalogue's wall_work, without the finish multiplier; the finish area is rounded to 0.01 m2 first.",
     "Expected values are worked out by hand, not copied from an engine's output."
   ],
   "cases": [
@@ -545,6 +546,118 @@
         "subtotal": 545.96,
         "gst": 43.68,
         "total_price": 589.64
+      }
+    },
+    {
+      "name": "wall_work_hidden_door_and_tiles",
+      "note": "base_600 340 + labour 120 + door allowance -80 + hidden door 2400 + tiles 140 x 6.25 m2 = 875.00 -> 3655.00; SST 8% 292.40",
+      "style_archetype": "japandi",
+      "benchtop_material": null,
+      "obstacles": [
+        {
+          "type": "door",
+          "distance_from_left_mm": 2600,
+          "distance_from_floor_mm": 0,
+          "width_mm": 800,
+          "height_mm": 2100,
+          "work": "hidden_door"
+        }
+      ],
+      "wall_finish": {
+        "kind": "tiles",
+        "area_m2": 6.25
+      },
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_600",
+          "label": "base_600",
+          "width_mm": 600,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 3655.0,
+        "gst": 292.4,
+        "total_price": 3947.4
+      }
+    },
+    {
+      "name": "wall_work_window_and_door_painted_minimalist",
+      "note": "base_800 420 x 1.08 = 453.60 + labour 120 + allowances -50 -80 -50 (the existing window too) + new window 1200 + new door 1600 (no style multiplier) + paint 18 x 10.37 m2 = 186.66 -> 3380.26; SST 270.42",
+      "style_archetype": "minimalist",
+      "benchtop_material": null,
+      "obstacles": [
+        {
+          "type": "window",
+          "distance_from_left_mm": 400,
+          "distance_from_floor_mm": 1050,
+          "width_mm": 900,
+          "height_mm": 1000,
+          "work": "window"
+        },
+        {
+          "type": "door",
+          "distance_from_left_mm": 3000,
+          "distance_from_floor_mm": 0,
+          "width_mm": 800,
+          "height_mm": 2100,
+          "work": "door"
+        },
+        {
+          "type": "window",
+          "distance_from_left_mm": 1500,
+          "distance_from_floor_mm": 1000,
+          "width_mm": 1200,
+          "height_mm": 1100
+        }
+      ],
+      "wall_finish": {
+        "kind": "paint",
+        "area_m2": 10.37,
+        "colour": "#d9d4cc"
+      },
+      "placed_cabinets": [
+        {
+          "cabinet_type": "base_800",
+          "label": "base_800",
+          "width_mm": 800,
+          "height_mm": 850,
+          "depth_mm": 600,
+          "x_mm": 0
+        }
+      ],
+      "expected": {
+        "subtotal": 3380.26,
+        "gst": 270.42,
+        "total_price": 3650.68
+      }
+    },
+    {
+      "name": "wall_finish_area_to_the_hundredth_unknown_work_ignored",
+      "note": "no cabinets; panels 220 x 3.33 m2 (3.333 rounded first) = 732.60 + door allowance -80; the 'archway' work is not in the catalogue and is not priced -> 652.60; SST 52.21",
+      "style_archetype": "japandi",
+      "benchtop_material": null,
+      "obstacles": [
+        {
+          "type": "door",
+          "distance_from_left_mm": 100,
+          "distance_from_floor_mm": 0,
+          "width_mm": 900,
+          "height_mm": 2100,
+          "work": "archway"
+        }
+      ],
+      "wall_finish": {
+        "kind": "panels",
+        "area_m2": 3.333
+      },
+      "placed_cabinets": [],
+      "expected": {
+        "subtotal": 652.6,
+        "gst": 52.21,
+        "total_price": 704.81
       }
     }
   ]

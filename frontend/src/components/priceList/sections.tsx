@@ -8,7 +8,7 @@ import {
   whyNotAddable,
 } from '../../catalogEditor.ts';
 import { formatMyr, rulePrice } from '../../pricing.ts';
-import type { Catalog, CatalogModule, Family, Layout, LayoutRules } from '../../pricing.ts';
+import type { Catalog, CatalogModule, Family, Layout, LayoutRules, WallWork } from '../../pricing.ts';
 import { ActionButton, SectionLabel } from '../ui';
 import { Checkbox, NumberField, Row, TextField, WidthListField } from './fields';
 
@@ -542,6 +542,127 @@ export const ChargesSection: React.FC<SectionProps> = ({ catalog, edit }) => (
     </Row>
   </div>
 );
+
+// ─── Wall work ───────────────────────────────────────────────────────────────
+
+const OPENING_NAMES: Record<string, string> = {
+  hidden_door: 'Hidden door',
+  door: 'Door',
+  window: 'Window',
+};
+const FINISH_NAMES: Record<string, string> = { paint: 'Paint', tiles: 'Tiles', panels: 'Panels' };
+
+export const WallWorkSection: React.FC<SectionProps> = ({ catalog, edit }) => {
+  const work = catalog.wall_work;
+  if (!work) {
+    return (
+      <div className={card}>
+        <Intro>This price list has no wall work yet. Reload it from the office server to start from the sample prices.</Intro>
+      </div>
+    );
+  }
+  const change = (fn: (w: WallWork) => void) =>
+    edit((d) => {
+      if (d.wall_work) fn(d.wall_work);
+    });
+  return (
+    <div className="space-y-4">
+      <Intro>
+        What the sales app can quote for the wall itself: an opening cut into a solid wall (one price each, whatever its
+        width) and a finish over the wall (per square metre of wall, less its doors and windows). None of it takes the
+        cabinet finish multiplier.
+      </Intro>
+      <div className={card}>
+        <Checkbox
+          label="These are sample prices"
+          hint="Untick once SS Love's own prices are in. The sales app says “sample price” while it is ticked."
+          checked={work.is_placeholder}
+          onChange={(v) => change((w) => void (w.is_placeholder = v))}
+        />
+      </div>
+      <div className={`${card} overflow-x-auto`}>
+        <table className={table}>
+          <caption className="pb-1 text-left">
+            <SectionLabel>Openings cut into a wall</SectionLabel>
+          </caption>
+          <thead>
+            <tr className="border-b border-line">
+              <th scope="col" className={th}>Opening</th>
+              <th scope="col" className={th}>Name on the quote</th>
+              <th scope="col" className={`${th} text-right`}>Price (RM)</th>
+              <th scope="col" className={`${th} text-right`}>Usual width</th>
+              <th scope="col" className={`${th} text-right`}>Height</th>
+              <th scope="col" className={`${th} text-right`}>Sill</th>
+              <th scope="col" className={th}>Widths offered (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(work.openings).map(([key, item]) => {
+              const what = OPENING_NAMES[key] ?? key;
+              return (
+                <tr key={key} className="border-b border-line last:border-b-0">
+                  <td className={`${td} font-medium`}>{what}</td>
+                  <td className={td}>
+                    <TextField label={`Name on the quote for a ${what.toLowerCase()}`} value={item.name} onChange={(v) => change((w) => void (w.openings[key].name = v))} className="w-64" />
+                  </td>
+                  <td className={`${td} text-right`}>
+                    <NumberField label={`Price of a ${what.toLowerCase()} (RM)`} value={item.price} min={0} onChange={(v) => change((w) => void (w.openings[key].price = v))} />
+                  </td>
+                  {(['width_mm', 'height_mm', 'sill_mm'] as const).map((field) => (
+                    <td key={field} className={`${td} text-right`}>
+                      <NumberField
+                        label={`${{ width_mm: 'Usual width', height_mm: 'Height', sill_mm: 'Height of the bottom edge from the floor' }[field]} of a ${what.toLowerCase()} (mm)`}
+                        value={item[field]}
+                        min={field === 'sill_mm' ? 0 : 1}
+                        max={5000}
+                        onChange={(v) => change((w) => void (w.openings[key][field] = v))}
+                      />
+                    </td>
+                  ))}
+                  <td className={td}>
+                    <WidthListField label={`Widths offered for a ${what.toLowerCase()} (mm)`} value={item.widths_mm} onChange={(v) => change((w) => void (w.openings[key].widths_mm = v))} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className={`${card} overflow-x-auto`}>
+        <table className={table}>
+          <caption className="pb-1 text-left">
+            <SectionLabel>Wall finishes</SectionLabel>
+          </caption>
+          <thead>
+            <tr className="border-b border-line">
+              <th scope="col" className={th}>Finish</th>
+              <th scope="col" className={th}>Name on the quote</th>
+              <th scope="col" className={`${th} text-right`}>Rate (RM per m²)</th>
+              <th scope="col" className={`${th} text-right`}>A 3.6 × 2.7 m wall</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(work.finishes).map(([key, item]) => {
+              const what = FINISH_NAMES[key] ?? key;
+              return (
+                <tr key={key} className="border-b border-line last:border-b-0">
+                  <td className={`${td} font-medium`}>{what}</td>
+                  <td className={td}>
+                    <TextField label={`Name on the quote for ${what.toLowerCase()}`} value={item.name} onChange={(v) => change((w) => void (w.finishes[key].name = v))} className="w-64" />
+                  </td>
+                  <td className={`${td} text-right`}>
+                    <NumberField label={`Rate for ${what.toLowerCase()} (RM per square metre)`} value={item.rate_per_m2} min={0} onChange={(v) => change((w) => void (w.finishes[key].rate_per_m2 = v))} />
+                  </td>
+                  <td className={`${td} text-right text-ink-soft`}>{formatMyr(Math.round(item.rate_per_m2 * 9.72 * 100) / 100)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
 

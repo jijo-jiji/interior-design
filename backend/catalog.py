@@ -75,6 +75,40 @@ class BenchtopOption(_Strict):
     rate_per_m: float = Field(ge=0, le=100000)
 
 
+class WallOpening(_Strict):
+    """Work to cut an opening into a solid wall and fit it: a hidden door, a
+    door or a window. One price per opening; its usual size and the widths the
+    sales app offers."""
+
+    name: str = Field(min_length=1, max_length=80)
+    price: float = Field(ge=0, le=1_000_000)
+    width_mm: float = Field(gt=0, le=5000)
+    height_mm: float = Field(gt=0, le=5000)
+    sill_mm: float = Field(ge=0, le=3000)
+    widths_mm: list[float] = Field(min_length=1)
+
+
+class WallFinish(_Strict):
+    """A finish over the whole wall, priced per square metre."""
+
+    name: str = Field(min_length=1, max_length=80)
+    rate_per_m2: float = Field(ge=0, le=100000)
+
+
+class WallWork(_Strict):
+    # True while these numbers are samples, separately from the cabinets'.
+    is_placeholder: bool = True
+    openings: dict[str, WallOpening]
+    finishes: dict[str, WallFinish]
+
+
+def _sample_wall_work() -> "WallWork":
+    """A catalogue saved before wall work existed gets the sample's (the apps
+    do the same), so a hidden door is never priced at nothing."""
+    doc = json.loads(DEFAULT_PATH.read_text(encoding="utf-8"))
+    return WallWork.model_validate(doc["wall_work"])
+
+
 class Module(_Strict):
     """A fixed module the apps can add: its size and its price."""
 
@@ -182,6 +216,7 @@ class Catalog(_Strict):
     obstacle_allowances: dict[str, float]
     style_options: dict[str, StyleOption] = Field(min_length=1)
     benchtop_options: dict[str, BenchtopOption]
+    wall_work: WallWork = Field(default_factory=_sample_wall_work)
     modules: list[Module] = Field(min_length=1)
     families: list[Family]
     layout: Layout
@@ -283,12 +318,21 @@ def price_layout(
     obstacle_types: list[str],
     style: str,
     benchtop_material: str | None,
+    *,
+    wall_work: list[str] | tuple[str, ...] = (),
+    wall_finish: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], float, float, float]:
     """Prices a layout: (lines, subtotal, tax, total).
 
     [cabinets] are (type, width_mm) pairs. Lines are grouped by type and width
     in first-seen order; each unit price is rounded to the sen before it is
     multiplied, exactly as the sales app and the Studio do.
+
+    [wall_work] is the `work` of each opening to be made in the wall
+    ("hidden_door", "door", "window"), one line per kind in first-seen order;
+    [wall_finish] is {"kind", "area_m2"}, the area rounded to 0.01 m² before it
+    is priced. Neither takes the cabinets' finish multiplier; work the
+    catalogue doesn't list is not priced.
     """
     style_option = catalog.style_options.get(style)
     multiplier = style_option.multiplier if style_option else 1.0
@@ -349,9 +393,51 @@ def price_layout(
                 "total": allowance,
             })
 
+    lines.extend(wall_work_lines(catalog, wall_work, wall_finish))
+
     subtotal = max(0.0, round(sum(line["total"] for line in lines), 2))
     tax = round(subtotal * catalog.tax.rate, 2)
     return lines, subtotal, tax, round(subtotal + tax, 2)
+
+
+def wall_work_lines(
+    catalog: Catalog,
+    wall_work: list[str] | tuple[str, ...],
+    wall_finish: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """The quote lines for openings made in the wall and its finish."""
+    lines: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for work in wall_work:
+        if work in catalog.wall_work.openings:
+            counts[work] = counts.get(work, 0) + 1
+    for work, qty in counts.items():
+        item = catalog.wall_work.openings[work]
+        lines.append({
+            "description": f"Wall work — {item.name}",
+            "qty": qty,
+            "unit_price": item.price,
+            "total": round(item.price * qty, 2),
+        })
+
+    if wall_finish:
+        finish = catalog.wall_work.finishes.get(str(wall_finish.get("kind") or ""))
+        try:
+            area = round(float(wall_finish.get("area_m2") or 0), 2)
+        except (TypeError, ValueError):
+            area = 0.0
+        if finish is not None and finish.rate_per_m2 > 0 and area > 0:
+            total = round(finish.rate_per_m2 * area, 2)
+            lines.append({
+                "description": (
+                    f"Wall finish — {finish.name} "
+                    f"({area:.2f} m² @ {catalog.currency_symbol}{finish.rate_per_m2:.0f}/m²)"
+                ),
+                "qty": 1,
+                "unit_price": total,
+                "total": total,
+            })
+    return lines
 
 
 def benchtop_metres(catalog: Catalog, cabinets: list[tuple[str, float | None]]) -> float:

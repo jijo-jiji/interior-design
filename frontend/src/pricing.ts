@@ -97,6 +97,31 @@ export interface Layout {
   rules: LayoutRules;
 }
 
+/** Work to cut an opening into a solid wall and fit it: one price each. */
+export interface WallOpeningWork {
+  name: string;
+  price: number;
+  width_mm: number;
+  height_mm: number;
+  /** Bottom edge from the floor (0 for a door). */
+  sill_mm: number;
+  /** The widths the sales app's wall card offers. */
+  widths_mm: number[];
+}
+
+/** A finish over the whole wall, priced per square metre. */
+export interface WallFinishWork {
+  name: string;
+  rate_per_m2: number;
+}
+
+export interface WallWork {
+  /** True while these numbers are samples, separately from the cabinets'. */
+  is_placeholder: boolean;
+  openings: Record<string, WallOpeningWork>;
+  finishes: Record<string, WallFinishWork>;
+}
+
 /** The catalogue document, as the office server stores it. */
 export interface Catalog {
   schema_version: 1;
@@ -113,6 +138,9 @@ export interface Catalog {
   obstacle_allowances: Record<string, number>;
   style_options: Record<string, StyleOption>;
   benchtop_options: Record<string, BenchtopOption>;
+  /** Openings made in the wall and wall finishes (a catalogue saved before
+   *  they existed has none; the server fills in the samples). */
+  wall_work?: WallWork;
   modules: CatalogModule[];
   families: Family[];
   layout: Layout;
@@ -204,6 +232,16 @@ export interface PricedCabinet {
 
 export interface PricedObstacle {
   type: string;
+  /** An opening to be made in the wall: a key of the catalogue's
+   *  wall_work.openings. Absent for one that is already there. */
+  work?: string | null;
+}
+
+/** The finish over the wall, as the sales app's wall card saves it. */
+export interface WallFinishChoice {
+  kind: string;
+  area_m2: number;
+  colour?: string;
 }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -232,6 +270,7 @@ export function priceLayout(
   style: string,
   catalog: Catalog,
   benchtopMaterial?: string | null,
+  wallFinish?: WallFinishChoice | null,
 ): QuoteTotals {
   const lineItems: QuoteLine[] = [];
   const option = catalog.style_options[style];
@@ -297,10 +336,62 @@ export function priceLayout(
     }
   }
 
+  lineItems.push(...wallWorkLines(catalog, obstacles, wallFinish));
+
   const subtotal = Math.max(0, round2(lineItems.reduce((sum, li) => sum + li.total, 0)));
   const gst = round2(subtotal * catalog.tax.rate);
 
   return { lineItems, subtotal, gst, total: round2(subtotal + gst) };
+}
+
+/** Openings to be made in the wall (one line per kind, first-seen order) and
+ *  the wall's finish (its area rounded to 0.01 m² before it is priced). No
+ *  finish multiplier; work the catalogue doesn't list is not priced. The same
+ *  rule as the server's and the sales app's. */
+export function wallWorkLines(
+  catalog: Catalog,
+  obstacles: PricedObstacle[],
+  wallFinish?: WallFinishChoice | null,
+): QuoteLine[] {
+  const work = catalog.wall_work;
+  if (!work) return [];
+  const lines: QuoteLine[] = [];
+  const counts = new Map<string, number>();
+  for (const obstacle of obstacles) {
+    const key = obstacle.work;
+    if (key && Object.prototype.hasOwnProperty.call(work.openings, key)) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  for (const [key, qty] of counts) {
+    const item = work.openings[key];
+    lines.push({ description: `Wall work — ${item.name}`, qty, unit_price: item.price, total: round2(item.price * qty) });
+  }
+  if (wallFinish) {
+    const finish = Object.prototype.hasOwnProperty.call(work.finishes, wallFinish.kind)
+      ? work.finishes[wallFinish.kind]
+      : undefined;
+    const area = round2(Number(wallFinish.area_m2) || 0);
+    if (finish && finish.rate_per_m2 > 0 && area > 0) {
+      const total = round2(finish.rate_per_m2 * area);
+      lines.push({
+        description: `Wall finish — ${finish.name} (${area.toFixed(2)} m² @ ${catalog.currency_symbol}${finish.rate_per_m2.toFixed(0)}/m²)`,
+        qty: 1,
+        unit_price: total,
+        total,
+      });
+    }
+  }
+  return lines;
+}
+
+/** The wall finish of a project record, if it is one the engines can price. */
+export function readWallFinish(raw: unknown): WallFinishChoice | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const area = Number(r.area_m2);
+  if (typeof r.kind !== 'string' || !r.kind || !(area > 0)) return null;
+  return { kind: r.kind, area_m2: area, ...(typeof r.colour === 'string' ? { colour: r.colour } : {}) };
 }
 
 /** Malaysian ringgit, e.g. RM1,234.00. */

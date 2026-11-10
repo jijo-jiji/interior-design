@@ -205,6 +205,9 @@ const FIELD_WORDS: Record<string, string> = {
   ref_width_mm: 'reference width',
   labour_rate_per_cabinet: 'installation per module',
   unknown_module_price: 'price for an unlisted module',
+  rate_per_m2: 'rate per square metre',
+  sill_mm: 'sill height (mm)',
+  widths_mm: 'widths offered',
 };
 
 const plainField = (field: string) =>
@@ -225,6 +228,10 @@ export function describeProblem(problem: Problem, catalog: Catalog): string {
     place = [`Finish “${catalog.style_options[key]?.name ?? key}”`, ...rest.map(plainField)].join(' · ');
   } else if (head === 'benchtop_options' && key !== undefined) {
     place = [`Benchtop “${catalog.benchtop_options[key]?.name ?? key}”`, ...rest.map(plainField)].join(' · ');
+  } else if (head === 'wall_work') {
+    const [, group, item, ...more] = path;
+    const what = group === 'openings' ? 'Opening' : group === 'finishes' ? 'Wall finish' : 'Wall work';
+    place = [item ? `${what} “${item.replace(/_/g, ' ')}”` : what, ...more.map(plainField)].join(' · ');
   } else if (head === 'layout') {
     place = ['Layout', ...path.slice(1).filter((p) => p !== 'rules').map(plainField)].join(' · ');
   } else if (head === 'tax') {

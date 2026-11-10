@@ -29,6 +29,8 @@ export interface ProjectItem {
   benchtop_material?: string | null;
   /** The floor plan the room was read from (see canvas/floorPlan.ts). */
   floor_plan?: unknown;
+  /** The wall's finish from the sales app's wall card (see pricing.ts). */
+  wall_finish?: unknown;
 }
 
 interface ProjectPipelineDrawerProps {

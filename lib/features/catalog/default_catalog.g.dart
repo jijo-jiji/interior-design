@@ -52,6 +52,61 @@ const String kDefaultCatalogJson = r'''{
       "rate_per_m": 160
     }
   },
+  "wall_work": {
+    "is_placeholder": true,
+    "openings": {
+      "hidden_door": {
+        "name": "Hidden door, flush with the wall",
+        "price": 2400,
+        "width_mm": 800,
+        "height_mm": 2100,
+        "sill_mm": 0,
+        "widths_mm": [
+          700,
+          800,
+          900
+        ]
+      },
+      "door": {
+        "name": "New doorway with frame and door",
+        "price": 1600,
+        "width_mm": 800,
+        "height_mm": 2100,
+        "sill_mm": 0,
+        "widths_mm": [
+          700,
+          800,
+          900
+        ]
+      },
+      "window": {
+        "name": "New window opening with frame and glass",
+        "price": 1200,
+        "width_mm": 900,
+        "height_mm": 1000,
+        "sill_mm": 1050,
+        "widths_mm": [
+          600,
+          900,
+          1200
+        ]
+      }
+    },
+    "finishes": {
+      "paint": {
+        "name": "Wall paint, two coats",
+        "rate_per_m2": 18
+      },
+      "tiles": {
+        "name": "Wall tiles, supplied and laid",
+        "rate_per_m2": 140
+      },
+      "panels": {
+        "name": "Wall panels, supplied and fitted",
+        "rate_per_m2": 220
+      }
+    }
+  },
   "modules": [
     {
       "type": "base_800",

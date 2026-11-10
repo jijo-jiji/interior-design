@@ -115,6 +115,10 @@ class ObstacleSpec(BaseModel):
     distance_from_floor_mm: float
     width_mm: float
     height_mm: float
+    # An opening to be made in a solid wall (sales app wall card): the
+    # catalogue's wall_work.openings key ("hidden_door", "door", "window").
+    # Priced on the quote. None for a door or window that is already there.
+    work: str | None = None
 
 class PlacedCabinet(BaseModel):
     # Keep anything else the apps send: dropping fields here used to lose the
@@ -178,6 +182,10 @@ class QuoteRequest(BaseModel):
     # backsplash, decor, light. Presentation only; the quote says what in it
     # is not part of the price.
     scene: dict[str, Any] | None = None
+    # The finish over the wall (sales app wall card): {"kind": "paint" |
+    # "tiles" | "panels", "area_m2": 9.72, "colour": "#d9d4cc"}. Priced per
+    # square metre from the catalogue's wall_work.finishes.
+    wall_finish: dict[str, Any] | None = None
 
 class LineItem(BaseModel):
     description: str
@@ -229,6 +237,8 @@ def price_quote(
         [o.type for o in request.obstacles],
         request.style_archetype,
         request.benchtop_material,
+        wall_work=[o.work for o in request.obstacles if o.work],
+        wall_finish=_clean_wall_finish(request.wall_finish),
     )
     return [LineItem(**line) for line in lines], subtotal, tax, total
 
@@ -299,6 +309,9 @@ def create_quote(request: QuoteRequest):
     look = _clean_scene(request.scene)
     if look:
         record["scene"] = look
+    wall_finish = _clean_wall_finish(request.wall_finish)
+    if wall_finish:
+        record["wall_finish"] = wall_finish
     if pictures:
         record["pictures"] = [f"/api/projects/{quote_id}/picture/{n}" for n in range(1, len(pictures) + 1)]
     db = _load_projects_db()
@@ -767,6 +780,8 @@ def update_project(quote_id: str, updated: dict[str, Any]):
 
     if "wall" in updated:
         project["wall"] = updated["wall"]
+    if "wall_finish" in updated:
+        project["wall_finish"] = _clean_wall_finish(updated["wall_finish"])
     if "subtotal" in updated:
         project["subtotal"] = updated["subtotal"]
     if "gst" in updated:
@@ -925,6 +940,30 @@ _SCENE_OPTIONS = {
     "backsplash": {"none", "subway", "hex"},
     "mood": {"day", "evening"},
 }
+
+
+_COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _clean_wall_finish(raw: Any) -> dict[str, Any] | None:
+    """The wall finish as priced and drawn: its kind, the area in m² (to the
+    hundredth, as priced) and, for paint, its colour. Anything else is dropped."""
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get("kind")
+    if not isinstance(kind, str) or not kind or len(kind) > 40:
+        return None
+    try:
+        area = round(float(raw.get("area_m2") or 0), 2)
+    except (TypeError, ValueError):
+        return None
+    if not (0 < area <= 1000):
+        return None
+    out: dict[str, Any] = {"kind": kind, "area_m2": area}
+    colour = raw.get("colour")
+    if isinstance(colour, str) and _COLOUR.match(colour):
+        out["colour"] = colour.lower()
+    return out
 
 
 def _clean_scene(scene: dict[str, Any] | None) -> dict[str, Any]:
