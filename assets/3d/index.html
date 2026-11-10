@@ -446,13 +446,54 @@ function invalidate() { framesToRender = Math.max(framesToRender, 2); }
 // ── Wall generation (Grid Cell Box Decomposition) ───────────────────────────
 // Divides the wall into a grid of clean BoxGeometry blocks around obstacles.
 // 100% eliminates Earcut triangulation bugs, diagonal shadow splits, and door floor glitches.
+// The main wall's own material, so its finish (paint, tiles, panels) can
+// change without rebuilding it; the side wall of an L keeps the style's.
+let wallMaterial = null;
+let wallFinish = null;      // {kind, colour} from the app's wall card, or null
+
+// Texture coordinates in metres along the wall, so a tile or a panel is the
+// same size on every block of the wall (and on a hidden door's leaf).
+function wallUVs(geo, offsetX, offsetY) {
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  const normal = geo.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    const sideways = Math.abs(normal.getX(i)) > 0.5;
+    const along = sideways ? pos.getZ(i) : pos.getX(i) + offsetX;
+    uv.setXY(i, along, pos.getY(i) + offsetY);
+  }
+  uv.needsUpdate = true;
+}
+
 function buildWall(wallData, obstacles) {
+  buildWallShell(wallData, obstacles);
+
+  // Reframe camera
+  resetFrontView();
+
+  // Restore pre-placed cabinets if loading an existing consultation or draft
+  if (Array.isArray(scenePayload.placed_cabinets) && scenePayload.placed_cabinets.length > 0) {
+    scenePayload.placed_cabinets.forEach(c => spawnFromEntry(c));
+  }
+
+  // Restore style archetype if specified
+  if (scenePayload.style_archetype && window.applyStyleArchetype) {
+    window.applyStyleArchetype(scenePayload.style_archetype);
+  }
+}
+
+// The wall itself, its doors and windows: built again when the app's wall
+// card adds, moves or resizes an opening, without touching the cabinets or
+// the camera.
+function buildWallShell(wallData, obstacles) {
   // Remove any existing wall meshes
   scene.children
     .filter(o => o.userData.isWall || o.userData.isObstacleMarker)
     .forEach(o => {
       scene.remove(o);
-      o.geometry?.dispose();
+      o.traverse(m => {
+        m.geometry?.dispose();
+        if (m.userData.ownMaterial) m.material.dispose();
+      });
     });
 
   const W = wallData.width_mm  * MM;
@@ -482,11 +523,11 @@ function buildWall(wallData, obstacles) {
   const wallGroup = new THREE.Group();
   wallGroup.userData.isWall = true;
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xf5f5f0,
-    roughness: 0.85,
-    metalness: 0.02
-  });
+  if (!wallMaterial) {
+    wallMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f0, roughness: 0.85, metalness: 0.02 });
+  }
+  const mat = wallMaterial;
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f0, roughness: 0.85, metalness: 0.02 });
 
   // Build clean rectangular box blocks for solid wall cells
   for (let i = 0; i < xList.length - 1; i++) {
@@ -515,9 +556,11 @@ function buildWall(wallData, obstacles) {
 
       if (!isHole) {
         const geo = new THREE.BoxGeometry(cellW, cellH, D);
+        wallUVs(geo, x0 + cellW / 2, y0 + cellH / 2);
         const mesh = new THREE.Mesh(geo, mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        mesh.userData.isMainWall = true;
         mesh.position.set(x0 + cellW / 2 - W / 2, y0 + cellH / 2, D / 2);
         wallGroup.add(mesh);
       }
@@ -532,7 +575,8 @@ function buildWall(wallData, obstacles) {
     // x = -W/2) and runs from the back of the main wall, so both measured
     // lengths are clear interior space for cabinets.
     const returnGeo = new THREE.BoxGeometry(D, H, D + returnMm);
-    const returnMesh = new THREE.Mesh(returnGeo, mat);
+    const returnMesh = new THREE.Mesh(returnGeo, sideMat);
+    returnMesh.userData.ownMaterial = true;
     returnMesh.castShadow = true;
     returnMesh.receiveShadow = true;
     returnMesh.position.set(-W / 2 - D / 2, H / 2, (D + returnMm) / 2);
@@ -540,33 +584,106 @@ function buildWall(wallData, obstacles) {
   } else if (shape === 'galley') {
     const aisleMm = wallData.aisle_mm ? (wallData.aisle_mm * MM) : 1.2;
     const galleyGeo = new THREE.BoxGeometry(W, H, D);
-    const galleyMesh = new THREE.Mesh(galleyGeo, mat);
+    const galleyMesh = new THREE.Mesh(galleyGeo, sideMat);
+    galleyMesh.userData.ownMaterial = true;
     galleyMesh.castShadow = true;
     galleyMesh.receiveShadow = true;
     galleyMesh.position.set(0, H / 2, D + aisleMm + 0.6 + D / 2);
     wallGroup.add(galleyMesh);
   }
 
-  scene.add(wallGroup);
+  if (!(shape === 'lShape' && returnMm > 0) && shape !== 'galley') sideMat.dispose();
+  const style = STYLE_ARCHETYPES[currentArchetypeId];
+  if (style) sideMat.color.setHex(style.wallColor);
 
-  // Reframe camera
+  scene.add(wallGroup);
   currentWallW = W;
   currentWallH = H;
-  resetFrontView();
 
-  // Obstacle colour overlays
-  obstacles.forEach(obs => addObstacleMarker(obs, W));
-
-  // Restore pre-placed cabinets if loading an existing consultation or draft
-  if (Array.isArray(scenePayload.placed_cabinets) && scenePayload.placed_cabinets.length > 0) {
-    scenePayload.placed_cabinets.forEach(c => spawnFromEntry(c));
-  }
-
-  // Restore style archetype if specified
-  if (scenePayload.style_archetype && window.applyStyleArchetype) {
-    window.applyStyleArchetype(scenePayload.style_archetype);
-  }
+  // Doors and windows (a hidden door is a leaf flush with the wall)
+  obstacles.forEach((obs, index) => addObstacleMarker(obs, W, index));
+  applyWallFinish();
 }
+
+// ── The wall's finish ────────────────────────────────────────────────────────
+// Paint (a colour), tiles (a grid with grout lines) or panels (vertical
+// fluted slats), chosen on the app's wall card and priced per m². Textures
+// are drawn here, 1 m of wall per repeat, in grey so the colour tints them.
+const wallTextures = {};
+function wallTexture(kind) {
+  if (wallTextures[kind]) return wallTextures[kind];
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  if (kind === 'tiles') {
+    // 200 mm square tiles, 3 mm grout.
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 512, 512);
+    const step = 512 / 5, grout = Math.max(2, Math.round(512 * 0.003));
+    for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+      const shade = 244 + ((i * 7 + j * 3) % 5) - 2;   // a little variation per tile
+      g.fillStyle = `rgb(${shade},${shade},${shade})`;
+      g.fillRect(i * step + grout / 2, j * step + grout / 2, step - grout, step - grout);
+    }
+    g.fillStyle = '#b8b4ae';
+    for (let i = 0; i <= 5; i++) { g.fillRect(i * step - grout / 2, 0, grout, 512); g.fillRect(0, i * step - grout / 2, 512, grout); }
+  } else if (kind === 'panels') {
+    // Fluted slats 50 mm wide: lit on one side, in shade on the other.
+    const slats = 20, w = 512 / slats;
+    for (let i = 0; i < slats; i++) {
+      const grad = g.createLinearGradient(i * w, 0, (i + 1) * w, 0);
+      grad.addColorStop(0, '#d8d8d8'); grad.addColorStop(0.35, '#ffffff');
+      grad.addColorStop(0.8, '#ececec'); grad.addColorStop(1, '#9c9c9c');
+      g.fillStyle = grad; g.fillRect(i * w, 0, w, 512);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1;
+  wallTextures[kind] = tex;
+  return tex;
+}
+
+const WALL_FINISH_LOOK = {
+  paint: { colour: 0xe9e4da, roughness: 0.92 },
+  tiles: { colour: 0xf4f2ee, roughness: 0.32 },
+  panels: { colour: 0xc9a77e, roughness: 0.6 },
+};
+
+function applyWallFinish() {
+  if (!wallMaterial) return;
+  const look = wallFinish && WALL_FINISH_LOOK[wallFinish.kind];
+  const style = STYLE_ARCHETYPES[currentArchetypeId];
+  if (!look) {
+    wallMaterial.map = null;
+    wallMaterial.color.setHex(style ? style.wallColor : 0xf5f5f0);
+    wallMaterial.roughness = 0.85;
+  } else {
+    const colour = /^#[0-9a-f]{6}$/i.test(wallFinish.colour || '') ? parseInt(wallFinish.colour.slice(1), 16) : look.colour;
+    wallMaterial.map = wallFinish.kind === 'paint' ? null : wallTexture(wallFinish.kind);
+    wallMaterial.color.setHex(colour);
+    wallMaterial.roughness = look.roughness;
+  }
+  wallMaterial.needsUpdate = true;
+  invalidate();
+}
+
+/** The app's wall card changed the wall: its openings (doors and windows,
+ *  those to be made marked `work`) and its finish. The cabinets and the
+ *  camera stay as they are. */
+window.setWallWork = function(json) {
+  let w;
+  try { w = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return false; }
+  if (!w || !Array.isArray(w.obstacles)) return false;
+  scenePayload.obstacles = w.obstacles;
+  scenePayload.wall_finish = w.wall_finish || null;
+  wallFinish = scenePayload.wall_finish;
+  buildWallShell(scenePayload.wall || {}, w.obstacles);
+  if (openingOutline) window.highlightOpening(openingOutline.userData.index);
+  updateBacksplash(true);   // a window can break the tiled run
+  invalidate();
+  return true;
+};
 
 let currentWallW = 4, currentWallH = 2.7;
 
@@ -752,14 +869,16 @@ function create3DWindow(hw, hh, D) {
   return group;
 }
 
-function addObstacleMarker(obs, wallWidth) {
+function addObstacleMarker(obs, wallWidth, index) {
   const hx = (obs.distance_from_left_mm * MM) - (wallWidth / 2);
   const hy = obs.distance_from_floor_mm * MM;
   const hw = obs.width_mm * MM;
   const hh = obs.height_mm * MM;
 
   let model;
-  if (obs.type === 'door') {
+  if (obs.work === 'hidden_door') {
+    model = create3DHiddenDoor(hw, hh, currentWallDepth, hx + wallWidth / 2 + hw / 2, hy + hh / 2);
+  } else if (obs.type === 'door') {
     model = create3DDoor(hw, hh, currentWallDepth);
   } else {
     model = create3DWindow(hw, hh, currentWallDepth);
@@ -767,7 +886,31 @@ function addObstacleMarker(obs, wallWidth) {
 
   model.position.set(hx + hw / 2, hy + hh / 2, currentWallDepth / 2);
   model.userData.isObstacleMarker = true;
+  model.userData.obstacleIndex = index;
+  model.userData.work = obs.work || null;
   scene.add(model);
+}
+
+// A hidden door: a leaf flush with the wall, in the wall's own finish, with
+// only a thin shadow line round it and no handle (push to open). [cx], [cy]:
+// its centre from the wall's left end and the floor, for the finish to line up.
+function create3DHiddenDoor(hw, hh, D, cx, cy) {
+  const group = new THREE.Group();
+  const gap = 0.004;
+  const leafGeo = new THREE.BoxGeometry(hw - gap * 2, hh - gap, D);
+  wallUVs(leafGeo, cx, cy - gap / 2);
+  const leaf = new THREE.Mesh(leafGeo, wallMaterial);
+  leaf.position.set(0, -gap / 2, 0);
+  leaf.castShadow = true;
+  leaf.receiveShadow = true;
+  group.add(leaf);
+  // The dark of the opening, seen through the gap.
+  const shadowMat = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1 });
+  const back = new THREE.Mesh(new THREE.BoxGeometry(hw, hh, D * 0.5), shadowMat);
+  back.userData.ownMaterial = true;
+  back.position.set(0, 0, -D * 0.3);
+  group.add(back);
+  return group;
 }
 
 // ── Style Archetypes (1-Tap Room Re-Skinning) ──────────────────────────────
@@ -1216,14 +1359,16 @@ window.applyStyleArchetype = function(archetypeId) {
   if (!style) return;
   currentArchetypeId = archetypeId;
 
-  // 1. Walls
+  // 1. Walls: the side wall takes the style's colour; the main wall too,
+  // unless the wall card gave it a finish.
   scene.traverse(child => {
-    if (child.parent && child.parent.userData && child.parent.userData.isWall && child.isMesh) {
+    if (child.parent && child.parent.userData && child.parent.userData.isWall && child.isMesh && child.material !== wallMaterial) {
       child.material.color.setHex(style.wallColor);
       child.material.roughness = 0.85;
       child.material.needsUpdate = true;
     }
   });
+  applyWallFinish();
 
   // 2. Shared cabinet materials, then rebuild handles for the new style
   applyFinishMaterials(currentFinish());
@@ -2317,18 +2462,84 @@ const DOUBLE_TAP_MS = 380, DOUBLE_TAP_PX = 30;
 // count as a double tap.
 function onTap(clientX, clientY, at) {
   const hit = getHit(clientX, clientY);
+  // Not on a cabinet: on the main wall, or one of its doors or windows?
+  const wall = hit ? null : getWallHit(clientX, clientY);
   const now = at || performance.now();
-  const id = hit ? hit.userData.id : null;
+  const id = hit ? hit.userData.id : (wall ? wall.key : null);
   const again = now - lastTap.t < DOUBLE_TAP_MS &&
     Math.hypot(clientX - lastTap.x, clientY - lastTap.y) < DOUBLE_TAP_PX;
-  if (hit && again && id === lastTap.id) {
+  if (id !== null && again && id === lastTap.id) {
     lastTap = { t: 0, x: 0, y: 0, id: null };
-    openCabinet(hit);
+    if (hit) openCabinet(hit); else openWall(wall);
     return true;
   }
   lastTap = { t: now, x: clientX, y: clientY, id };
   return false;
 }
+
+// ── Opening the wall: double tap on it, and its card ─────────────────────────
+// A double tap on the main wall (not on a cabinet) opens the app's wall card:
+// its finish, and doors, windows or a hidden door to be made in it. On a door
+// or window, the card opens on that one. The camera faces the wall.
+function getWallHit(x, y) {
+  updatePointer(x, y);
+  raycaster.setFromCamera(pointer, camera);
+  const targets = [];
+  scene.children.forEach(o => {
+    if (o.userData.isWall) o.children.forEach(m => { if (m.userData.isMainWall) targets.push(m); });
+    if (o.userData.isObstacleMarker) o.traverse(m => { if (m.isMesh) targets.push(m); });
+  });
+  const hits = raycaster.intersectObjects(targets, false);
+  if (!hits.length) return null;
+  let o = hits[0].object;
+  while (o.parent && o.parent !== scene && !o.userData.isObstacleMarker) o = o.parent;
+  const index = o.userData.isObstacleMarker ? o.userData.obstacleIndex : null;
+  return {
+    key: index === null || index === undefined ? 'wall' : 'opening:' + index,
+    index: index === undefined ? null : index,
+    xMm: Math.round((hits[0].point.x + currentWallW / 2) / MM),
+  };
+}
+
+function openWall(w) {
+  notifyFlutter({ event: 'wall_opened', opening: w.index, x_mm: w.xMm });
+  if (!document.body.classList.contains('is-native-app')) window.focusWall(viewInset);
+}
+
+/** The camera straight in front of the main wall, the whole wall in the part
+ *  of the view above the app's card. unfocusCabinet() goes back. */
+window.focusWall = function(inset) {
+  if (!camera || !controls) return false;
+  if (inset !== undefined) window.setViewInset(inset);
+  stopInertia();
+  if (!focusReturn) focusReturn = { pos: camera.position.clone(), target: controls.target.clone() };
+  const W = currentWallW, H = currentWallH;
+  const target = new THREE.Vector3(0, H / 2, currentWallDepth);
+  const vHalf = camera.fov / 2 * Math.PI / 180;
+  const shownHalf = Math.atan(Math.tan(vHalf) * (1 - viewInset));
+  const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+  const dist = Math.min(controls.maxDistance * 0.98,
+    Math.max((W / 2 + 0.2) / Math.tan(hHalf), (H / 2 + 0.15) / Math.tan(shownHalf)) + 0.6);
+  moveCamera(target.clone().add(new THREE.Vector3(0, 0.12, dist)), target);
+  return true;
+};
+
+/** The door or window [index] (of the obstacles), outlined; null: none. */
+let openingOutline = null;
+window.highlightOpening = function(index) {
+  if (openingOutline) { scene.remove(openingOutline); openingOutline.geometry.dispose(); openingOutline.material.dispose(); openingOutline = null; }
+  const marker = index === null || index === undefined ? null
+    : scene.children.find(o => o.userData.isObstacleMarker && o.userData.obstacleIndex === index);
+  if (marker) {
+    marker.updateMatrixWorld(true);
+    openingOutline = new THREE.BoxHelper(marker, 0x2f8f6f);
+    openingOutline.userData.index = index;
+    openingOutline.userData.noPicture = true;
+    scene.add(openingOutline);
+  }
+  invalidate();
+  return !!marker;
+};
 
 function openCabinet(cab) {
   selectCabinet(cab);
@@ -2779,6 +2990,7 @@ window.loadScene = function(jsonString) {
   try {
     scenePayload = JSON.parse(jsonString);
     const { wall, obstacles = [] } = scenePayload;
+    wallFinish = scenePayload.wall_finish || null;
     buildWall(wall, obstacles);
     buildHouse(scenePayload.floor_plan);
     if (roomView !== 'kitchen') window.setRoomView(roomView);
@@ -3028,7 +3240,7 @@ window.capturePictures = function(requestId) {
     updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
-    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline].filter(o => o && o.visible);
+    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline, openingOutline].filter(o => o && o.visible);
     try {
       hidden.forEach(o => { o.visible = false; });
       renderer.setPixelRatio(1);
@@ -3548,7 +3760,7 @@ window.renderPictures = async function(requestId, options) {
     updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
-    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline].filter(o => o && o.visible);
+    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline, openingOutline].filter(o => o && o.visible);
     const canvasEl = renderer.domElement;
     const wasHidden = canvasEl.style.visibility;
     try {

@@ -690,6 +690,193 @@ void main() {
     });
   });
 
+  group('the wall card', () {
+    /// Taps a control on the card, scrolled into view first (the card's
+    /// body scrolls under its title).
+    Future<void> tapCard(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      await tester.pump();
+    }
+
+    /// The wall the app last sent the page: its openings and its finish.
+    Map<String, dynamic> lastWall() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('setWallWork('));
+      final arg = call.substring('setWallWork('.length, call.length - 1);
+      return jsonDecode(jsonDecode(arg) as String) as Map<String, dynamic>;
+    }
+
+    List<Map<String, dynamic>> lastLayout() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('replaceCabinets('));
+      final arg = call.substring('replaceCabinets('.length, call.length - 1);
+      return [for (final c in jsonDecode(jsonDecode(arg) as String) as List) c as Map<String, dynamic>];
+    }
+
+    Future<void> openEmptyWall(WidgetTester tester, {double? xMm}) async {
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': xMm});
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('a double tap on the wall opens its card; the camera faces it', (tester) async {
+      await pumpViewer(tester);
+      // The design's own wall goes to the page once it has loaded.
+      expect(lastWall()['obstacles'], hasLength(1));
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': 2600});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Main wall'), findsOneWidget);
+      expect(find.textContaining('3600 × 2700 mm · 8.40 m² of wall'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Doors and windows'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Finish'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Window 1200'), findsOneWidget);
+      expect(find.text('Sample layouts'), findsNothing, reason: 'the card takes its place');
+      final focus = page().javaScript.lastWhere((c) => c.startsWith('focusWall('));
+      expect(focus, matches(RegExp(r'^focusWall\(0\.\d+\); highlightOpening\(null\)$')));
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      expect(page().javaScript.last, 'highlightOpening(null); unfocusCabinet()');
+      expect(find.text('Main wall'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a hidden door is made where the wall was tapped, and priced', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Hidden door'));
+      final door = (lastWall()['obstacles'] as List).last as Map<String, dynamic>;
+      expect(door['work'], 'hidden_door');
+      expect(door['type'], 'door');
+      expect(door['distance_from_left_mm'], 2600, reason: 'centred on the tap');
+      expect(page().javaScript.last, 'highlightOpening(1)');
+      expect(find.widgetWithText(ChoiceChip, 'Hidden door 800 · new'), findsOneWidget);
+      expect(find.textContaining('to be made'), findsOneWidget);
+
+      // Priced once the price is shown, as a sample price.
+      expect(find.textContaining('RM'), findsNothing);
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining('sample prices'), findsOneWidget);
+      expect(find.textContaining('Main wall  RM 2,400'), findsOneWidget,
+          reason: 'what the wall work adds');
+      expect(find.textContaining('+RM 1,600'), findsOneWidget, reason: 'another door would add this');
+      await finish(tester);
+    });
+
+    testWidgets('it can be widened, moved and taken out; undo brings it back', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Hidden door'));
+      await tapCard(tester, find.widgetWithText(ChoiceChip, '900'));
+      var door = (lastWall()['obstacles'] as List).last as Map;
+      expect([door['distance_from_left_mm'], door['width_mm']], [2600, 900]);
+      await tapCard(tester, find.byTooltip('Move right'));
+      door = (lastWall()['obstacles'] as List).last as Map;
+      expect(door['distance_from_left_mm'], 2650);
+      await tapCard(tester, find.text('Remove hidden door'));
+      expect(lastWall()['obstacles'], hasLength(1), reason: 'only the window left');
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastWall()['obstacles'], hasLength(2));
+      await finish(tester);
+    });
+
+    testWidgets('a finish and its colour; its area leaves out the openings', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Finish'));
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Tiles'));
+      expect(lastWall()['wall_finish'], {'kind': 'tiles', 'area_m2': 8.4, 'colour': '#f4f2ee'});
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Sage'));
+      expect((lastWall()['wall_finish'] as Map)['colour'], '#b9c7b5');
+      // A door made in it takes its area off the tiling.
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Doors and windows'));
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Door'));
+      expect((lastWall()['wall_finish'] as Map)['area_m2'], 6.72);
+      // The price panel lists the wall work.
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Finish'));
+      await tapCard(tester, find.ancestor(
+          of: find.textContaining('As it is'), matching: find.byType(ChoiceChip)));
+      expect(lastWall()['wall_finish'], isNull);
+      await finish(tester);
+    });
+
+    testWidgets('a wall full of cabinets: doors greyed out with the reason', (tester) async {
+      await pumpViewer(tester);
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': 300});
+      await tester.pump();
+      final door = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Door'));
+      expect(door.onPressed, isNull, reason: 'layout B fills the wall');
+      expect(find.textContaining('Greyed out: '), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('the layouts are worked out again round a new door', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Door'));
+      final door = (lastWall()['obstacles'] as List).last as Map;
+      final from = (door['distance_from_left_mm'] as num).toDouble();
+      final to = from + (door['width_mm'] as num).toDouble();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      await tester.tap(find.text('Done'));
+      await tester.pump();
+      await tester.tap(find.textContaining('B · '));
+      await tester.pump();
+      for (final c in lastLayout().where((c) => c['run'] == 'main')) {
+        final left = 1800 + (c['x_mm'] as num) - (c['width_mm'] as num) / 2;
+        final right = left + (c['width_mm'] as num);
+        expect(right <= from || left >= to, isTrue,
+            reason: '${c['label']} at $left..$right is in front of the door at $from..$to');
+      }
+      await finish(tester);
+    });
+
+    testWidgets('Edit, Wall opens it without a double tap', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Wall'));
+      expect(find.text('Main wall'), findsOneWidget);
+      // A double tap on a cabinet then opens that instead.
+      final base = lastLayout().firstWhere((c) => c['kind'] == 'base');
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      expect(find.text('Main wall'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a reopened design keeps its hidden door and finish', (tester) async {
+      final saved = jsonDecode(payload) as Map<String, dynamic>;
+      saved['obstacles'] = [
+        ...saved['obstacles'] as List,
+        {'type': 'door', 'distance_from_left_mm': 2600.0, 'distance_from_floor_mm': 0.0,
+         'width_mm': 800.0, 'height_mm': 2100.0, 'work': 'hidden_door'},
+      ];
+      saved['wall_finish'] = {'kind': 'panels', 'area_m2': 6.72, 'colour': '#8a6a52'};
+      await pumpViewer(tester, json: jsonEncode(saved));
+      expect(lastWall()['wall_finish'], saved['wall_finish']);
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      // The price breakdown's lines.
+      await tester.tap(find.textContaining('· Details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Wall work — Hidden door, flush with the wall'), findsOneWidget);
+      expect(find.textContaining('Wall finish — Wall panels'), findsOneWidget);
+      await finish(tester);
+    });
+  });
+
   group('the look of the design', () {
     testWidgets('is put on the page before the cabinets arrive',
         (tester) async {

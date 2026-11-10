@@ -217,6 +217,36 @@ a green outline, where it would go:
   at once; **Undo** takes it back. **Cancel** adds nothing.
 - If there is no room anywhere, the card says so and Place is off.
 
+### Work on the wall: a hidden door, a door or a window; paint, tiles, panels
+
+Clients sometimes want an opening cut into a solid wall, or the wall itself
+finished. **Double-tap the wall** in the 3D view (not a cabinet), or **Edit →
+Wall**, and the wall card opens with the camera facing the wall:
+
+- **Doors and windows:** the ones already there (measured with the room; not
+  priced) and the ones to be made. **Hidden door**, **Door** and **Window**
+  make one where the wall was double-tapped (or in the middle), in the
+  nearest free stretch: not over a cabinet at that height (a window above the
+  worktop can go over floor units), not over another opening, clear of each
+  by the price list's clearance. Pick one to change its width, move it 50 mm
+  a tap, or take it out. A hidden door is drawn as a leaf flush with the
+  wall, in the wall's own finish, with only a thin shadow line round it.
+- **Finish:** as it is, paint, tiles or panels, each in a few colours,
+  priced per m² of wall less its doors and windows.
+- With the price shown, each choice says what it does to the total, and the
+  card says while the prices are samples. Undo and Redo take back wall
+  changes too.
+
+A new door or window is an ordinary door or window to everything else: the
+A/B/C layouts are worked out again round it, the cabinet fit checks keep
+clear of it, and the quote PDF and drawings show it. The quote prices each
+opening to be made and the finish ("Wall work — Hidden door, flush with the
+wall", "Wall finish — Wall tiles (8.40 m² @ RM140/m²)"); the sales app, the
+Studio and the office server price them the same way (see
+`test/fixtures/pricing_cases.json`). Prices are in the price list's **Wall
+work** section in the Studio; the shipped figures are **samples** until SS
+Love's own are entered there. Only the main wall for now.
+
 ### Look of the design (doors, backsplash, decor, room, light)
 
 The palette icon on the 3D screen changes how the design is dressed, in 3D

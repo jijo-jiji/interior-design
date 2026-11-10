@@ -27,6 +27,8 @@ import '../../trace/utils/wall_photo.dart';
 import '../utils/design_pictures.dart';
 import '../utils/proposal_delivery.dart';
 import '../widgets/cabinet_card.dart';
+import '../widgets/wall_card.dart';
+import '../models/wall_work.dart';
 import '../widgets/closing_modal.dart';
 import '../widgets/pictures_sheet.dart';
 import 'proposal_preview_screen.dart';
@@ -123,6 +125,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// "Add" card is open and the 3D view shows it see-through).
   _Adding? _adding;
 
+  /// The wall card is open (a double tap on the wall, or Edit, Wall); the
+  /// door or window being changed on it; where the wall was tapped (a new
+  /// opening goes there).
+  bool _wallOpen = false;
+  int? _wallSelected;
+  double? _wallTapMm;
+  WallTab _wallTab = WallTab.openings;
+
   /// Undo and redo: the cabinets (and the layout they came from) before each
   /// change to them.
   final List<_Cabinets> _undo = [];
@@ -137,7 +147,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _controlsHidden = false;
 
   final List<Map<String, dynamic>> _placedCabinets = [];
-  late final List<dynamic> _obstacles;
+  /// The main wall's doors and windows; those to be made (the wall card)
+  /// carry a `work` key and are priced.
+  late List<Map<String, dynamic>> _obstacles;
+
+  /// The wall's finish from the wall card ({kind, area_m2, colour}), or null.
+  Map<String, dynamic>? _wallFinish;
+
+  /// The payload the design came with, for working the layouts out again
+  /// when a door or window is added to the wall.
+  Map<String, dynamic>? _payload;
   late final Map<String, dynamic> _wallData;
 
   /// The floor plan this room was read from, for the Room and House views
@@ -181,7 +200,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     try {
       parsed = jsonDecode(widget.jsonPayload) as Map<String, dynamic>;
       _wallData = parsed['wall'] as Map<String, dynamic>? ?? {};
-      _obstacles = parsed['obstacles'] as List<dynamic>? ?? [];
+      _obstacles = [
+        for (final o in parsed['obstacles'] as List<dynamic>? ?? const [])
+          Map<String, dynamic>.from(o as Map),
+      ];
+      final finish = parsed['wall_finish'];
+      _wallFinish = finish is Map ? Map<String, dynamic>.from(finish) : null;
+      _payload = parsed;
       _floorPlan = parsed['floor_plan'] as Map<String, dynamic>?;
       _capture = parsed['capture'] as Map<String, dynamic>?;
       _wallPhotoPath = parsed['wall_photo_path'] as String?;
@@ -222,7 +247,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (parsed != null) {
       try {
         _variants = KitchenLayoutGenerator.forCatalog(_catalog)
-            .generateAll(KitchenRoom.fromPayload(parsed));
+            .generateAll(KitchenRoom.fromPayload(
+                {...parsed, 'obstacles': _obstacles}));
         final initial = _variants.where(
             (v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
         if (_placedCabinets.isEmpty && initial.isNotEmpty) {
@@ -418,6 +444,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // Photographs of the finishes; without them the page draws its own.
     await FinishTextures.send(_scene.runJavaScript);
     await _scene.runJavaScript("loadScene('$escaped')");
+    // The wall as it is now (a door or a finish may have been added since
+    // the design was opened).
+    await _pushWallWork();
     await _showBenchtop();
     await _applyLook();
     if (_activeVariantKey != null) {
@@ -477,6 +506,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       'status': _status.name,
       'wall': _wallData,
       'obstacles': _obstacles,
+      if (_wallFinish != null) 'wall_finish': _wallFinish,
       if (_floorPlan != null) 'floor_plan': _floorPlan,
       if (_capture != null) 'capture': _capture,
       if (_capture != null) 'keep_wall_photo': _keepWallPhoto,
@@ -503,6 +533,242 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   int get _cabinetCount =>
       _placedCabinets.where((c) => c['kind'] != 'filler').length;
 
+  // ── The wall card ──────────────────────────────────────────────────────────
+
+  WallWorkModel get _wallModel => WallWorkModel(
+        catalog: _catalog,
+        wall: _wallData,
+        obstacles: _obstacles,
+        cabinets: _placedCabinets,
+      );
+
+  /// The colours each finish comes in (the first is the one it starts with).
+  static const _wallColours = {
+    'paint': [
+      ('Warm white', '#efebe4'),
+      ('Greige', '#d9d2c7'),
+      ('Sage', '#c9d3c3'),
+      ('Clay', '#d8bfa8'),
+    ],
+    'tiles': [
+      ('White', '#f4f2ee'),
+      ('Grey', '#cfcfcc'),
+      ('Sage', '#b9c7b5'),
+      ('Sand', '#e2d3bd'),
+    ],
+    'panels': [
+      ('Oak', '#c9a77e'),
+      ('Walnut', '#8a6a52'),
+      ('White', '#eeeae3'),
+      ('Charcoal', '#5a5a5a'),
+    ],
+  };
+
+  static String _finishName(String kind) => switch (kind) {
+        'paint' => 'Paint',
+        'tiles' => 'Tiles',
+        'panels' => 'Panels',
+        _ => kind,
+      };
+
+  /// A double tap on the wall (or on one of its doors or windows), or Edit,
+  /// Wall: its card opens and the camera faces the wall.
+  void _openWall({int? opening, double? xMm}) {
+    if (_adding != null) _scene.runJavaScript('clearPreview()');
+    final hadCabinet = _openId != null;
+    setState(() {
+      _adding = null;
+      _openId = null;
+      _wallOpen = true;
+      _wallSelected =
+          opening != null && opening >= 0 && opening < _obstacles.length
+              ? opening
+              : null;
+      _wallTapMm = xMm;
+    });
+    if (hadCabinet) _scene.runJavaScript('deselectCabinet()');
+    HapticFeedback.selectionClick();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_wallOpen) return;
+      _scene.runJavaScript('focusWall(${_cardInset().toStringAsFixed(3)}); '
+          'highlightOpening(${jsonEncode(_wallSelected)})');
+    });
+  }
+
+  void _closeWall() {
+    setState(() {
+      _wallOpen = false;
+      _wallSelected = null;
+    });
+    _scene.runJavaScript('highlightOpening(null); unfocusCabinet()');
+  }
+
+  /// The wall as the app has it, to the 3D page.
+  Future<void> _pushWallWork() => _scene.runJavaScript('setWallWork(${jsonEncode(
+      jsonEncode({'obstacles': _obstacles, 'wall_finish': _wallFinish}))})');
+
+  /// The A/B/C layouts again, for the wall as it is now (a new door must not
+  /// get cabinets in front of it). The current one stays chosen only if it
+  /// still comes out the same.
+  void _regenerateVariants() {
+    final payload = _payload;
+    if (payload == null) return;
+    try {
+      _variants = KitchenLayoutGenerator.forCatalog(_catalog).generateAll(
+          KitchenRoom.fromPayload({...payload, 'obstacles': _obstacles}));
+    } catch (_) {
+      _variants = const [];
+    }
+    final active = _variants.where((v) => v.key == _activeVariantKey);
+    if (active.isEmpty ||
+        jsonEncode(active.first.toPlacedCabinets()) !=
+            jsonEncode(_placedCabinets)) {
+      _activeVariantKey = null;
+    }
+  }
+
+  /// A change made on the wall card: its openings and/or its finish (whose
+  /// area follows the openings). Undoable.
+  void _changeWall(List<Map<String, dynamic>> obstacles,
+      {Map<String, dynamic>? finish, bool finishChanged = false, int? select}) {
+    _remember();
+    final nextFinish = finishChanged ? finish : _wallFinish;
+    setState(() {
+      final openingsChanged = jsonEncode(obstacles) != jsonEncode(_obstacles);
+      _obstacles = obstacles;
+      _wallFinish = nextFinish == null
+          ? null
+          : _wallModel.finish(nextFinish['kind'] as String,
+              colour: nextFinish['colour'] as String?);
+      if (openingsChanged) _regenerateVariants();
+      _wallSelected = select;
+    });
+    _pushWallWork().then((_) =>
+        _scene.runJavaScript('highlightOpening(${jsonEncode(_wallSelected)})'));
+    HapticFeedback.lightImpact();
+    _scheduleSave();
+  }
+
+  /// What a wall change would do to the total, when the price is shown.
+  String? _wallPriceChange(List<Map<String, dynamic>> obstacles,
+      {Map<String, dynamic>? finish, bool finishChanged = false}) {
+    if (!_priceVisible) return null;
+    final model = WallWorkModel(
+        catalog: _catalog,
+        wall: _wallData,
+        obstacles: obstacles,
+        cabinets: _placedCabinets);
+    final next = finishChanged ? finish : _wallFinish;
+    return _priceChange(_placedCabinets,
+        obstacles: obstacles,
+        finishChanged: true,
+        wallFinish: next == null
+            ? null
+            : model.finish(next['kind'] as String,
+                colour: next['colour'] as String?));
+  }
+
+  Widget _buildWallCard() {
+    final model = _wallModel;
+    final kind = _wallFinish?['kind'] as String?;
+    final colour = _wallFinish?['colour'] as String?;
+    final selected = _wallSelected;
+    final open = selected == null ? null : _obstacles[selected];
+    final summary = _cpqSummary;
+    String mm(Object? v) => '${(v as num? ?? 0).round()}';
+
+    return WallCard(
+      title: 'Main wall',
+      tab: _wallTab,
+      onTab: (t) => setState(() => _wallTab = t),
+      size: '${mm(_wallData['width_mm'])} × ${mm(_wallData['height_mm'])} mm'
+          ' · ${model.finishAreaM2.toStringAsFixed(2)} m² of wall',
+      price: _priceVisible && summary.wallWorkTotal != 0
+          ? formatMoney(summary.wallWorkTotal)
+          : null,
+      samplePrices: _catalog.wallWork.isPlaceholder,
+      finishes: [
+        WallOption<String?>(null, 'As it is',
+            selected: kind == null,
+            price: kind == null
+                ? null
+                : _wallPriceChange(_obstacles, finishChanged: true)),
+        for (final k in _catalog.wallWork.finishes.keys)
+          WallOption<String?>(k, _finishName(k),
+              selected: kind == k,
+              price: kind == k
+                  ? null
+                  : _wallPriceChange(_obstacles,
+                      finish: {'kind': k}, finishChanged: true)),
+      ],
+      colours: [
+        if (kind != null)
+          for (final (name, hex) in _wallColours[kind] ?? const <(String, String)>[])
+            WallOption<String>(hex, name,
+                selected: (colour ?? _wallColours[kind]!.first.$2) == hex,
+                colour: Color(int.parse('ff${hex.substring(1)}', radix: 16))),
+      ],
+      openings: [
+        for (final o in _obstacles)
+          WallOpeningItem(
+            name: WallWorkModel.nameOf(o),
+            label: '${WallWorkModel.nameOf(o)} ${mm(o['width_mm'])}',
+            detail: '${WallWorkModel.nameOf(o)} · ${WallWorkModel.sizeOf(o)}'
+                ' · ${WallWorkModel.isNew(o) ? 'to be made' : 'already there, not priced'}',
+            isNew: WallWorkModel.isNew(o),
+          ),
+      ],
+      selected: selected,
+      widths: [
+        if (open != null && WallWorkModel.isNew(open))
+          for (final w in model.widthsFor(selected!))
+            WallOption<double>(w.widthMm, '${w.widthMm.round()}',
+                selected: w.current, problem: w.problem),
+      ],
+      adds: [
+        for (final k in model.kinds)
+          WallOption<String>(k, WallWorkModel.addName(k),
+              problem: model.whyNot(k),
+              price: _priceVisible
+                  ? '+${formatMoney(_catalog.wallWork.openings[k]!.price)}'
+                  : null),
+      ],
+      onFinish: (k) => _changeWall(_obstacles,
+          finish: k == null
+              ? null
+              : {'kind': k, 'colour': _wallColours[k]?.first.$2},
+          finishChanged: true,
+          select: _wallSelected),
+      onColour: (hex) => _changeWall(_obstacles,
+          finish: {'kind': kind, 'colour': hex},
+          finishChanged: true,
+          select: _wallSelected),
+      onSelect: (i) {
+        setState(() => _wallSelected = i);
+        _scene.runJavaScript('highlightOpening(${jsonEncode(i)})');
+      },
+      onWidth: (w) {
+        final next = model.resize(selected!, w);
+        if (next != null) _changeWall(next, select: selected);
+      },
+      onMove: (dx) {
+        final next = model.move(selected!, dx * 50.0);
+        if (next == null) {
+          HapticFeedback.heavyImpact();
+          return;
+        }
+        _changeWall(next, select: selected);
+      },
+      onRemove: () => _changeWall(model.remove(selected!)),
+      onAdd: (k) {
+        final next = model.add(k, nearMm: _wallTapMm);
+        if (next == null) return;
+        _changeWall(next, select: next.length - 1);
+      },
+      onClose: _closeWall,
+    );
+  }
+
   // ── Adding a unit: see it first ────────────────────────────────────────────
 
   /// The tray or the appliance list: the unit's card opens first, showing
@@ -515,8 +781,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final choice = sizes.firstWhere((c) => c.current && c.fits,
         orElse: () => sizes.firstWhere((c) => c.fits, orElse: () => sizes.firstWhere((c) => c.current)));
     final places = choices.placementsFor(choice, near: _selectedId ?? _openId);
+    if (_wallOpen) _scene.runJavaScript('highlightOpening(null)');
     setState(() {
       _openId = null;
+      _wallOpen = false;
+      _wallSelected = null;
       _adding = _Adding(type: type, choice: choice, place: places.firstOrNull);
     });
     HapticFeedback.selectionClick();
@@ -669,6 +938,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   _Cabinets _snapshot() => (
         cabinets: [for (final c in _placedCabinets) Map<String, dynamic>.of(c)],
         variant: _activeVariantKey,
+        obstacles: [for (final o in _obstacles) Map<String, dynamic>.of(o)],
+        wallFinish: _wallFinish == null ? null : Map.of(_wallFinish!),
       );
 
   /// Called before the cabinets change, so the change can be undone.
@@ -683,19 +954,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (from.isEmpty) return;
     (undo ? _redo : _undo).add(_snapshot());
     final back = from.removeLast();
+    final wallChanged = jsonEncode(back.obstacles) != jsonEncode(_obstacles) ||
+        jsonEncode(back.wallFinish) != jsonEncode(_wallFinish);
     setState(() {
       _placedCabinets
         ..clear()
         ..addAll(back.cabinets);
+      _obstacles = back.obstacles;
+      _wallFinish = back.wallFinish;
+      if (wallChanged) _regenerateVariants();
       _activeVariantKey = back.variant;
+      if (_wallSelected != null && _wallSelected! >= _obstacles.length) {
+        _wallSelected = null;
+      }
       if (_openId != null && _cabinet(_openId!) == null) _openId = null;
       _selectedId = _openId;
       _selectedLabel = _openId == null ? null : _choices.nameOf(_cabinet(_openId!)!);
     });
+    if (wallChanged) _pushWallWork();
     _pushCabinetsToScene().then((_) {
       if (_openId != null) {
         _focusOpen();
-      } else {
+      } else if (!_wallOpen) {
         _scene.runJavaScript('unfocusCabinet()');
       }
     });
@@ -725,8 +1005,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final record = _cabinet(id);
     if (record == null) return;
     if (_adding != null) _scene.runJavaScript('clearPreview()');
+    if (_wallOpen) _scene.runJavaScript('highlightOpening(null)');
     setState(() {
       _adding = null;
+      _wallOpen = false;
+      _wallSelected = null;
       _openId = id;
       _selectedId = id;
       _selectedLabel = _choices.nameOf(record);
@@ -782,14 +1065,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   /// "+RM 80", "−RM 40" or "same price": what [next] does to the total.
   /// Null while the price is hidden from the client.
-  String? _priceChange(List<Map<String, dynamic>>? next) {
+  String? _priceChange(List<Map<String, dynamic>>? next,
+      {List<Map<String, dynamic>>? obstacles,
+      Map<String, dynamic>? wallFinish,
+      bool finishChanged = false}) {
     if (!_priceVisible || next == null) return null;
     final then = CPQEngine.calculate(
       placedCabinets: next,
-      obstacles: _obstacles,
+      obstacles: obstacles ?? _obstacles,
       styleArchetype: _currentStyle,
       benchtopMaterial: _benchtopMaterial,
       catalog: _catalog,
+      wallFinish: finishChanged ? wallFinish : _wallFinish,
     ).totalPrice;
     final change = (then - _cpqSummary.totalPrice).round();
     if (change == 0) return 'same price';
@@ -1006,6 +1293,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         case 'cabinet_opened':
           final id = data['id'];
           if (id is String) _openCard(id);
+        case 'wall_opened':
+          _openWall(
+            opening: (data['opening'] as num?)?.toInt(),
+            xMm: (data['x_mm'] as num?)?.toDouble(),
+          );
         case 'cabinet_deselected':
           setState(() {
             _selectedId = null;
@@ -1036,6 +1328,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       styleArchetype: _currentStyle,
       benchtopMaterial: _benchtopMaterial,
       catalog: _catalog,
+      wallFinish: _wallFinish,
     );
   }
 
@@ -1641,6 +1934,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 label: 'Window and door adjustment',
                 value: formatMoney(summary.obstacleAllowance),
               ),
+            for (final line in summary.wallWorkLines)
+              _SummaryTile(
+                label: line.qty > 1
+                    ? '${line.description} × ${line.qty}'
+                    : line.description,
+                value: formatMoney(line.total),
+              ),
             _SummaryTile(
               label: '${SalesConfig.taxLabel} ($taxPercent%)',
               value: formatMoney(summary.gst),
@@ -1910,6 +2210,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       _buildAddingCard(_adding!)
                     else if (_openId != null && _cabinet(_openId!) != null)
                       _buildCabinetCard(_cabinet(_openId!)!)
+                    else if (_wallOpen)
+                      _buildWallCard()
                     else if (_editing)
                       _EditPanel(
                         selectedLabel: _selectedLabel,
@@ -1926,6 +2228,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         onClearAll: _clearLayout,
                         onAppliances: _showApplianceSheet,
                         onBenchtop: _showBenchtopSheet,
+                        onWall: () => _openWall(),
                         benchtopName: _benchtopMaterial == null
                             ? null
                             : _catalog.benchtopOptions[_benchtopMaterial]?.name,
@@ -2131,7 +2434,7 @@ class _LayoutVariantBar extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
-              'Double-tap a cabinet to see it and change it.',
+              'Double-tap a cabinet or the wall to see it and change it.',
               style: context.textTheme.bodySmall
                   ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
@@ -2173,6 +2476,9 @@ class _EditPanel extends StatelessWidget {
   final VoidCallback onAppliances;
   final VoidCallback onBenchtop;
 
+  /// Opens the wall card (the way in without a double tap on the wall).
+  final VoidCallback onWall;
+
   /// The modules offered in the tray, from the catalogue.
   final List<CatalogModule> modules;
 
@@ -2195,6 +2501,7 @@ class _EditPanel extends StatelessWidget {
     required this.onClearAll,
     required this.onAppliances,
     required this.onBenchtop,
+    required this.onWall,
     required this.benchtopName,
     required this.modules,
     required this.kindOf,
@@ -2322,6 +2629,11 @@ class _EditPanel extends StatelessWidget {
                 label: Text(benchtopName == null
                     ? 'Benchtop'
                     : 'Benchtop: $benchtopName'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onWall,
+                icon: const Icon(Icons.format_paint_outlined, size: 18),
+                label: const Text('Wall'),
               ),
             ],
           ),
@@ -2471,13 +2783,17 @@ class _SummaryTile extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: context.textTheme.labelSmall?.copyWith(
-                color: isBold
-                    ? context.colors.onSurface
-                    : context.colors.onSurfaceVariant),
+          // Wraps: a wall work line can be long.
+          Expanded(
+            child: Text(
+              label,
+              style: context.textTheme.labelSmall?.copyWith(
+                  color: isBold
+                      ? context.colors.onSurface
+                      : context.colors.onSurfaceVariant),
+            ),
           ),
+          const SizedBox(width: 12),
           Text(
             value,
             style: context.textTheme.labelLarge?.copyWith(
@@ -2579,7 +2895,14 @@ class _JoineryModuleButton extends StatelessWidget {
 }
 
 /// The cabinets at one moment, and the layout (A, B, C) they came from.
-typedef _Cabinets = ({List<Map<String, dynamic>> cabinets, String? variant});
+/// What undo and redo bring back: the cabinets and the layout they came
+/// from, and the wall's openings and finish.
+typedef _Cabinets = ({
+  List<Map<String, dynamic>> cabinets,
+  String? variant,
+  List<Map<String, dynamic>> obstacles,
+  Map<String, dynamic>? wallFinish,
+});
 
 /// A unit being added: the tray item it came from, the size chosen and the
 /// free space it would go in (null: no room for it).

@@ -363,6 +363,77 @@ void main() {
     });
   });
 
+  group('3D view, the wall card open', () {
+    // Edit, an empty wall, the wall card with a hidden door made and chosen,
+    // and the prices shown: the card at its fullest.
+    // [prices]: with the price shown. (At 2x text the estimate bar alone is
+    // most of a phone's height once it shows the price: a separate problem.)
+    Future<void> openWall(WidgetTester tester,
+        {double scale = 1, bool prices = true}) async {
+      await _pump(tester, _screens['3D view']!(), scale: scale);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      // A message with an Undo stays up while a screen reader is on: put it
+      // away, as the next message would.
+      ScaffoldMessenger.of(tester.element(find.text('Edit cabinets')))
+          .hideCurrentSnackBar();
+      await tester.pump(const Duration(seconds: 1));
+      if (prices) {
+        await tester.tap(find.text('Show price'));
+        await tester.pump();
+      }
+      final page = (WebViewPlatform.instance as FakeWebViewPlatform).lastController!;
+      page.sendFromPage('StaticTraceChannel',
+          jsonEncode({'event': 'wall_opened', 'opening': null, 'x_mm': 3000}));
+      await tester.pump();
+      final add = find.ancestor(
+          of: find.textContaining('Hidden door'),
+          matching: find.byType(OutlinedButton));
+      await tester.ensureVisible(add);
+      await tester.pump();
+      await tester.tap(add);
+      await tester.pump(const Duration(seconds: 1));
+      // Back to the top of the card, as it opens.
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Doors and windows'));
+      await tester.pump();
+      expect(find.textContaining(prices ? 'Main wall  RM' : 'Main wall'),
+          findsOneWidget);
+      expect(find.text('Remove hidden door'), findsOneWidget);
+    }
+
+    testWidgets('tap targets are at least 48x48 and labelled', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWall(tester);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('text meets WCAG AA contrast', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWall(tester);
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('lays out without overflow at 2x text size', (tester) async {
+      final errors = <String>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+      try {
+        await openWall(tester, scale: 2, prices: false);
+      } finally {
+        FlutterError.onError = previous;
+      }
+      expect(errors, isEmpty);
+      await _finish(tester);
+    });
+  });
+
   // The pixel scan above covers this too; this pins the most important
   // button's colours directly.
   testWidgets('3D view: the Quote button label meets 4.5:1', (tester) async {
