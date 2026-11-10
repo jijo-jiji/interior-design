@@ -3,14 +3,19 @@
 // is measured from its four corners, so an angled photo still measures true.
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:static_trace/features/trace/models/obstacle.dart';
 import 'package:static_trace/features/trace/providers/wall_provider.dart';
 import 'package:static_trace/features/trace/screens/trace_screen.dart';
+import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/features/trace/utils/homography.dart';
+import 'package:static_trace/features/trace/utils/opening_finder.dart';
 import 'package:static_trace/features/trace/utils/corner_suggestion.dart';
 import 'package:static_trace/features/trace/utils/wall_lean.dart';
 import 'package:static_trace/shared/theme.dart';
@@ -24,25 +29,34 @@ void main() {
 
   /// [lean]: what the lean check finds (none by default: no photo is read).
   Future<void> pumpTrace(WidgetTester tester,
-      {double? lean, CornerSuggester? suggester}) async {
+      {double? lean, CornerSuggester? suggester, WallLabels? labels}) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
     container = ProviderContainer(overrides: [
       cornerSuggesterProvider
           .overrideWithValue(suggester ?? FakeCornerSuggester()),
+      wallSegmenterProvider.overrideWithValue(FakeWallSegmenter(labels)),
     ]);
     addTearDown(container.dispose);
+    final router = GoRouter(routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, __) => TraceScreen(
+          imagePath: 'floor_plan/images.png',
+          leanCheck: (_, __, ___) async => lean,
+        ),
+      ),
+      GoRoute(
+        path: '/wall-setup',
+        builder: (_, __) =>
+            const WallSetupScreen(imagePath: 'floor_plan/images.png'),
+      ),
+    ]);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          theme: AppTheme.theme,
-          home: TraceScreen(
-            imagePath: 'floor_plan/images.png',
-            leanCheck: (_, __, ___) async => lean,
-          ),
-        ),
+        child: MaterialApp.router(theme: AppTheme.theme, routerConfig: router),
       ),
     );
     // The canvas size lands in the provider after the first frame.
@@ -61,6 +75,17 @@ void main() {
     await tester.pump();
   }
 
+  /// Step 1's Next: the wall-size screen, confirmed as it is, then back to
+  /// the windows and doors.
+  Future<void> toWindows(WidgetTester tester) async {
+    await tapPanel(tester, find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Wall size'), findsOneWidget);
+    await tester.ensureVisible(find.text('Next: windows & doors'));
+    await tester.tap(find.text('Next: windows & doors'));
+    await tester.pumpAndSettle();
+  }
+
   /// A photo the test decides the size of (the widget test can't decode
   /// one), with the wall's corners at [corners].
   Future<void> photo(WidgetTester tester, Size size, List<Offset> corners) async {
@@ -74,7 +99,7 @@ void main() {
   group('corners', () {
     testWidgets('the arrows move the selected corner', (tester) async {
       await pumpTrace(tester);
-      expect(find.text('Step 1 of 2'), findsOneWidget);
+      expect(find.text('Step 1 of 3'), findsOneWidget);
 
       final before = wall().corner(WallCorner.topLeft);
       await tapPanel(tester, find.byTooltip('Move top left corner right'));
@@ -140,43 +165,6 @@ void main() {
     });
   });
 
-  group('size check', () {
-    testWidgets('says when the corners disagree with the tape',
-        (tester) async {
-      await pumpTrace(tester);
-      // A square on a 1600 × 1200 photo, head-on, for a 4000 × 2700 wall.
-      await photo(tester, const Size(1600, 1200), const [
-        Offset(0.25, 1 / 6),
-        Offset(0.75, 1 / 6),
-        Offset(0.75, 5 / 6),
-        Offset(0.25, 5 / 6),
-      ]);
-      expect(
-          find.textContaining('looks about 2,700 mm wide'), findsOneWidget);
-    });
-
-    testWidgets('and stays quiet when they match', (tester) async {
-      await pumpTrace(tester);
-      // 960 × 648 px: the 4000 × 2700 wall's proportions.
-      await photo(tester, const Size(1600, 1200), const [
-        Offset(0.2, 0.23),
-        Offset(0.8, 0.23),
-        Offset(0.8, 0.77),
-        Offset(0.2, 0.77),
-      ]);
-      // Quiet: no tick, since matching proportions don't prove the corners.
-      expect(find.textContaining('looks about'), findsNothing);
-      expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
-    });
-
-    testWidgets('stays quiet until the corners have moved', (tester) async {
-      await pumpTrace(tester);
-      notifier().setPhoto(const Size(1600, 1200));
-      await tester.pump();
-      expect(find.textContaining('looks about'), findsNothing);
-    });
-  });
-
   group('the straightened wall', () {
     testWidgets('is drawn at its true proportions, through the corners',
         (tester) async {
@@ -189,8 +177,7 @@ void main() {
         Offset(0.1, 0.9),
       ];
       await photo(tester, const Size(1600, 1200), corners);
-      await tapPanel(tester, find.text('Next'));
-      await tester.pump();
+      await toWindows(tester);
 
       // One scale both ways: the wall is shown at 4000 × 2700.
       expect(wall().scaleRatioX, closeTo(wall().scaleRatioY, 1e-6));
@@ -228,8 +215,8 @@ void main() {
     testWidgets('windows can be added, resized by typing, and removed',
         (tester) async {
       await pumpTrace(tester);
-      await tapPanel(tester, find.text('Next'));
-      expect(find.text('Step 2 of 2'), findsOneWidget);
+      await toWindows(tester);
+      expect(find.text('Step 3 of 3'), findsOneWidget);
 
       await tapPanel(tester, find.text('Add window'));
       expect(container.read(obstaclesProvider), hasLength(1));
@@ -266,25 +253,148 @@ void main() {
     testWidgets('warns when upright edges lean: a corner is off',
         (tester) async {
       await pumpTrace(tester, lean: -4.2);
-      await tapPanel(tester, find.text('Next'));
-      await tester.pump();
+      await toWindows(tester);
       expect(find.textContaining('Upright edges lean about 4.2°'),
           findsOneWidget);
     });
 
     testWidgets('says nothing when they stand upright', (tester) async {
       await pumpTrace(tester, lean: 0.6);
-      await tapPanel(tester, find.text('Next'));
-      await tester.pump();
+      await toWindows(tester);
       expect(find.textContaining('Upright edges lean'), findsNothing);
       expect(kLeanWarnDeg, greaterThan(0.6));
     });
 
+    group('windows and doors found on the photo', () {
+      // The wall over the whole photo (start corners 0.08–0.92), a window
+      // in its upper middle and a door on the right.
+      WallLabels kitchenWall() {
+        const n = 128;
+        final ids = Uint8List(n * n)..fillRange(0, n * n, WallLabels.wall);
+        void paint(int id, Rect r) {
+          for (var y = 0; y < n; y++) {
+            for (var x = 0; x < n; x++) {
+              if (r.contains(Offset((x + 0.5) / n, (y + 0.5) / n))) {
+                ids[y * n + x] = id;
+              }
+            }
+          }
+        }
+
+        paint(WallLabels.window, const Rect.fromLTRB(0.3, 0.25, 0.5, 0.5));
+        paint(WallLabels.door, const Rect.fromLTRB(0.7, 0.3, 0.85, 0.9));
+        return WallLabels(n, n, ids);
+      }
+
+      testWidgets('are placed as boxes to check', (tester) async {
+        await pumpTrace(tester, labels: kitchenWall());
+        await toWindows(tester);
+        final boxes = container.read(obstaclesProvider);
+        expect(boxes.map((b) => b.type),
+            [ObstacleType.window, ObstacleType.door]);
+        expect(find.textContaining('Found a window and a door'),
+            findsOneWidget);
+        // In the panel too, with their sizes.
+        expect(find.textContaining('Window 1 ·'), findsOneWidget);
+        expect(find.textContaining('Door 1 ·'), findsOneWidget);
+      });
+
+      testWidgets('only once: going back and forth adds none again',
+          (tester) async {
+        await pumpTrace(tester, labels: kitchenWall());
+        await toWindows(tester);
+        await tapPanel(tester, find.text('Edit size'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Next: windows & doors'));
+        await tester.tap(find.text('Next: windows & doors'));
+        await tester.pumpAndSettle();
+        expect(container.read(obstaclesProvider), hasLength(2));
+      });
+
+      testWidgets('none on the wall: said so', (tester) async {
+        const n = 128;
+        await pumpTrace(tester,
+            labels: WallLabels(
+                n, n, Uint8List(n * n)..fillRange(0, n * n, WallLabels.wall)));
+        await toWindows(tester);
+        expect(container.read(obstaclesProvider), isEmpty);
+        expect(find.textContaining('No windows or doors found'),
+            findsOneWidget);
+      });
+
+      testWidgets('no model here: nothing said, nothing placed',
+          (tester) async {
+        await pumpTrace(tester);
+        await toWindows(tester);
+        expect(container.read(obstaclesProvider), isEmpty);
+        expect(find.textContaining('windows and doors…'), findsNothing);
+        expect(find.textContaining('No windows or doors found'), findsNothing);
+      });
+    });
+
     testWidgets('Edit corners goes back to step 1', (tester) async {
       await pumpTrace(tester);
-      await tapPanel(tester, find.text('Next'));
+      await toWindows(tester);
       await tapPanel(tester, find.text('Edit corners'));
-      expect(find.text('Step 1 of 2'), findsOneWidget);
+      expect(find.text('Step 1 of 3'), findsOneWidget);
+    });
+
+    testWidgets('the wall is traced first, then measured', (tester) async {
+      await pumpTrace(tester);
+      // 960 × 648 px on a 1600 × 1200 photo, head-on: 1.48 wide for 1 high.
+      await photo(tester, const Size(1600, 1200), const [
+        Offset(0.2, 0.23),
+        Offset(0.8, 0.23),
+        Offset(0.8, 0.77),
+        Offset(0.2, 0.77),
+      ]);
+      await tapPanel(tester, find.text('Next'));
+      await tester.pumpAndSettle();
+      // The width comes from the traced corners: 2700 × 1.48 ≈ 4000.
+      expect(find.textContaining('From the photo, this wall is about 4,000 mm'),
+          findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Wall width'), '4100');
+      await tester.ensureVisible(find.text('Next: windows & doors'));
+      await tester.tap(find.text('Next: windows & doors'));
+      await tester.pumpAndSettle();
+      expect(find.text('Step 3 of 3'), findsOneWidget);
+      expect(wall().widthMm, 4100);
+      expect(wall().sizeFromTape, isTrue);
+
+      // Edit size: the tape's numbers, not a new estimate.
+      await tapPanel(tester, find.text('Edit size'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('From the photo'), findsNothing);
+      expect(find.widgetWithText(TextFormField, '4100'), findsOneWidget);
+    });
+
+    testWidgets('a box stays on its spot of the wall when the size changes',
+        (tester) async {
+      await pumpTrace(tester);
+      await toWindows(tester);
+      await tapPanel(tester, find.text('Add window'));
+      Rect fraction(WallSetup w, Rect box) => Rect.fromLTRB(
+            (box.left - w.leftLinePx) / (w.rightLinePx - w.leftLinePx),
+            (box.top - w.topLinePx) / (w.bottomLinePx - w.topLinePx),
+            (box.right - w.leftLinePx) / (w.rightLinePx - w.leftLinePx),
+            (box.bottom - w.topLinePx) / (w.bottomLinePx - w.topLinePx),
+          );
+      Rect box() {
+        final o = container.read(obstaclesProvider).single;
+        return Rect.fromLTWH(o.leftPx, o.topPx, o.widthPx, o.heightPx);
+      }
+
+      final before = fraction(wall(), box());
+      // A much narrower wall: the straightened wall is redrawn taller.
+      notifier().updateDimensions(widthMm: 2500, heightMm: 2700, depthMm: 150);
+      await tester.pump();
+      await tester.pump();
+      final after = fraction(wall(), box());
+      expect(after.left, closeTo(before.left, 1e-6));
+      expect(after.top, closeTo(before.top, 1e-6));
+      expect(after.right, closeTo(before.right, 1e-6));
+      expect(after.bottom, closeTo(before.bottom, 1e-6));
     });
   });
 

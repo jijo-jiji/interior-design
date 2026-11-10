@@ -322,3 +322,23 @@ meets the side walls, ceiling and floor.
 - **What would help kitchens:** a corner model trained on our own photos. Each
   quote keeps the photo and its confirmed corners, so the training set grows
   with every job. A depth model alone can't see a wall hidden behind cabinets.
+
+**Trace first, windows and doors found (2026-11-09):**
+
+- **Flow:** photo, then corners (traced), then wall size (filled in from the
+  trace, checked with a tape), then windows and doors.
+- **Windows and doors found automatically:** MLCommons' DeepLabV3+ (ADE20K,
+  Apache 2.0, 9 MB) labels the photo. Windows, curtains and doors on the wall
+  are mapped onto the straightened wall and placed as boxes to check.
+  - On a real room: 2 of 2 windows boxed on their frames.
+  - On a real kitchen, with corners placed by hand: 2 of 3 windows (both
+    curtained ones; a small shuttered one was missed).
+  - Doors on side walls are left out.
+- **Kitchen corners, tried and not shipped:** metric depth (Depth Anything V2
+  Metric Small, Apache 2.0) plus the labels, using the room's right angles.
+  - Corners found on 6 of 9 kitchens, but only 2 were roughly right, and those
+    were too narrow.
+  - The metric scale reads rooms 10–20% too deep, so it can't measure the wall
+    either.
+  - Not in the app. Kitchens keep "place them by hand".
+  - Real fix: train on our own collected kitchen photos.

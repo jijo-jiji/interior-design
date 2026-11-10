@@ -25,8 +25,12 @@ server (`backend/`) stores quotes and makes the PDFs.
 **Android:** set your laptop's IP in `lib/shared/config.dart`, start the
 server (`cd backend && python main.py`), then `flutter run`.
 
-**The wall-corner model, once per checkout:** `python tool/fetch_wall_model.py`
-downloads it to `assets/models/` (27 MB, checksum-checked; not in git). It
+**The wall models, once per checkout:** `python tool/fetch_wall_model.py`
+finds the wall's corners; `pip install tflite2onnx onnx` then
+`python tool/fetch_wall_segmenter.py` finds windows and doors (9 MB, MLCommons'
+DeepLabV3+, converted on the fly). Each is optional.
+`fetch_wall_model.py` downloads the corner model to `assets/models/` (27 MB,
+checksum-checked; not in git). It
 places the wall's corners on a wall photo by itself, on the phone. Without
 it the app builds and works the same, but the corners start in the photo's
 corners for the salesperson to drag. To install on a tablet, build one APK per

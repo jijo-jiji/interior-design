@@ -72,10 +72,18 @@ Future<void> _pump(WidgetTester tester, Widget screen,
   addTearDown(tester.view.reset);
   WebViewPlatform.instance = FakeWebViewPlatform();
   final router =
-      GoRouter(routes: [GoRoute(path: '/', builder: (_, __) => screen)]);
+      GoRouter(routes: [
+    GoRoute(path: '/', builder: (_, __) => screen),
+    // The trace screen opens the wall size between the corners and the
+    // windows.
+    GoRoute(
+      path: '/wall-setup',
+      builder: (_, __) => const WallSetupScreen(imagePath: _photo),
+    ),
+  ]);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [noCornerModel],
+      overrides: [noCornerModel, noWallSegmenter],
       child: MediaQuery(
         data: MediaQueryData(
           size: const Size(390, 844),
@@ -229,11 +237,13 @@ void main() {
   group('trace, step 2 with a window', () {
     Future<void> openStep2(WidgetTester tester, {double scale = 1}) async {
       await _pump(tester, _screens['trace']!(), scale: scale);
-      for (final label in ['Next', 'Add window']) {
+      for (final label in ['Next', 'Next: windows & doors', 'Add window']) {
         await tester.ensureVisible(find.text(label));
         await tester.pump();
         await tester.tap(find.text(label));
         await tester.pump();
+        // The wall-size screen slides in and out.
+        await tester.pump(const Duration(milliseconds: 600));
       }
       await tester.pump(const Duration(seconds: 1));
     }

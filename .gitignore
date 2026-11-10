@@ -88,3 +88,4 @@ backend/wall_photos/
 # The wall-corner model (27 MB): fetched by tool/fetch_wall_model.py
 assets/models/wall_depth.onnx
 assets/models/*.part
+assets/models/wall_segment.onnx

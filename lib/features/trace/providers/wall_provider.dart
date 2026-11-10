@@ -6,6 +6,8 @@ import '../models/obstacle.dart';
 import '../utils/corner_suggester.dart';
 import '../utils/corner_suggestion.dart';
 import '../utils/homography.dart';
+import '../utils/opening_finder.dart';
+import '../utils/wall_segmenter.dart';
 
 // ─── Wall Setup ─────────────────────────────────────────────────────────────
 
@@ -67,6 +69,7 @@ class WallSetup {
     this.focalPx,
     this.tilt,
     this.suggestedCorners,
+    this.sizeFromTape = false,
   });
 
   final double widthMm;
@@ -101,6 +104,11 @@ class WallSetup {
   /// if it found them: kept with the quote beside the corners confirmed, so
   /// the model can be measured and improved.
   final List<Offset>? suggestedCorners;
+
+  /// Whether the width and height were confirmed on the wall-size screen.
+  /// Until then they're defaults, and the screen offers an estimate from
+  /// the photo instead.
+  final bool sizeFromTape;
 
   double get leftLinePx => screenWidthPx * leftLineRatio;
   double get rightLinePx => screenWidthPx * rightLineRatio;
@@ -154,6 +162,7 @@ class WallSetup {
     double? focalPx,
     CaptureTilt? tilt,
     List<Offset>? suggestedCorners,
+    bool? sizeFromTape,
   }) =>
       WallSetup(
         widthMm: widthMm ?? this.widthMm,
@@ -170,7 +179,12 @@ class WallSetup {
         focalPx: focalPx ?? this.focalPx,
         tilt: tilt ?? this.tilt,
         suggestedCorners: suggestedCorners ?? this.suggestedCorners,
+        sizeFromTape: sizeFromTape ?? this.sizeFromTape,
       );
+
+  /// Where the straightened wall is on the canvas.
+  Rect get wallRect =>
+      Rect.fromLTRB(leftLinePx, topLinePx, rightLinePx, bottomLinePx);
 }
 
 /// Where the straightened wall is drawn on a canvas: as large as fits, at
@@ -198,6 +212,7 @@ class WallSetupNotifier extends StateNotifier<WallSetup> {
         widthMm: widthMm,
         heightMm: heightMm,
         depthMm: depthMm,
+        sizeFromTape: true,
       );
 
   /// A new photo: corners back to their start, and how the phone was held
@@ -311,6 +326,15 @@ final cornerSuggestionProvider =
     FutureProvider.family<CornerSuggestion, String>(
         (ref, imagePath) => ref.watch(cornerSuggesterProvider).suggest(imagePath));
 
+/// The wall segmentation model on this device.
+final wallSegmenterProvider =
+    Provider<WallSegmenter>((ref) => const DeviceWallSegmenter());
+
+/// The segmentation labels for a photo, worked out once per photo, from as
+/// soon as it opens. Null with no model here.
+final wallLabelsProvider = FutureProvider.family<WallLabels?, String>(
+    (ref, imagePath) => ref.watch(wallSegmenterProvider).labels(imagePath));
+
 final wallSetupProvider =
     StateNotifierProvider<WallSetupNotifier, WallSetup>((ref) {
   return WallSetupNotifier();
@@ -333,6 +357,23 @@ class ObstaclesNotifier extends StateNotifier<List<Obstacle>> {
   void remove(String id) => state = state.where((obs) => obs.id != id).toList();
 
   void clear() => state = [];
+
+  /// Keeps every box on the same spot of the wall when the straightened
+  /// wall is redrawn at another place or size: after the wall's size is
+  /// changed, or the screen turns.
+  void remap(Rect from, Rect to) {
+    if (state.isEmpty || from.width < 20 || from.height < 20) return;
+    final sx = to.width / from.width, sy = to.height / from.height;
+    state = [
+      for (final o in state)
+        o.copyWith(
+          leftPx: to.left + (o.leftPx - from.left) * sx,
+          topPx: to.top + (o.topPx - from.top) * sy,
+          widthPx: o.widthPx * sx,
+          heightPx: o.heightPx * sy,
+        ),
+    ];
+  }
 }
 
 final obstaclesProvider =

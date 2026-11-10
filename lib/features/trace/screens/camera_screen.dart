@@ -148,6 +148,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       final path = mirrored ? await unmirrorPhoto(file.path) : file.path;
       // A new photo: corners start afresh; keep how the phone was held.
       ref.read(wallSetupProvider.notifier).startPhoto(tilt: _tilt.value);
+      ref.read(obstaclesProvider.notifier).clear();
 
       // ── Immediately dispose — no more drift ──────────────────────────────
       await _tiltSub?.cancel();
@@ -156,7 +157,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       _controller = null;
 
       if (mounted) {
-        context.push('/wall-setup', extra: path);
+        context.push('/trace', extra: path);
       }
     } catch (_) {
       setState(() => _isCapturing = false);
@@ -172,6 +173,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       if (file == null) return;
       // A new photo, held who knows how.
       ref.read(wallSetupProvider.notifier).startPhoto();
+      ref.read(obstaclesProvider.notifier).clear();
 
       await _tiltSub?.cancel();
       _tiltSub = null;
@@ -179,7 +181,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       _controller = null;
 
       if (mounted) {
-        context.push('/wall-setup', extra: file.path);
+        context.push('/trace', extra: file.path);
       }
     } catch (_) {
       if (mounted) _showError("Couldn't open that photo. Try another one.");

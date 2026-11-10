@@ -337,8 +337,8 @@ class _IntakeHubScreenState extends ConsumerState<IntakeHubScreen> {
         _MeasureCard(
           title: 'Photo of the wall',
           description:
-              'Take a photo, mark the wall’s four corners, then the '
-              'windows and doors. Works from an angle too.',
+              'Take a photo: the wall is traced, then you check its size '
+              'with a tape and add the windows and doors.',
           tag: 'Most accurate',
           icon: Icons.camera_alt_rounded,
           accentColor: AppTheme.accent,

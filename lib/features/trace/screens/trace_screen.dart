@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../models/obstacle.dart';
 import '../providers/wall_provider.dart';
 import '../utils/corner_suggestion.dart';
 import '../utils/homography.dart';
+import '../utils/opening_finder.dart';
 import '../utils/payload_builder.dart';
 import '../utils/photo_exif.dart';
 import '../utils/wall_lean.dart';
@@ -23,11 +25,6 @@ import '../../../shared/widgets/nudge_buttons.dart';
 /// Each arrow tap moves a corner this much of the photo (about 4 px on a
 /// 1080p photo).
 const double kCornerNudge = 0.002;
-
-/// How far the wall's shape on the photo may differ from the typed size
-/// before the screen says so: tighter when the photo says what lens took it.
-const double kShapeToleranceKnownLens = 0.06;
-const double kShapeToleranceAssumedLens = 0.10;
 
 /// The bottom panel keeps one height in both steps, so the photo (and every
 /// line and box measured against it) doesn't shift when the step changes.
@@ -55,16 +52,14 @@ Matrix4 matrixOf(Homography h) {
   );
 }
 
-String _mm(double mm) => mm
-    .round()
-    .toString()
-    .replaceAll(RegExp(r'\B(?=(\d{3})+(?!\d))'), ',');
-
-/// Two steps over the wall photo:
-///  1. mark the four corners of the wall in front of the camera (drag a dot,
-///     tap the photo, or use the arrows); then
-///  2. on that wall, straightened to its true shape, mark the windows and
-///     doors (drag a box, or type its exact size).
+/// The wall photo, traced first and measured after:
+///  1. the four corners of the wall in front of the camera, found by the
+///     corner model where it can, checked or placed by hand (drag a dot,
+///     tap the photo, or use the arrows);
+///  2. the wall's size, on its own screen ([WallSetupScreen]), filled in
+///     from the traced corners and checked with a tape;
+///  3. on that wall, straightened to its true shape, the windows and doors
+///     (drag a box, or type its exact size).
 ///
 /// The corners fix the perspective exactly, so a photo taken at an angle,
 /// with the side walls and ceiling in it, still measures true.
@@ -93,6 +88,12 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
   double? _leanDeg;
   int _leanRun = 0;
 
+  /// Windows and doors found on the photo: placed once per photo, when
+  /// step 3 first opens. Null until known (or with no model here).
+  bool _openingsPlaced = false;
+  bool _lookingForOpenings = false;
+  List<FoundOpening>? _openingsFound;
+
   /// What the wall-corner model did for this photo, for the panel.
   _Suggest _suggest = _Suggest.none;
 
@@ -114,8 +115,15 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       _focal35mm = f;
       _publishPhoto();
     });
-    // The model's corners: usually ready already (started on the wall-size
-    // screen); placed if the salesperson hasn't started marking.
+    // Start labelling the photo now, so windows and doors are ready by step 3.
+    ref.read(wallLabelsProvider(widget.imagePath));
+    ref.listenManual<WallSetup>(wallSetupProvider, (prev, next) {
+      if (prev == null) return;
+      final from = prev.wallRect, to = next.wallRect;
+      if (from != to) ref.read(obstaclesProvider.notifier).remap(from, to);
+    });
+    // The model's corners, looked for as soon as the photo opens; placed if
+    // the salesperson hasn't started marking.
     ref.listenManual<AsyncValue<CornerSuggestion>>(
       cornerSuggestionProvider(widget.imagePath),
       (_, next) => next.when(
@@ -193,6 +201,53 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
         .leanCheck(widget.imagePath, wall.corners, wall.widthMm / wall.heightMm)
         .then((lean) {
       if (mounted && run == _leanRun) setState(() => _leanDeg = lean);
+    });
+  }
+
+  /// Step 2: the wall's size, filled in from the traced corners for the
+  /// salesperson to check with a tape. Then windows and doors.
+  Future<void> _toWallSize() async {
+    final ok = await context.push<bool>('/wall-setup', extra: widget.imagePath);
+    if (ok != true || !mounted) return;
+    setState(() => _markingObstacles = true);
+    _checkLean();
+    _placeOpenings();
+  }
+
+  /// Puts the windows and doors the model sees on the wall, as boxes to
+  /// check: once per photo, and only if none have been added by hand.
+  Future<void> _placeOpenings() async {
+    if (_openingsPlaced) return;
+    _openingsPlaced = true;
+    setState(() => _lookingForOpenings = true);
+    WallLabels? labels;
+    try {
+      labels = await ref.read(wallLabelsProvider(widget.imagePath).future);
+    } catch (_) {
+      labels = null;
+    }
+    if (!mounted) return;
+    final wall = ref.read(wallSetupProvider);
+    final boxes = ref.read(obstaclesProvider.notifier);
+    if (labels == null || ref.read(obstaclesProvider).isNotEmpty) {
+      setState(() => _lookingForOpenings = false);
+      return;
+    }
+    final found =
+        findOpenings(labels, wall.corners, wall.widthMm, wall.heightMm);
+    for (final o in found) {
+      final r = o.rectMm;
+      boxes.add(Obstacle(
+        type: o.type,
+        leftPx: wall.leftLinePx + r.left * wall.scaleRatioX,
+        topPx: wall.topLinePx + r.top * wall.scaleRatioY,
+        widthPx: math.max(kMinObstaclePx, r.width * wall.scaleRatioX),
+        heightPx: math.max(kMinObstaclePx, r.height * wall.scaleRatioY),
+      ));
+    }
+    setState(() {
+      _lookingForOpenings = false;
+      _openingsFound = found;
     });
   }
 
@@ -274,7 +329,10 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         obstacles: obstacles,
                         wallSetup: wallSetup,
                         leanDeg: _leanDeg,
+                        lookingForOpenings: _lookingForOpenings,
+                        openingsFound: _openingsFound,
                         onBack: () => setState(() => _markingObstacles = false),
+                        onEditSize: _toWallSize,
                       )
                     : _CornersStep(
                         wallSetup: wallSetup,
@@ -283,10 +341,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                         selected: _corner,
                         onSelect: _selectCorner,
                         onNudge: _nudgeCorner,
-                        onNext: () {
-                          setState(() => _markingObstacles = true);
-                          _checkLean();
-                        },
+                        onNext: _toWallSize,
                       ),
               ),
             ),
@@ -547,7 +602,7 @@ class _StepHeader extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Step $step of 2',
+              'Step $step of 3',
               style: context.textTheme.labelSmall
                   ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
@@ -595,7 +650,8 @@ class _SuggestLine extends StatelessWidget {
       _Suggest.offered => (Icons.auto_fix_high_rounded, 'Found the wall’s corners.'),
       _Suggest.notFound => (
           Icons.touch_app_rounded,
-          'Couldn’t find the corners on this photo. Place them by hand.',
+          'Couldn’t find the corners on this photo, as often happens with '
+              'cabinets in front of the wall. Place them by hand.',
         ),
     };
     if (suggest == _Suggest.none) return const SizedBox.shrink();
@@ -694,60 +750,59 @@ class _CornersStep extends StatelessWidget {
             ),
           ],
         ),
-        _SizeCheck(wall: wallSetup),
       ],
     );
   }
 }
 
-/// Speaks up when the corners disagree with the size typed from the tape:
-/// the wall's proportions on the photo against width ÷ height. Catches a
-/// misread tape, or a corner on the wrong wall, before anything is quoted.
-///
-/// Silent otherwise, and never a tick: four points always fit some
-/// rectangle in perspective, so a corner slid along the wall's perspective
-/// keeps the proportions (on a test photo, 100 px off moved them 0.6% while
-/// the window moved 224 mm). The straightened wall in step 2 shows that.
-class _SizeCheck extends StatelessWidget {
-  const _SizeCheck({required this.wall});
+/// What the model found on the wall, for the windows-and-doors step.
+class _OpeningsLine extends StatelessWidget {
+  const _OpeningsLine({required this.looking, required this.found});
 
-  final WallSetup wall;
+  final bool looking;
+  final List<FoundOpening>? found;
+
+  static String _count(int n, String one) =>
+      n == 1 ? 'a $one' : '$n ${one}s';
 
   @override
   Widget build(BuildContext context) {
-    final shape = wall.photoShape;
-    // Nothing to say until the corners have been placed.
-    if (shape == null || listEquals(wall.corners, kStartCorners)) {
-      return const SizedBox.shrink();
+    final list = found;
+    if (!looking && list == null) return const SizedBox.shrink();
+    final String text;
+    if (looking) {
+      text = 'Looking for windows and doors…';
+    } else if (list!.isEmpty) {
+      text = 'No windows or doors found on the wall. Add any below.';
+    } else {
+      final windows = list.where((o) => o.type == ObstacleType.window).length;
+      final doors = list.length - windows;
+      final parts = [
+        if (windows > 0) _count(windows, 'window'),
+        if (doors > 0) _count(doors, 'door'),
+      ];
+      text = 'Found ${parts.join(' and ')}. Check each box sits on its '
+          'frame, and drag or type to fix it.';
     }
-    final typed = wall.widthMm / wall.heightMm;
-    final off = shape.aspect / typed - 1;
-    final tolerance = shape.focalSource == FocalSource.assumed
-        ? kShapeToleranceAssumedLens
-        : kShapeToleranceKnownLens;
-    if (off.abs() <= tolerance) return const SizedBox.shrink();
-    final looksWide = (shape.aspect * wall.heightMm / 10).round() * 10.0;
-    final text =
-        'On the photo this wall looks about ${_mm(looksWide)} mm wide for '
-        'its ${_mm(wall.heightMm)} mm height, not ${_mm(wall.widthMm)}. '
-        'Check the corners, or the tape.';
-    const color = AppTheme.danger;
-
+    final style = context.textTheme.bodySmall
+        ?.copyWith(color: context.colors.onSurfaceVariant);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 6),
       child: Semantics(
         liveRegion: true,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.warning_amber_rounded, size: 18, color: color),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                text,
-                style: context.textTheme.bodySmall?.copyWith(color: color),
-              ),
-            ),
+            if (looking)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(Icons.auto_fix_high_rounded,
+                  size: 18, color: context.colors.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: style)),
           ],
         ),
       ),
@@ -755,17 +810,25 @@ class _SizeCheck extends StatelessWidget {
   }
 }
 
-// ── Step 2: mark windows and doors ──────────────────────────────────────────
+// ── Step 3: mark windows and doors ──────────────────────────────────────────
 class _ObstaclesStep extends ConsumerWidget {
   const _ObstaclesStep({
     required this.obstacles,
     required this.wallSetup,
     required this.leanDeg,
     required this.onBack,
+    required this.onEditSize,
+    this.lookingForOpenings = false,
+    this.openingsFound,
   });
 
   final List<Obstacle> obstacles;
   final WallSetup wallSetup;
+  final VoidCallback onEditSize;
+
+  /// Windows and doors the model found and placed (null: none looked for).
+  final bool lookingForOpenings;
+  final List<FoundOpening>? openingsFound;
 
   /// How far upright edges lean on the straightened wall, once checked.
   final double? leanDeg;
@@ -812,12 +875,22 @@ class _ObstaclesStep extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _StepHeader(
-          step: 2,
+          step: 3,
           title: 'Mark windows & doors',
-          trailing: TextButton.icon(
-            onPressed: onBack,
-            icon: const Icon(Icons.crop_free_rounded, size: 18),
-            label: const Text('Edit corners'),
+          trailing: Wrap(
+            spacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: onBack,
+                icon: const Icon(Icons.crop_free_rounded, size: 18),
+                label: const Text('Edit corners'),
+              ),
+              TextButton.icon(
+                onPressed: onEditSize,
+                icon: const Icon(Icons.straighten_rounded, size: 18),
+                label: const Text('Edit size'),
+              ),
+            ],
           ),
         ),
         Text(
@@ -826,6 +899,10 @@ class _ObstaclesStep extends ConsumerWidget {
           'lean, a corner is off. Tap a box to type its size.',
           style: context.textTheme.bodySmall
               ?.copyWith(color: context.colors.onSurfaceVariant),
+        ),
+        _OpeningsLine(
+          looking: lookingForOpenings,
+          found: openingsFound,
         ),
         if (leanDeg case final lean? when lean.abs() > kLeanWarnDeg)
           Padding(
