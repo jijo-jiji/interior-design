@@ -154,6 +154,139 @@ class CabinetCard extends StatelessWidget {
   }
 }
 
+/// The card a unit from the tray (or the appliance list) opens before it is
+/// added: what it is, its sizes, where it can go (the free spaces on these
+/// walls), and Place. The 3D view shows it, see-through, where it would go.
+class AddCabinetCard extends StatelessWidget {
+  const AddCabinetCard({
+    super.key,
+    required this.name,
+    required this.description,
+    required this.size,
+    this.priceChange,
+    required this.sizes,
+    required this.places,
+    required this.place,
+    required this.onSize,
+    required this.onWhere,
+    required this.onPlace,
+    required this.onCancel,
+  });
+
+  final String name;
+  final String description;
+  final String size;
+
+  /// What adding it does to the total ("+RM 340"), when the price is shown.
+  final String? priceChange;
+
+  /// Its sizes; the chosen one is selected. Empty if it comes in one size.
+  final List<CardOption> sizes;
+
+  /// The free spaces it fits in; [place] is the chosen one.
+  final List<Placement> places;
+  final Placement? place;
+  final ValueChanged<CabinetChoice> onSize;
+  final ValueChanged<Placement> onWhere;
+  final VoidCallback onPlace;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = context.textTheme.bodySmall?.copyWith(color: context.colors.onSurfaceVariant);
+    return Semantics(
+      container: true,
+      label: 'Add $name',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 6, 6, 12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface.withValues(alpha: 0.98),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      text: 'Add $name',
+                      style: context.textTheme.titleSmall?.copyWith(color: context.colors.onSurface),
+                      children: [
+                        if (priceChange != null)
+                          TextSpan(
+                            text: '  $priceChange',
+                            style: context.textTheme.labelMedium?.copyWith(color: AppTheme.accent),
+                          ),
+                      ],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Cancel',
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Text('$description · $size', style: muted),
+            ),
+            if (sizes.length > 1) _Options(title: 'Size', options: sizes, onPick: onSize, widths: true),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('Where', style: context.textTheme.labelMedium?.copyWith(color: context.colors.onSurfaceVariant)),
+            ),
+            const SizedBox(height: 4),
+            if (places.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text('No room for it on these walls. Remove a cabinet or make one narrower first.', style: muted),
+              )
+            else
+              // Every free space in view at once (there are only a few).
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final p in places)
+                    ChoiceChip(
+                      label: Text(p.label),
+                      selected: p == place,
+                      onSelected: (_) => onWhere(p),
+                    ),
+                ],
+              ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: place == null ? null : onPlace,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Place it'),
+                  style: FilledButton.styleFrom(minimumSize: const Size(48, 44)),
+                ),
+                TextButton(
+                  onPressed: onCancel,
+                  style: TextButton.styleFrom(minimumSize: const Size(48, 44)),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Options extends StatelessWidget {
   const _Options(
       {required this.title,

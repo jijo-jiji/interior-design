@@ -313,6 +313,56 @@ void main() {
     });
   });
 
+  group('3D view, adding a unit', () {
+    // Edit, an empty wall, then a unit from the tray: its Add card, with the
+    // sizes and the free spaces to pick from.
+    Future<void> openAdding(WidgetTester tester, {double scale = 1}) async {
+      await _pump(tester, _screens['3D view']!(), scale: scale);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 6)); // the snack bar goes
+      await tester.ensureVisible(find.text('Base 600')); // the tray scrolls
+      await tester.pump();
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Add Base 600'), findsOneWidget);
+      expect(find.text('Place it'), findsOneWidget);
+    }
+
+    testWidgets('tap targets are at least 48x48 and labelled', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openAdding(tester);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('text meets WCAG AA contrast', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openAdding(tester);
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('lays out without overflow at 2x text size', (tester) async {
+      final errors = <String>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+      try {
+        await openAdding(tester, scale: 2);
+      } finally {
+        FlutterError.onError = previous;
+      }
+      expect(errors, isEmpty);
+      await _finish(tester);
+    });
+  });
+
   // The pixel scan above covers this too; this pins the most important
   // button's colours directly.
   testWidgets('3D view: the Quote button label meets 4.5:1', (tester) async {

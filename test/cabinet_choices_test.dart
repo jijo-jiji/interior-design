@@ -271,6 +271,114 @@ void main() {
     });
   });
 
+  group('adding a unit', () {
+    test('a tray unit offers the catalogue widths, its own one first chosen', () {
+      final choices = CabinetChoices(catalog: catalog, cabinets: const [], wall: wall);
+      final base = choices.addChoices('base_600');
+      expect(base.map((c) => c.widthMm), catalog.layout.baseDoorWidthsMm);
+      expect(base.where((c) => c.current).single.widthMm, 600);
+      expect(base.first.type, 'base_300');
+      expect(base.first.heightMm, catalog.layout.baseHeightMm);
+      final wallUnit = choices.addChoices('wall_600').firstWhere((c) => c.current);
+      expect(wallUnit.mountMm, catalog.layout.wallMountMm);
+      expect(wallUnit.depthMm, catalog.layout.wallDepthMm);
+    });
+
+    test('an appliance or a corner unit is offered as it is', () {
+      final choices = CabinetChoices(catalog: catalog, cabinets: const [], wall: wall);
+      final dishwasher = choices.addChoices('dishwasher_600');
+      expect(dishwasher.single.kind, 'dishwasher');
+      expect(dishwasher.single.type, 'dishwasher_600');
+      expect(choices.addChoices('corner_900').single.kind, 'corner');
+      expect(choices.addChoices('nonsense_1'), isEmpty);
+    });
+
+    test('an empty wall has one space: all of it, from the left end', () {
+      final choices = CabinetChoices(catalog: catalog, cabinets: const [], wall: wall);
+      final at = choices.placementsFor(choices.addChoices('base_600')[4]);
+      expect(at.single.startMm, -1800);
+      expect(at.single.label, 'At the left end · 3600 mm free');
+    });
+
+    test('gaps between cabinets, each named by its neighbour; the selected one\'s first', () {
+      final choices = CabinetChoices(catalog: catalog, cabinets: [
+        unit('l', 'base_600', -1800, 600),
+        unit('r', 'base_600', -600, 600),
+      ], wall: wall);
+      final six = choices.addChoices('base_600').firstWhere((c) => c.current);
+      final at = choices.placementsFor(six);
+      expect(at.map((p) => p.label), ['Next to Base 600 · 600 mm free', 'Next to Base 600 · 1800 mm free']);
+      expect(at.map((p) => p.startMm), [-1200, 0]);
+      // The spaces beside the cabinet the salesperson has selected come first.
+      final three = CabinetChoices(catalog: catalog, cabinets: [
+        unit('l', 'base_600', -1800, 600),
+        unit('r', 'base_600', -600, 600),
+        unit('x', 'base_600', 600, 600),
+      ], wall: wall);
+      expect(three.placementsFor(six).map((p) => p.startMm), [-1200, 0, 1200]);
+      expect(three.placementsFor(six, near: 'x').map((p) => p.startMm), [0, 1200, -1200]);
+      // Too wide for the small gap.
+      final eight = choices.addChoices('base_600').firstWhere((c) => c.widthMm == 800);
+      expect(choices.placementsFor(eight).map((p) => p.startMm), [0]);
+    });
+
+    test('a wall unit goes over floor units, but not over a window', () {
+      const window = {
+        'type': 'window',
+        'distance_from_left_mm': 1000.0,
+        'distance_from_floor_mm': 1000.0,
+        'width_mm': 900.0,
+        'height_mm': 1200.0,
+      };
+      final choices = CabinetChoices(
+          catalog: catalog,
+          cabinets: [unit('b', 'base_600', -1800, 600), unit('b2', 'base_600', -1200, 600)],
+          wall: wall,
+          obstacles: [window]);
+      final at = choices.placementsFor(choices.addChoices('wall_600').firstWhere((c) => c.current));
+      // Free: −1800 … −850 (window from −800, 50 clearance) and 150 … 1800.
+      expect(at.map((p) => p.startMm), [-1800, 150]);
+      expect(at.first.label, 'At the left end · 950 mm free');
+    });
+
+    test('a full wall has no room, and every width says so', () {
+      final full = [for (var i = 0; i < 6; i++) unit('u$i', 'base_600', -1800 + i * 600.0, 600)];
+      final choices = CabinetChoices(catalog: catalog, cabinets: full, wall: wall);
+      final widths = choices.addChoices('base_600');
+      expect(widths.every((c) => c.problem == 'No room for it on these walls'), isTrue);
+      // A wall unit still has room above.
+      expect(choices.addChoices('wall_600').firstWhere((c) => c.current).fits, isTrue);
+    });
+
+    test('the side wall of an L is offered too, past the corner', () {
+      final choices = CabinetChoices(catalog: catalog, cabinets: [
+        unit('k', 'corner_900', -1800, 900, kind: 'corner'),
+      ], wall: {...wall, 'shape': 'lShape', 'return_mm': 2000.0});
+      final at = choices.placementsFor(choices.addChoices('base_600').firstWhere((c) => c.current));
+      final side = at.firstWhere((p) => p.run == 'return');
+      expect(side.startMm, 900);
+      expect(side.label, 'On the side wall · 1100 mm free');
+    });
+
+    test('adding puts it there, sized and priced by width, with its own id', () {
+      final choices = CabinetChoices(
+          catalog: catalog, cabinets: [unit('l', 'base_600', -1800, 600)], wall: wall);
+      final four = choices.addChoices('base_600').firstWhere((c) => c.widthMm == 450);
+      final at = choices.placementsFor(four).first;
+      final after = choices.add(four, at, 'new-1');
+      expect(after.length, 2);
+      final added = after.last;
+      expect(added['id'], 'new-1');
+      expect(added['cabinet_type'], 'base_450');
+      expect(added['x_mm'], -1200 + 225);
+      expect(added['generated'], isTrue);
+      expect(added['run'], 'main');
+      // And it then fits as it is.
+      final next = CabinetChoices(catalog: catalog, cabinets: after, wall: wall);
+      expect(next.sizesFor('new-1').firstWhere((c) => c.current).fits, isTrue);
+    });
+  });
+
   group('every layout the app makes', () {
     test('every unit fits as it is, in every A, B and C, single wall and L', () {
       final rooms = <Map<String, dynamic>>[

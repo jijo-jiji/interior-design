@@ -119,6 +119,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// The cabinet whose card is open (a double tap on it in the 3D view).
   String? _openId;
 
+  /// A unit being added: what it is, its size and where it would go (the
+  /// "Add" card is open and the 3D view shows it see-through).
+  _Adding? _adding;
+
   /// Undo and redo: the cabinets (and the layout they came from) before each
   /// change to them.
   final List<_Cabinets> _undo = [];
@@ -499,9 +503,158 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   int get _cabinetCount =>
       _placedCabinets.where((c) => c['kind'] != 'filler').length;
 
-  void _spawnCabinet(String type) {
-    _scene.runJavaScript("spawnCabinet('$type')");
+  // ── Adding a unit: see it first ────────────────────────────────────────────
+
+  /// The tray or the appliance list: the unit's card opens first, showing
+  /// what it is, its sizes and where it can go, and the 3D view shows it
+  /// there; nothing is added until Place.
+  void _openAdding(String type) {
+    final choices = _choices;
+    final sizes = choices.addChoices(type);
+    if (sizes.isEmpty) return;
+    final choice = sizes.firstWhere((c) => c.current && c.fits,
+        orElse: () => sizes.firstWhere((c) => c.fits, orElse: () => sizes.firstWhere((c) => c.current)));
+    final places = choices.placementsFor(choice, near: _selectedId ?? _openId);
+    setState(() {
+      _openId = null;
+      _adding = _Adding(type: type, choice: choice, place: places.firstOrNull);
+    });
+    HapticFeedback.selectionClick();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showAdding());
+  }
+
+  /// The see-through unit where it would go, and the camera on it.
+  void _showAdding() {
+    final adding = _adding;
+    if (adding == null || !mounted) return;
+    final place = adding.place;
+    if (place == null) {
+      _scene.runJavaScript('clearPreview()');
+      return;
+    }
+    final record = _choices.recordFor(adding.choice, place, '__preview__');
+    _scene.runJavaScript('previewCabinet(${jsonEncode(jsonEncode(record))}, '
+        '${_cardInset().toStringAsFixed(3)})');
+  }
+
+  void _addingSize(CabinetChoice choice) => _refreshAdding(choice);
+
+  /// After a size change, or the cabinets changing underneath the Add card
+  /// (undo, a layout, a move): the free spaces again, staying in the same
+  /// one if it is still there.
+  void _refreshAdding([CabinetChoice? choice]) {
+    final adding = _adding;
+    if (adding == null || !mounted) return;
+    final next = choice ?? adding.choice;
+    final places = _choices.placementsFor(next, near: _selectedId);
+    final same = places.where((p) => p == adding.place).firstOrNull;
+    setState(() => _adding = _Adding(
+        type: adding.type, choice: next, place: same ?? places.firstOrNull));
+    _showAdding();
+  }
+
+  void _addingWhere(Placement place) {
+    final adding = _adding;
+    if (adding == null) return;
+    setState(() => _adding =
+        _Adding(type: adding.type, choice: adding.choice, place: place));
+    _showAdding();
+  }
+
+  /// Place: added for real, and its card opens so it can be changed.
+  void _placeAdding() {
+    final adding = _adding;
+    final place = adding?.place;
+    if (adding == null || place == null) return;
+    final id = 'C-${DateTime.now().microsecondsSinceEpoch}';
+    final next = _choices.add(adding.choice, place, id);
+    _remember();
+    setState(() {
+      _adding = null;
+      _placedCabinets
+        ..clear()
+        ..addAll(next);
+      _activeVariantKey = null; // now the salesperson's own layout
+    });
+    _scene.runJavaScript('clearPreview()');
     HapticFeedback.lightImpact();
+    _scheduleSave();
+    _pushCabinetsToScene().then((_) {
+      if (mounted) _openCard(id);
+    });
+  }
+
+  void _cancelAdding() {
+    setState(() => _adding = null);
+    _scene.runJavaScript('clearPreview(); unfocusCabinet()');
+  }
+
+  /// How much of the 3D view (0 to 0.7) the panel over its bottom covers.
+  double _cardInset() {
+    final view = _viewKey.currentContext?.findRenderObject() as RenderBox?;
+    final panel = _panelKey.currentContext?.findRenderObject() as RenderBox?;
+    if (view == null || panel == null || !view.hasSize || !panel.hasSize) {
+      return 0.45;
+    }
+    final viewTop = view.localToGlobal(Offset.zero).dy;
+    final panelTop = panel.localToGlobal(Offset.zero).dy;
+    return ((viewTop + view.size.height - panelTop) / view.size.height)
+        .clamp(0.0, 0.7);
+  }
+
+  Widget _buildAddingCard(_Adding adding) {
+    final choices = _choices;
+    final sizes = choices.addChoices(adding.type);
+    final place = adding.place;
+    final preview = place == null
+        ? null
+        : choices.recordFor(adding.choice, place, '__preview__');
+    String? change(CabinetChoice c) {
+      if (!_priceVisible || !c.fits) return null;
+      final at = choices.placementsFor(c).firstOrNull;
+      return at == null ? null : _priceChange(choices.add(c, at, '__preview__'));
+    }
+
+    return AddCabinetCard(
+      name: adding.choice.label,
+      description: choices.describe(preview ??
+          {
+            'kind': adding.choice.kind,
+            'width_mm': adding.choice.widthMm,
+            'cabinet_type': adding.choice.type,
+          }),
+      size: choices.sizeOf({
+        'width_mm': adding.choice.widthMm,
+        'height_mm': adding.choice.heightMm,
+        'depth_mm': adding.choice.depthMm,
+      }),
+      priceChange: _priceVisible && place != null
+          ? _priceChange(choices.add(adding.choice, place, '__preview__'))
+          : null,
+      sizes: [
+        for (final c in sizes)
+          CardOption(
+            CabinetChoice(
+              kind: c.kind,
+              type: c.type,
+              label: c.label,
+              widthMm: c.widthMm,
+              heightMm: c.heightMm,
+              depthMm: c.depthMm,
+              mountMm: c.mountMm,
+              current: c.type == adding.choice.type,
+              problem: c.problem,
+            ),
+            priceChange: c.type == adding.choice.type ? null : change(c),
+          ),
+      ],
+      places: choices.placementsFor(adding.choice, near: _selectedId),
+      place: place,
+      onSize: _addingSize,
+      onWhere: _addingWhere,
+      onPlace: _placeAdding,
+      onCancel: _cancelAdding,
+    );
   }
 
   /// Replaces every cabinet in the 3D scene with [_placedCabinets].
@@ -548,6 +701,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     });
     HapticFeedback.selectionClick();
     _scheduleSave();
+    _refreshAdding();
   }
 
   // ── The cabinet card ───────────────────────────────────────────────────────
@@ -570,7 +724,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _openCard(String id) {
     final record = _cabinet(id);
     if (record == null) return;
+    if (_adding != null) _scene.runJavaScript('clearPreview()');
     setState(() {
+      _adding = null;
       _openId = id;
       _selectedId = id;
       _selectedLabel = _choices.nameOf(record);
@@ -585,15 +741,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _focusOpen() {
     final id = _openId;
     if (id == null || !mounted) return;
-    var inset = 0.45;
-    final view = _viewKey.currentContext?.findRenderObject() as RenderBox?;
-    final panel = _panelKey.currentContext?.findRenderObject() as RenderBox?;
-    if (view != null && panel != null && view.hasSize && panel.hasSize) {
-      final viewTop = view.localToGlobal(Offset.zero).dy;
-      final panelTop = panel.localToGlobal(Offset.zero).dy;
-      inset = ((viewTop + view.size.height - panelTop) / view.size.height)
-          .clamp(0.0, 0.7);
-    }
+    final inset = _cardInset();
     _scene.runJavaScript(
         'focusCabinet(${jsonEncode(id)}, ${inset.toStringAsFixed(3)})');
   }
@@ -695,6 +843,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     HapticFeedback.lightImpact();
     _showVariantWarnings(variant);
     _scheduleSave();
+    _refreshAdding();
   }
 
   void _clearLayout() {
@@ -708,6 +857,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _selectedLabel = null;
     });
     _pushCabinetsToScene();
+    _refreshAdding();
     HapticFeedback.lightImpact();
     final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
     _snackBarsWithActions++;
@@ -726,6 +876,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   _activeVariantKey = previousVariant;
                 });
                 _pushCabinetsToScene();
+                _refreshAdding();
                 _scheduleSave();
               },
             ),
@@ -739,9 +890,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _setEditing(bool editing) {
+    if (!editing && _adding != null) _scene.runJavaScript('clearPreview()');
     setState(() {
       _editing = editing;
       if (!editing) {
+        _adding = null;
         _selectedId = null;
         _selectedLabel = null;
       }
@@ -812,6 +965,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             _activeVariantKey = null; // now the salesperson's own layout
           });
           _scheduleSave();
+          _refreshAdding();
         case 'cabinet_removed':
           _remember();
           if (_openId != null && _openId == data['id']) {
@@ -827,6 +981,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             }
           });
           _scheduleSave();
+          _refreshAdding();
         case 'cabinet_moved':
           // Keep the saved position in sync with drags in the 3D view.
           final i = _placedCabinets.indexWhere((c) => c['id'] == data['id']);
@@ -840,6 +995,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               _activeVariantKey = null;
             });
             _scheduleSave();
+            _refreshAdding();
           }
         case 'cabinet_selected':
           setState(() {
@@ -929,7 +1085,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               Text('Add an appliance', style: context.textTheme.titleMedium),
               const SizedBox(height: 4),
               Text(
-                'Prices cover the cabinetry, cutouts and services. The '
+                'Each covers the cabinetry, cutouts and services. The '
                 'appliance itself is quoted separately.',
                 style: context.textTheme.bodySmall
                     ?.copyWith(color: context.colors.onSurfaceVariant),
@@ -943,13 +1099,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   title: Text(item.label),
                   subtitle:
                       Text(_applianceInfo(_catalog.kindOf(item.type)).blurb),
-                  trailing: Text(
-                    formatMoney(item.price),
-                    style: context.textTheme.labelLarge,
-                  ),
+                  // Like the rest of the screen: no prices until shown.
+                  trailing: _priceVisible
+                      ? Text(
+                          formatMoney(item.price),
+                          style: context.textTheme.labelLarge,
+                        )
+                      : null,
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    _spawnCabinet(item.type);
+                    _openAdding(item.type);
                   },
                 ),
             ],
@@ -1747,14 +1906,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   key: _panelKey,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_openId != null && _cabinet(_openId!) != null)
+                    if (_adding != null)
+                      _buildAddingCard(_adding!)
+                    else if (_openId != null && _cabinet(_openId!) != null)
                       _buildCabinetCard(_cabinet(_openId!)!)
                     else if (_editing)
                       _EditPanel(
                         selectedLabel: _selectedLabel,
                         selectedMovable: _selectedMovable,
                         hasCabinets: _placedCabinets.isNotEmpty,
-                        onAdd: _spawnCabinet,
+                        onAdd: _openAdding,
                         onSelectAdjacent: _selectAdjacent,
                         onMove: _nudgeSelected,
                         onRemoveSelected: _removeSelected,
@@ -2052,12 +2213,14 @@ class _EditPanel extends StatelessWidget {
             children: [
               const Icon(Icons.edit_outlined, size: 16, color: AppTheme.accent),
               const SizedBox(width: 6),
-              Text(
-                'Edit cabinets',
-                style: context.textTheme.labelLarge
-                    ?.copyWith(color: context.colors.onSurface),
+              // Wraps at large text sizes rather than pushing Done off.
+              Expanded(
+                child: Text(
+                  'Edit cabinets',
+                  style: context.textTheme.labelLarge
+                      ?.copyWith(color: context.colors.onSurface),
+                ),
               ),
-              const Spacer(),
               TextButton(
                 onPressed: onDone,
                 style: TextButton.styleFrom(
@@ -2417,3 +2580,13 @@ class _JoineryModuleButton extends StatelessWidget {
 
 /// The cabinets at one moment, and the layout (A, B, C) they came from.
 typedef _Cabinets = ({List<Map<String, dynamic>> cabinets, String? variant});
+
+/// A unit being added: the tray item it came from, the size chosen and the
+/// free space it would go in (null: no room for it).
+class _Adding {
+  const _Adding({required this.type, required this.choice, required this.place});
+
+  final String type;
+  final CabinetChoice choice;
+  final Placement? place;
+}

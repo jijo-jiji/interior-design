@@ -195,6 +195,28 @@ accident. Without a double tap: **Edit**, pick a cabinet, **Change**.
 **Undo** and **Redo** in the top bar take back any change to the cabinets: a
 layout switched, a cabinet added, moved, resized, swapped or removed.
 
+### Adding a unit: see it first
+
+A unit from the **Edit** tray or the **Appliances** list is not dropped at the
+end of the wall any more. Its card opens first ("Add Base 600 · Floor unit
+with 2 doors · 600 × 850 × 600 mm") and the 3D view shows it, see-through with
+a green outline, where it would go:
+
+- **Size:** its other widths; one with no room on these walls is greyed out.
+- **Where:** every free space it fits in, by what is next to it ("At the left
+  end · 950 mm free", "Next to Drawers 600 · 1200 mm free", "On the side
+  wall · 1100 mm free"). Floor units go where the floor run has room (a
+  window above the worktop doesn't count); wall units go where the wall-unit
+  band is free (not over a window); tall units need both. The space next to
+  the selected cabinet comes first. A unit goes at the start of its space,
+  touching its neighbour.
+- With the price shown, the card says what it adds ("+RM 340"), and so does
+  each size; while the client sees the design first, it doesn't (nor does the
+  appliance list).
+- **Place it** adds it, and its own card opens so it can be changed or moved
+  at once; **Undo** takes it back. **Cancel** adds nothing.
+- If there is no room anywhere, the card says so and Place is off.
+
 ### Look of the design (doors, backsplash, decor, room, light)
 
 The palette icon on the 3D screen changes how the design is dressed, in 3D

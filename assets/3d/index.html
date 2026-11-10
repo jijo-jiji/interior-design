@@ -2464,6 +2464,60 @@ function focusCameraOn(cab, inset) {
   moveCamera(pos, target);
 }
 
+// ── A cabinet not placed yet ─────────────────────────────────────────────────
+// While the app's "Add" card is open, the unit it would add shows where it
+// would go: see-through, with a green outline, not tappable, not counted, not
+// in the pictures. The camera goes to it as to a cabinet.
+let previewGroup = null, previewOutline = null;
+
+function clearPreviewGroup() {
+  if (previewOutline) { scene.remove(previewOutline); previewOutline.geometry.dispose(); previewOutline.material.dispose(); previewOutline = null; }
+  if (!previewGroup) return;
+  scene.remove(previewGroup);
+  previewGroup.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.userData.previewMaterial) o.material.dispose();
+  });
+  previewGroup = null;
+}
+
+window.previewCabinet = function(json, inset) {
+  clearPreviewGroup();
+  let c;
+  try { c = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return false; }
+  if (!c || !c.width_mm) return false;
+  const spec = specFromEntry({ ...c, generated: true });
+  const group = createCabinetGroup(c.cabinet_type, spec, '__preview__');
+  group.userData.run = c.run || 'main';
+  group.userData.isPreview = true;
+  placeCabinet(group, spec, { x: (c.x_mm || 0) * MM, run: c.run, offset_mm: c.offset_mm || 0 });
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    // The materials are shared with the real cabinets: see-through copies.
+    const m = o.material.clone();
+    m.transparent = true; m.opacity = 0.45; m.depthWrite = false;
+    o.material = m;
+    o.userData.previewMaterial = true;
+    o.castShadow = false;
+  });
+  scene.add(group);
+  previewGroup = group;
+  group.updateMatrixWorld(true);
+  previewOutline = new THREE.BoxHelper(group, 0x2f8f6f);
+  previewOutline.userData.noPicture = true;
+  scene.add(previewOutline);
+  if (inset !== undefined) window.setViewInset(inset);
+  focusCameraOn(group, viewInset);
+  invalidate();
+  return true;
+};
+
+/** The Add card closed (or the unit was placed): the see-through one goes. */
+window.clearPreview = function() {
+  clearPreviewGroup();
+  invalidate();
+};
+
 /** Selects the cabinet [id] and takes the camera to it (the app's card is open on it). */
 window.focusCabinet = function(id, inset) {
   const cab = cabinetById(id);
@@ -2974,7 +3028,7 @@ window.capturePictures = function(requestId) {
     updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
-    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline].filter(o => o && o.visible);
     try {
       hidden.forEach(o => { o.visible = false; });
       renderer.setPixelRatio(1);
@@ -3494,7 +3548,7 @@ window.renderPictures = async function(requestId, options) {
     updateRoom();
     const prevRatio = renderer.getPixelRatio();
     const prevSize = renderer.getSize(new THREE.Vector2());
-    const hidden = [selectionBox, snapGuideLine, houseGroup].filter(o => o && o.visible);
+    const hidden = [selectionBox, snapGuideLine, houseGroup, previewGroup, previewOutline].filter(o => o && o.visible);
     const canvasEl = renderer.domElement;
     const wasHidden = canvasEl.style.visibility;
     try {

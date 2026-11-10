@@ -545,6 +545,23 @@ Design review of the Flutter sales flow (in chat): biggest issues were client-vi
 **Not done / open**
 - **Making room:** a wider unit in a full run is greyed out; neighbours are never moved or narrowed for it. A "make room" choice (narrow or shift the neighbour) is the obvious next step if salespeople ask for it.
 - Fit is geometry only: the design rules (sink-to-hob spacing and so on) are not rechecked after a change.
-- Phase 2 (preview before adding), phase 3 (walls: paint, tiles, panels, and a hidden door, a door or a window in a blank wall, priced; needs the designer's prices) and phase 4 (per-cabinet options; the Studio) are not started.
+- Phase 2 (preview before adding) is done (§25). Phase 3 (walls: paint, tiles, panels, and a hidden door, a door or a window in a blank wall, priced; needs the designer's prices) and phase 4 (per-cabinet options; the Studio) are not started.
 - Not tried on a real tablet: the double-tap timing (380 ms) and the camera glide.
+
+## 25. Session 2026-11-10 — adding a unit: see it first (UX, phase 2)
+
+**Why:** a unit from the tray was dropped at the end of the wall straight away (or on top of whatever was there), with no word on what it is, and then had to be nudged 50 mm a tap to where the client wanted it. The plan's phase 2: **pick anything and it pops up first: what it is and its variants**, then place it.
+
+**Built**
+- `CabinetChoices` (`lib/features/viewer/models/cabinet_choices.dart`): `addChoices(type)` (the tray item's sizes, from its family, greyed out with "No room for it on these walls" where nothing fits; an appliance unit or corner at its one size; nothing for a type the catalogue doesn't know), `placementsFor(choice, near:)` (every free space on the main wall and the L's side wall for that unit's height bands, using the same blockers as phase 1's fit check: neighbours, wall ends, doors, windows and their clearances; named by what is next to it, with the room it has; the space next to the selected cabinet first), `recordFor` and `add` (the new record at the start of the space, `generated: true`).
+- 3D page: `previewCabinet(json, inset)` draws the unit where it would go, see-through (its own copies of the materials, so the real cabinets are untouched), with a green outline, casting no shadow, not tappable, not counted in the design's size, left out of pictures and renders; the camera goes to it as to an opened cabinet. `clearPreview()` takes it away and frees it.
+- App: `AddCabinetCard` (`lib/features/viewer/widgets/cabinet_card.dart`): "Add Base 600", what it is and its size, the cost of adding it when the price is shown, **Size** chips, **Where** chips (all in view, wrapping), **Place it** and **Cancel**. The tray and the Appliances list open it instead of adding; Place adds the unit (undoable), then opens its own card with the camera on it. If the cabinets change underneath it (undo, a layout, a move, a removal), its free spaces are worked out again, keeping the one chosen if it is still there. A double tap on a placed cabinet while adding switches to that cabinet's card.
+- Fixes found on the way: the appliance list showed RM prices while the price was hidden from the client (now only once shown); the Edit panel's title row overflowed at 2× text (now wraps).
+
+**Verified:** Flutter 363 in all: the choices model 28, the viewer 5 more and 2 updated (tray opens the card and nothing is added before Place; the see-through unit sent with the card's inset; Place adds, opens its card, undo; size and space changes; Cancel; a full wall with Place off; appliances; a double tap while adding), 3 accessibility checks of the Add card (tap targets, labels, contrast, 2× text). 3D page in Chromium: 16 checks (drawn at the size and place asked, see-through, no shadow, the real cabinets' materials untouched, not in the list or the design's size, a tap doesn't pick it, one at a time, kept when the cabinets are replaced, left out of pictures, cleared and its geometry freed, camera there and back, bad input). Through the real web app: 20 checks (tray card, nothing added before Place, see-through unit with the camera on it, size change, Place adds it and opens its card, the next space named after the first, Cancel, appliances with no prices while hidden, undo and redo, and the quote carries both).
+
+**Not done / open**
+- A unit always goes at the start of its space; to put it elsewhere in a long space, place it and then move it (the card's Move buttons are right there).
+- No "make room" yet (as in phase 1): a full wall says so; nothing is narrowed or shifted for the new unit.
+- Phase 3 (walls) next, with placeholder prices until the designer's are in.
 

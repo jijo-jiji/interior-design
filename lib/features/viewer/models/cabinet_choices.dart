@@ -147,6 +147,150 @@ class CabinetChoices {
     return [for (final x in cabinets) x['id'] == id ? record : x];
   }
 
+  // ── Adding a unit ─────────────────────────────────────────────────────────
+
+  /// What a unit from the tray (or the appliance list) can be: the widths
+  /// the catalogue makes of it, the tray's own one marked current; or itself
+  /// alone if it is sold at one size (an appliance, a corner unit). Each says
+  /// if there is room for it anywhere on these walls.
+  List<CabinetChoice> addChoices(String type) {
+    final module = catalog.module(type);
+    if (module == null && catalog.familyFor(type) == null) return const [];
+    final kind = catalog.kindOf(type);
+    final family = _families[kind];
+    final widths = family?.widths(catalog.layout) ?? const <double>[];
+    final List<CabinetChoice> made;
+    if (family != null && widths.isNotEmpty && !(module?.isAppliance ?? false)) {
+      final own = module?.widthMm ?? widths.first;
+      made = [
+        for (final w in widths)
+          _newChoice(family, w, current: (w - own).abs() < 0.5),
+      ];
+    } else if (module != null) {
+      made = [
+        CabinetChoice(
+          kind: kind,
+          type: module.type,
+          label: module.label,
+          widthMm: module.widthMm,
+          heightMm: module.heightMm,
+          depthMm: module.depthMm,
+          mountMm: module.mountMm,
+          current: true,
+        ),
+      ];
+    } else {
+      return const [];
+    }
+    return [
+      for (final c in made)
+        placementsFor(c).isEmpty
+            ? c.withProblem('No room for it on these walls')
+            : c,
+    ];
+  }
+
+  CabinetChoice _newChoice(_Family f, double widthMm, {required bool current}) {
+    final w = widthMm.round();
+    return CabinetChoice(
+      kind: f.kind,
+      type: '${f.prefix}$w',
+      label: '${f.label} $w',
+      widthMm: widthMm,
+      heightMm: f.height(catalog.layout),
+      depthMm: f.depth(catalog.layout),
+      mountMm: f.mount(catalog.layout),
+      current: current,
+    );
+  }
+
+  /// Every free space on these walls a [choice] fits in, at its height
+  /// (floor, wall units, or both for a tall unit): its left end against the
+  /// cabinet (or wall end) on the left. The ones beside [near] (the
+  /// selected cabinet) come first.
+  List<Placement> placementsFor(CabinetChoice choice, {String? near}) {
+    final bands = _bandsOfKind(choice.kind);
+    final out = <Placement>[];
+    for (final run in ['main', if (_returnMm > 0) 'return']) {
+      final (lo, hi) = _runBounds(run);
+      final blocked = _blockersOn(run, bands)
+        ..sort((a, b) => a.$1.compareTo(b.$1));
+      final free = <(double, double)>[];
+      var cursor = lo;
+      for (final (s, e) in blocked) {
+        if (s > cursor) free.add((cursor, s < hi ? s : hi));
+        if (e > cursor) cursor = e;
+      }
+      if (cursor < hi) free.add((cursor, hi));
+      for (final (s, e) in free) {
+        if (e - s + _slackMm < choice.widthMm) continue;
+        final left = _neighbour(run, s, bands, endsAt: true);
+        final right = _neighbour(run, e, bands, endsAt: false);
+        final where = left != null
+            ? 'Next to ${nameOf(left)}'
+            : run == 'return'
+                ? 'On the side wall'
+                : s <= lo + _slackMm
+                    ? 'At the left end'
+                    : right != null
+                        ? 'Before ${nameOf(right)}'
+                        : 'In the gap';
+        out.add(Placement(
+          run: run,
+          startMm: s,
+          freeMm: e - s,
+          label: '$where · ${_mm(e - s)} mm free',
+          beside: {
+            if (left != null) left['id'] as String,
+            if (right != null) right['id'] as String,
+          },
+        ));
+      }
+    }
+    if (near == null) return out;
+    return [
+      ...out.where((p) => p.beside.contains(near)),
+      ...out.where((p) => !p.beside.contains(near)),
+    ];
+  }
+
+  /// The cabinet on [run] at [band] height whose end (or start) is at [at].
+  Map<String, dynamic>? _neighbour(String run, double at, Set<_Band> bands,
+      {required bool endsAt}) {
+    for (final o in cabinets) {
+      if ((o['run'] == 'return') != (run == 'return')) continue;
+      if (_bandsOf(o).intersection(bands).isEmpty) continue;
+      final (s, e) = _span(o);
+      if (((endsAt ? e : s) - at).abs() <= _slackMm) return o;
+    }
+    return null;
+  }
+
+  /// The record [choice] gets at [at], with [id].
+  Map<String, dynamic> recordFor(
+      CabinetChoice choice, Placement at, String id) {
+    final center = at.startMm + choice.widthMm / 2;
+    return {
+      'id': id,
+      'cabinet_type': choice.type,
+      'label': choice.label,
+      'kind': choice.kind,
+      'run': at.run,
+      'width_mm': choice.widthMm,
+      'height_mm': choice.heightMm,
+      'depth_mm': choice.depthMm,
+      'mount_mm': choice.mountMm,
+      if (at.run == 'return') 'offset_mm': center.round() else 'x_mm': center.round(),
+      // Drawn and priced from its own size, like a generated unit.
+      'generated': true,
+    };
+  }
+
+  /// Every cabinet, and [choice] added at [at].
+  List<Map<String, dynamic>> add(
+          CabinetChoice choice, Placement at, String id) =>
+      [...cabinets, recordFor(choice, at, id)];
+
   // ── Choices ───────────────────────────────────────────────────────────────
 
   CabinetChoice _choice(Map<String, dynamic> c, _Family f, double widthMm) {
@@ -235,11 +379,16 @@ class CabinetChoices {
 
   /// What else takes the same run and height band: the other cabinets, and
   /// on the main wall the doors and windows (with the catalogue's clearance).
-  List<(double, double)> _blockers(Map<String, dynamic> c, Set<_Band> bands) {
-    final isReturn = c['run'] == 'return';
+  List<(double, double)> _blockers(Map<String, dynamic> c, Set<_Band> bands) =>
+      _blockersOn(c['run'] == 'return' ? 'return' : 'main', bands,
+          except: c['id'] as String?);
+
+  List<(double, double)> _blockersOn(String run, Set<_Band> bands,
+      {String? except}) {
+    final isReturn = run == 'return';
     final out = <(double, double)>[];
     for (final o in cabinets) {
-      if (o['id'] == c['id'] || (o['run'] == 'return') != isReturn) continue;
+      if (o['id'] == except || (o['run'] == 'return') != isReturn) continue;
       if (_bandsOf(o).intersection(bands).isEmpty) continue;
       out.add(_span(o));
     }
@@ -271,8 +420,11 @@ class CabinetChoices {
 
   /// Where a run may hold cabinets: the main wall end to end; the side wall
   /// from past the corner to its end.
-  (double, double) _bounds(Map<String, dynamic> c) {
-    if (c['run'] != 'return') return (-_wallMm / 2, _wallMm / 2);
+  (double, double) _bounds(Map<String, dynamic> c) =>
+      _runBounds(c['run'] == 'return' ? 'return' : 'main');
+
+  (double, double) _runBounds(String run) {
+    if (run != 'return') return (-_wallMm / 2, _wallMm / 2);
     final hasCorner = cabinets.any((o) => kindOf(o) == 'corner');
     return (
       hasCorner ? catalog.layout.cornerSizeMm : catalog.layout.baseDepthMm,
@@ -374,6 +526,52 @@ class CabinetChoice {
   final String? problem;
 
   bool get fits => problem == null;
+
+  CabinetChoice withProblem(String? problem) => CabinetChoice(
+        kind: kind,
+        type: type,
+        label: label,
+        widthMm: widthMm,
+        heightMm: heightMm,
+        depthMm: depthMm,
+        mountMm: mountMm,
+        current: current,
+        problem: problem,
+      );
+}
+
+/// A free space a new unit can go in.
+class Placement {
+  const Placement({
+    required this.run,
+    required this.startMm,
+    required this.freeMm,
+    required this.label,
+    this.beside = const {},
+  });
+
+  /// `main` or `return` (the side wall of an L).
+  final String run;
+
+  /// Where the unit's left (near) end goes: from the wall's centre on the
+  /// main wall, from the main wall's face on the side wall.
+  final double startMm;
+
+  /// How much room the space has.
+  final double freeMm;
+
+  /// "Next to Sink 900 · 600 mm free".
+  final String label;
+
+  /// The cabinets on either side of the space.
+  final Set<String> beside;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Placement && other.run == run && (other.startMm - startMm).abs() < 0.5;
+
+  @override
+  int get hashCode => Object.hash(run, startMm.round());
 }
 
 enum _Band { floor, wall }

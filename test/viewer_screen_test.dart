@@ -242,8 +242,11 @@ void main() {
       expect(find.text('Base 300'), findsOneWidget);
       expect(find.text('Corner 900'), findsOneWidget);
 
+      // It opens its card first; nothing is added until Place.
       await tester.tap(find.text('Base 300'));
-      expect(page().javaScript, contains("spawnCabinet('base_300')"));
+      await tester.pump();
+      expect(find.text('Add Base 300'), findsOneWidget);
+      expect(page().javaScript.where((c) => c.startsWith('spawnCabinet(')), isEmpty);
       await finish(tester);
     });
 
@@ -258,7 +261,16 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Appliances'));
       await tester.pumpAndSettle();
+      expect(find.text('Sink 600'), findsOneWidget);
+      expect(find.textContaining('RM'), findsNothing,
+          reason: 'no prices while the client sees the design first');
+      Navigator.of(tester.element(find.text('Sink 600'))).pop();
+      await tester.pumpAndSettle();
 
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      await tester.tap(find.text('Appliances'));
+      await tester.pumpAndSettle();
       expect(find.text('Sink 600'), findsOneWidget);
       expect(find.text('RM 515'), findsOneWidget);
       expect(find.text('Dishwasher (integrated)'), findsOneWidget);
@@ -500,6 +512,172 @@ void main() {
       await tester.pump();
       expect(lastLayout(), b);
       expect(find.textContaining('your changes'), findsNothing, reason: 'back on layout B');
+      await finish(tester);
+    });
+
+    /// The see-through unit the app last asked the page to show, and the
+    /// share of the view the card covers.
+    (Map<String, dynamic>, double) lastPreview() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('previewCabinet('));
+      final comma = call.lastIndexOf(', ');
+      final arg = call.substring('previewCabinet('.length, comma);
+      return (
+        jsonDecode(jsonDecode(arg) as String) as Map<String, dynamic>,
+        double.parse(call.substring(comma + 2, call.length - 1)),
+      );
+    }
+
+    Future<void> editEmptyWall(WidgetTester tester) async {
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      expect(lastLayout(), isEmpty);
+    }
+
+    void placedFromPage(String id, double xMm) => fromPage({
+          'event': 'cabinet_placed',
+          'id': id,
+          'cabinet_type': 'base_600',
+          'label': 'Base 600',
+          'kind': 'base',
+          'run': 'main',
+          'width_mm': 600.0,
+          'height_mm': 850.0,
+          'depth_mm': 600.0,
+          'mount_mm': 0.0,
+          'x_mm': xMm,
+        });
+
+    testWidgets('a tray unit shows first what it is and where it goes; Place adds it', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      final sentBefore = page().javaScript.length;
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      expect(find.textContaining('Floor unit with 2 doors'), findsOneWidget);
+      expect(find.text('Size'), findsOneWidget);
+      expect(find.text('Where'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'At the left end · 3600 mm free'), findsOneWidget);
+      final sent = page().javaScript.skip(sentBefore).toList();
+      expect(sent.where((c) => c.startsWith('spawnCabinet(') || c.startsWith('replaceCabinets(')), isEmpty,
+          reason: 'nothing is added before Place');
+      // The 3D view shows it, see-through, where it would go, framed above the card.
+      final (ghost, inset) = lastPreview();
+      expect(ghost['cabinet_type'], 'base_600');
+      expect(ghost['run'], 'main');
+      expect(ghost['x_mm'], -1500);
+      expect(inset, inInclusiveRange(0.2, 0.7));
+
+      await tester.tap(find.text('Place it'));
+      await tester.pump();
+      await tester.pump();
+      final now = lastLayout();
+      expect(now, hasLength(1));
+      expect(now.single['cabinet_type'], 'base_600');
+      expect(now.single['x_mm'], -1500);
+      expect(page().javaScript, contains('clearPreview()'));
+      // Its own card opens, with the camera on it.
+      expect(find.text('Add Base 600'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(page().javaScript.last, startsWith('focusCabinet("${now.single['id']}"'));
+
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout(), isEmpty, reason: 'adding can be undone');
+      await finish(tester);
+    });
+
+    testWidgets('size and place can be changed first; Cancel adds nothing', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      placedFromPage('M', 0); // one in the middle: a space each side
+      await tester.pump();
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.widgetWithText(ChoiceChip, 'At the left end · 1500 mm free'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Next to Base 600 · 1500 mm free'), findsOneWidget);
+      expect(lastPreview().$1['x_mm'], -1500);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Next to Base 600 · 1500 mm free'));
+      await tester.pump();
+      expect(lastPreview().$1['x_mm'], 600, reason: 'right after the one in the middle');
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '450'));
+      await tester.pump();
+      expect(find.text('Add Base 450'), findsOneWidget);
+      expect(lastPreview().$1['cabinet_type'], 'base_450');
+      expect(lastPreview().$1['x_mm'], 525, reason: 'stays in the space it was in');
+
+      expect(find.textContaining('RM'), findsNothing, reason: 'the client sees the design first');
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining('+RM '), findsWidgets);
+
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pump();
+      expect(page().javaScript.last, 'clearPreview(); unfocusCabinet()');
+      expect(find.text('Add Base 450'), findsNothing);
+      expect(find.text('Edit cabinets'), findsOneWidget);
+      expect(lastLayout(), isEmpty, reason: 'nothing was pushed');
+      await finish(tester);
+    });
+
+    testWidgets('a full wall: Place is off and the card says why', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      for (var i = 0; i < 6; i++) {
+        placedFromPage('F$i', -1500.0 + 600 * i);
+      }
+      await tester.pump();
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      expect(find.textContaining('No room for it on these walls'), findsWidgets);
+      final place = tester.widget<FilledButton>(find.ancestor(of: find.text('Place it'), matching: find.byType(FilledButton)));
+      expect(place.onPressed, isNull);
+      expect(page().javaScript.last, 'clearPreview()');
+      await finish(tester);
+    });
+
+    testWidgets('appliances go through the same card', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      final appliance = PriceCatalog.current.applianceModules.first;
+      await tester.tap(find.text('Appliances'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text(appliance.label));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Add ${appliance.label}'), findsOneWidget);
+      expect(find.text('Size'), findsNothing, reason: 'an appliance unit comes in one size');
+      expect(lastPreview().$1['cabinet_type'], appliance.type);
+      await finish(tester);
+    });
+
+    testWidgets('a double tap on a placed cabinet while adding opens that one instead', (tester) async {
+      await pumpViewer(tester);
+      final base = firstBase();
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label'], 'movable': true});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(page().javaScript, contains('clearPreview()'));
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'));
       await finish(tester);
     });
 
