@@ -1672,40 +1672,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _priceVisible
-                ? InkWell(
-                    onTap: _showBOQSheet,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TweenAnimationBuilder<double>(
-                          tween:
-                              Tween<double>(begin: 0, end: summary.totalPrice),
-                          duration: const Duration(milliseconds: 400),
-                          curve: Curves.easeOutCubic,
-                          builder: (context, val, _) => Text(
-                            formatMoney(val),
-                            style: context.textTheme.titleLarge
-                                ?.copyWith(color: context.colors.onSurface),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          summary.totalPrice > 0
-                              ? 'Estimate · ${cabinetCountLabel(_cabinetCount)} · Details'
-                              : 'Add cabinets to see an estimate',
-                          style: context.textTheme.bodySmall?.copyWith(
-                              color: context.colors.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  )
-                : Row(
+      child: _priceVisible
+          ? LayoutBuilder(
+              builder: (context, constraints) =>
+                  _estimateWithPrice(summary, constraints.maxWidth),
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: Row(
                     children: [
                       // Flexible so a large system font size can't overflow.
                       Flexible(
@@ -1726,29 +1701,152 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(width: 4),
+                _quoteButton(),
+              ],
+            ),
+    );
+  }
+
+  Widget _quoteButton() => ElevatedButton.icon(
+        onPressed: _sceneLoaded && !_rendering ? _openClosingModal : null,
+        icon: const Icon(Icons.send_rounded, size: 16),
+        label: const Text('Quote'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(48, 48),
+        ),
+      );
+
+  /// The estimate bar with the price shown, [width] wide inside its padding:
+  /// the total (a tap opens the details), Hide price and Quote in one row
+  /// while the total fits on one line there. With large text on a phone it
+  /// doesn't, and squeezed beside the buttons it wrapped a word or a few
+  /// digits at a time, pushing the panel above it off the top of the screen.
+  /// Then the same row wraps: the total across the bar, the buttons under it.
+  Widget _estimateWithPrice(CPQSummary summary, double width) {
+    final totalStyle =
+        context.textTheme.titleLarge?.copyWith(color: context.colors.onSurface);
+    final estimate = InkWell(
+      onTap: _showBOQSheet,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: summary.totalPrice),
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+            builder: (context, val, _) =>
+                Text(formatMoney(val), style: totalStyle),
           ),
-          if (_priceVisible)
-            IconButton(
-              tooltip: 'Hide price',
-              onPressed: () => setState(() => _priceVisible = false),
-              icon: const Icon(
-                Icons.visibility_off_outlined,
-                color: AppTheme.textSecondary,
-                size: 20,
-              ),
-            ),
-          const SizedBox(width: 4),
-          ElevatedButton.icon(
-            onPressed: _sceneLoaded && !_rendering ? _openClosingModal : null,
-            icon: const Icon(Icons.send_rounded, size: 16),
-            label: const Text('Quote'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(48, 48),
-            ),
+          const SizedBox(height: 2),
+          Text(
+            summary.totalPrice > 0
+                ? 'Estimate · ${cabinetCountLabel(_cabinetCount)} · Details'
+                : 'Add cabinets to see an estimate',
+            style: context.textTheme.bodySmall
+                ?.copyWith(color: context.colors.onSurfaceVariant),
           ),
         ],
       ),
     );
+    final hide = IconButton(
+      tooltip: 'Hide price',
+      onPressed: () => setState(() => _priceVisible = false),
+      icon: const Icon(
+        Icons.visibility_off_outlined,
+        color: AppTheme.textSecondary,
+        size: 20,
+      ),
+    );
+
+    // Hide price is 48 wide; Quote is its label plus a 16 icon, the gap
+    // before the label (8 at most) and the theme's 20 a side.
+    final quoteWidth =
+        _oneLineWidth('Quote', context.textTheme.labelLarge) + 16 + 8 + 40;
+    final besideButtons = width - 48 - 4 - quoteWidth;
+    if (_oneLineWidth(formatMoney(summary.totalPrice), totalStyle) <=
+        besideButtons) {
+      return Row(
+        children: [
+          Expanded(child: estimate),
+          hide,
+          const SizedBox(width: 4),
+          _quoteButton(),
+        ],
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        estimate,
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [hide, const SizedBox(width: 4), _quoteButton()],
+        ),
+      ],
+    );
+  }
+
+  /// How wide [text] is on one line in [style], at the user's text size.
+  double _oneLineWidth(String text, TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  /// The panel over the estimate bar: the card being looked at, the Edit
+  /// panel or the layouts bar. It scrolls when the space under the style
+  /// pills can't hold it all (large text on a phone); a new one starts at
+  /// its top.
+  Widget _buildPanelSlot() {
+    final Widget slot;
+    if (_adding != null) {
+      slot = _buildAddingCard(_adding!);
+    } else if (_openId != null && _cabinet(_openId!) != null) {
+      slot = _buildCabinetCard(_cabinet(_openId!)!);
+    } else if (_editing) {
+      slot = _EditPanel(
+        selectedLabel: _selectedLabel,
+        selectedMovable: _selectedMovable,
+        hasCabinets: _placedCabinets.isNotEmpty,
+        onAdd: _openAdding,
+        onSelectAdjacent: _selectAdjacent,
+        onMove: _nudgeSelected,
+        onRemoveSelected: _removeSelected,
+        onOpenSelected: () {
+          final id = _selectedId;
+          if (id != null) _openCard(id);
+        },
+        onClearAll: _clearLayout,
+        onAppliances: _showApplianceSheet,
+        onBenchtop: _showBenchtopSheet,
+        benchtopName: _benchtopMaterial == null
+            ? null
+            : _catalog.benchtopOptions[_benchtopMaterial]?.name,
+        modules: _catalog.cabinetModules,
+        kindOf: _catalog.kindOf,
+        onDone: () => _setEditing(false),
+      );
+    } else {
+      slot = _LayoutVariantBar(
+        variants: _variants,
+        activeKey: _activeVariantKey,
+        onSelect: _selectVariant,
+        onEdit: () => _setEditing(true),
+      );
+    }
+    return SingleChildScrollView(key: ValueKey(slot.runtimeType), child: slot);
   }
 
   @override
@@ -1818,135 +1916,115 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
               ),
             )
-          else ...[
-            // ── Style ────────────────────────────────────────────────────────
+          else
+            // The style pills, the Kitchen / Room / House switch and, in the
+            // space left under them, the panel. However tall the panel gets
+            // (large text, a long card) it stays on screen and clear of the
+            // controls above it: its upper part scrolls instead.
             Positioned(
               top: 12,
               left: 14,
               right: 14,
-              // Only as wide as the pills, so the 3D view beside them stays
-              // draggable in the browser.
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: PointerShield(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _StylePill(
-                          label: 'Japandi',
-                          styleKey: 'japandi',
-                          activeKey: _currentStyle,
-                          color: const Color(0xFFC4A47C),
-                          onTap: () => _switchStyle('japandi'),
-                        ),
-                        const SizedBox(width: 8),
-                        _StylePill(
-                          label: 'Minimalist',
-                          styleKey: 'minimalist',
-                          activeKey: _currentStyle,
-                          color: const Color(0xFF2E3340),
-                          onTap: () => _switchStyle('minimalist'),
-                        ),
-                        const SizedBox(width: 8),
-                        _StylePill(
-                          label: 'Nordic',
-                          styleKey: 'nordic',
-                          activeKey: _currentStyle,
-                          color: const Color(0xFF90A48E),
-                          onTap: () => _switchStyle('nordic'),
-                        ),
-                        const SizedBox(width: 8),
-                        _StylePill(
-                          label: 'Industrial',
-                          styleKey: 'industrial',
-                          activeKey: _currentStyle,
-                          color: const Color(0xFF483C34),
-                          onTap: () => _switchStyle('industrial'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // ── Kitchen / Room / House (rooms read off a floor plan) ─────
-            if (_floorPlan != null)
-              Positioned(
-                top: 66,
-                left: 14,
-                child: PointerShield(
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'kitchen', label: Text('Kitchen')),
-                      ButtonSegment(value: 'room', label: Text('Room')),
-                      ButtonSegment(value: 'house', label: Text('House')),
-                    ],
-                    selected: {_roomView},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (s) => _setRoomView(s.first),
-                    style: SegmentedButton.styleFrom(
-                      backgroundColor: AppTheme.surface,
-                      selectedBackgroundColor: AppTheme.accent,
-                      selectedForegroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-
-            // ── Layouts / Edit panel + estimate ───────────────────────────
-            Positioned(
-              left: 14,
-              right: 14,
               bottom: 14,
-              child: PointerShield(
-                child: Column(
-                  key: _panelKey,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_adding != null)
-                      _buildAddingCard(_adding!)
-                    else if (_openId != null && _cabinet(_openId!) != null)
-                      _buildCabinetCard(_cabinet(_openId!)!)
-                    else if (_editing)
-                      _EditPanel(
-                        selectedLabel: _selectedLabel,
-                        selectedMovable: _selectedMovable,
-                        hasCabinets: _placedCabinets.isNotEmpty,
-                        onAdd: _openAdding,
-                        onSelectAdjacent: _selectAdjacent,
-                        onMove: _nudgeSelected,
-                        onRemoveSelected: _removeSelected,
-                        onOpenSelected: () {
-                          final id = _selectedId;
-                          if (id != null) _openCard(id);
-                        },
-                        onClearAll: _clearLayout,
-                        onAppliances: _showApplianceSheet,
-                        onBenchtop: _showBenchtopSheet,
-                        benchtopName: _benchtopMaterial == null
-                            ? null
-                            : _catalog.benchtopOptions[_benchtopMaterial]?.name,
-                        modules: _catalog.cabinetModules,
-                        kindOf: _catalog.kindOf,
-                        onDone: () => _setEditing(false),
-                      )
-                    else
-                      _LayoutVariantBar(
-                        variants: _variants,
-                        activeKey: _activeVariantKey,
-                        onSelect: _selectVariant,
-                        onEdit: () => _setEditing(true),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Style ──────────────────────────────────────────────
+                  // Only as wide as the pills, so the 3D view beside them
+                  // stays draggable in the browser.
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: PointerShield(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _StylePill(
+                              label: 'Japandi',
+                              styleKey: 'japandi',
+                              activeKey: _currentStyle,
+                              color: const Color(0xFFC4A47C),
+                              onTap: () => _switchStyle('japandi'),
+                            ),
+                            const SizedBox(width: 8),
+                            _StylePill(
+                              label: 'Minimalist',
+                              styleKey: 'minimalist',
+                              activeKey: _currentStyle,
+                              color: const Color(0xFF2E3340),
+                              onTap: () => _switchStyle('minimalist'),
+                            ),
+                            const SizedBox(width: 8),
+                            _StylePill(
+                              label: 'Nordic',
+                              styleKey: 'nordic',
+                              activeKey: _currentStyle,
+                              color: const Color(0xFF90A48E),
+                              onTap: () => _switchStyle('nordic'),
+                            ),
+                            const SizedBox(width: 8),
+                            _StylePill(
+                              label: 'Industrial',
+                              styleKey: 'industrial',
+                              activeKey: _currentStyle,
+                              color: const Color(0xFF483C34),
+                              onTap: () => _switchStyle('industrial'),
+                            ),
+                          ],
+                        ),
                       ),
-                    const SizedBox(height: 8),
-                    _buildEstimateBar(summary),
+                    ),
+                  ),
+
+                  // ── Kitchen / Room / House (rooms read off a floor plan)
+                  if (_floorPlan != null) ...[
+                    const SizedBox(height: 6),
+                    PointerShield(
+                      child: SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                              value: 'kitchen', label: Text('Kitchen')),
+                          ButtonSegment(value: 'room', label: Text('Room')),
+                          ButtonSegment(value: 'house', label: Text('House')),
+                        ],
+                        selected: {_roomView},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (s) => _setRoomView(s.first),
+                        style: SegmentedButton.styleFrom(
+                          backgroundColor: AppTheme.surface,
+                          selectedBackgroundColor: AppTheme.accent,
+                          selectedForegroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
                   ],
-                ),
+                  const SizedBox(height: 8),
+
+                  // ── Layouts / Edit panel + estimate ────────────────────
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: SizedBox(
+                        width: double.infinity,
+                        // Only behind the panel, not the 3D view above it.
+                        child: PointerShield(
+                          child: Column(
+                            key: _panelKey,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(child: _buildPanelSlot()),
+                              const SizedBox(height: 8),
+                              _buildEstimateBar(summary),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
 
           // ── Loading overlay ─────────────────────────────────────────────
           if (!_sceneLoaded)
