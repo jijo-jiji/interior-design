@@ -25,3 +25,21 @@ Results (2026-11-09):
 | apartment-2 | 2–8 px | median 16 mm, worst 39 mm | 0.78° (no warning) |
 
 The millimetre column assumes a 2,700 mm ceiling.
+
+## Kitchens (2026-11-09)
+
+[`kitchens.json`](kitchens.json) lists 9 kitchen photos from Wikimedia Commons:
+L-shaped, U-shaped and galley kitchens, with islands, fridges and tall units.
+In every one, the middle of the photo is cabinet fronts, an appliance or the
+backsplash, not the wall itself, so the depth model can't see the wall's
+outline.
+
+- **Before the room check:** the finder gave confidently wrong corners on all
+  9. For example, it outlined a fridge, a strip of backsplash, or a run of wall
+  cabinets as "the wall".
+- **With the room check** (`corner_finder.dart`, `_inRoom`): all 9 are turned
+  down, so the salesperson places the corners by hand. The two empty rooms
+  still pass, with the same corners as before.
+
+The kitchens weren't marked by hand: the test is whether the app avoids wrong
+corners, not how close it gets.

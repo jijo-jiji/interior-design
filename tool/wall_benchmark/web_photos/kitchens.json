@@ -1,0 +1,59 @@
+{
+  "note": "Kitchen photos used to test the corner finder (2026-11-09). All 9 are turned down by the room check (no false corners); see README.",
+  "photos": [
+    {
+      "title": "File:Apartment Kitchen in Washington, DC.jpg",
+      "licence": "CC0",
+      "author": "Kurt Kaiser",
+      "page": "https://commons.wikimedia.org/wiki/File:Apartment_Kitchen_in_Washington,_DC.jpg"
+    },
+    {
+      "title": "File:Apartment Kitchen 1 2018-09-28.jpg",
+      "licence": "CC BY-SA 4.0",
+      "author": "FASTILY",
+      "page": "https://commons.wikimedia.org/wiki/File:Apartment_Kitchen_1_2018-09-28.jpg"
+    },
+    {
+      "title": "File:Kitchen in Toronto Apartment.jpg",
+      "licence": "CC BY-SA 4.0",
+      "author": "Gogerr",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_in_Toronto_Apartment.jpg"
+    },
+    {
+      "title": "File:Kitchen Layout 2.jpg",
+      "licence": "CC BY-SA 4.0",
+      "author": "Fanti Salms",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_Layout_2.jpg"
+    },
+    {
+      "title": "File:Kitchen (2104735678).jpg",
+      "licence": "CC BY-SA 2.0",
+      "author": "daryl_mitchell from Saskatoon, Saskatchewan, Canada",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_(2104735678).jpg"
+    },
+    {
+      "title": "File:Kitchen (364514277).jpg",
+      "licence": "CC BY-SA 2.0",
+      "author": "Martin Cathrae from Charlottetown, PE, Canada",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_(364514277).jpg"
+    },
+    {
+      "title": "File:Kitchen (501166830).jpg",
+      "licence": "CC BY-SA 2.0",
+      "author": "daryl_mitchell from Saskatoon, Saskatchewan, Canada",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_(501166830).jpg"
+    },
+    {
+      "title": "File:Kitchen HDR.jpg",
+      "licence": "CC BY-SA 2.0",
+      "author": "David K from USA",
+      "page": "https://commons.wikimedia.org/wiki/File:Kitchen_HDR.jpg"
+    },
+    {
+      "title": "File:L Küche 2015.jpg",
+      "licence": "CC BY-SA 3.0 at",
+      "author": "Feel free to use my photos, but please mention me as the author and if you want send me a  message. or (rufre@lenz-nenni",
+      "page": "https://commons.wikimedia.org/wiki/File:L_K%C3%BCche_2015.jpg"
+    }
+  ]
+}

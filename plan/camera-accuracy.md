@@ -303,3 +303,22 @@ meets the side walls, ceiling and floor.
   first time including loading the model. Speed on a real tablet is untested.
 - **App size:** about 83 MB for the 64-bit ARM build (was 90 MB universal). The
   universal APK is about 190 MB.
+
+**Kitchens and the tablet (2026-11-09):**
+
+- **Kitchens:** 9 real kitchen photos from Wikimedia Commons. The finder gave
+  wrong corners on all 9, outlining a fridge, a backsplash strip or a run of
+  wall cabinets as the wall, because in a kitchen the middle of the photo
+  isn't the wall.
+  - Fix: a room check. The answer must have a ceiling above, floor below
+    (reaching the photo's bottom, not a counter) and a side wall either side.
+    Kitchens are now turned down, and the salesperson places the corners by
+    hand with a message saying why.
+  - The empty rooms still pass, unchanged.
+  - Also tested on a kitchen rendered in code: turned down.
+- **Tablet:** tested on a Pixel Tablet emulator (2560 × 1600, landscape). The
+  corners screen, suggested corners on an empty room, the kitchen message and
+  the 3D view all work. Not yet tried on a real tablet.
+- **What would help kitchens:** a corner model trained on our own photos. Each
+  quote keeps the photo and its confirmed corners, so the training set grows
+  with every job. A depth model alone can't see a wall hidden behind cabinets.

@@ -21,9 +21,18 @@ class DepthMap {
 /// So: fit the room's flat patches (front wall, side walls, ceiling, floor),
 /// take the one in the middle of the photo as the front wall, follow its
 /// outline from the middle outwards, and fit a straight line to each side;
-/// the corners are where those lines cross. A window, a light switch or a
-/// cabinet on the wall is stepped over; a wall cut off by the photo's edge
-/// gives no answer.
+/// the corners are where those lines cross. A window or a light switch on
+/// the wall is stepped over; a wall cut off by the photo's edge gives no
+/// answer.
+///
+/// The answer must also sit in the room the way a wall does: ceiling above
+/// it, floor below (reaching the photo's bottom, so not a counter), a side
+/// wall left and right ([_inRoom]). In a kitchen the middle of the photo is
+/// a cabinet front, a fridge or the backsplash strip, with more cabinets or
+/// a counter around it, so it gives no answer and the corners are placed by
+/// hand: on 9 kitchen photos, all were turned down, while both empty rooms
+/// tested passed with their corners 3–11 px from hand-marked ones
+/// (tool/wall_benchmark/web_photos/).
 ///
 /// [tau] is how far (in depth normalised to 0..1) a pixel may be from a
 /// patch and still belong to it. 0.012 is tuned on the depth model's real
@@ -48,27 +57,7 @@ List<Offset>? cornersFromDepth(DepthMap depth, {double tau = 0.012}) {
 
   final planes = _planes(small, norm, tau, rng);
   if (planes.length < 2) return null;
-
-  // Label every pixel of the full map with its nearest patch.
-  final label = Int8List(w * h);
-  for (var y = 0; y < h; y++) {
-    final v = (y + 0.5) / h;
-    for (var x = 0; x < w; x++) {
-      final u = (x + 0.5) / w;
-      final d = norm(depth.values[y * w + x]);
-      var best = -1;
-      var bestRes = 2.5 * tau;
-      for (var p = 0; p < planes.length; p++) {
-        final pl = planes[p];
-        final res = (pl[0] * u + pl[1] * v + pl[2] - d).abs();
-        if (res < bestRes) {
-          bestRes = res;
-          best = p;
-        }
-      }
-      label[y * w + x] = best;
-    }
-  }
+  final label = _label(depth, planes, norm, tau);
 
   // The front wall: the patch covering most of the middle of the photo.
   final counts = List<int>.filled(planes.length, 0);
@@ -107,7 +96,104 @@ List<Offset>? cornersFromDepth(DepthMap depth, {double tau = 0.012}) {
     if (p == null) return null;
     corners.add(Offset(p.dx / w, p.dy / h));
   }
-  return _plausible(corners) ? corners : null;
+  if (!_plausible(corners)) return null;
+  return _inRoom(depth, small, norm, tau, corners) ? corners : null;
+}
+
+/// Every pixel of [depth] labelled with its nearest patch (-1 for none).
+Int8List _label(DepthMap depth, List<List<double>> planes,
+    double Function(double) norm, double tau) {
+  final w = depth.width, h = depth.height;
+  final label = Int8List(w * h);
+  for (var y = 0; y < h; y++) {
+    final v = (y + 0.5) / h;
+    for (var x = 0; x < w; x++) {
+      final u = (x + 0.5) / w;
+      final d = norm(depth.values[y * w + x]);
+      var best = -1;
+      var bestRes = 2.5 * tau;
+      for (var p = 0; p < planes.length; p++) {
+        final pl = planes[p];
+        final res = (pl[0] * u + pl[1] * v + pl[2] - d).abs();
+        if (res < bestRes) {
+          bestRes = res;
+          best = p;
+        }
+      }
+      label[y * w + x] = best;
+    }
+  }
+  return label;
+}
+
+enum _Role { ceiling, floor, counter, left, right, front }
+
+/// Whether the wall found sits in the room as a wall does: just outside
+/// each side, the right kind of surface. A patch's kind comes from which way
+/// it gets nearer: the ceiling towards the top, the floor towards the
+/// bottom (and reaching it; a counter doesn't), a side wall towards its
+/// edge. Fitted finer than the finder's own patches, so a narrow wall
+/// return beside a door still counts.
+bool _inRoom(DepthMap depth, DepthMap small, double Function(double) norm,
+    double tau, List<Offset> corners) {
+  final w = depth.width, h = depth.height;
+  final planes = _planes(small, norm, tau, math.Random(7),
+      maxPlanes: 10, minFraction: 0.01);
+  if (planes.isEmpty) return false;
+  final label = _label(depth, planes, norm, tau);
+
+  final atBottom = List<int>.filled(planes.length, 0);
+  for (var y = (0.88 * h).ceil(); y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final l = label[y * w + x];
+      if (l >= 0) atBottom[l]++;
+    }
+  }
+  final roles = [
+    for (var p = 0; p < planes.length; p++)
+      () {
+        final a = planes[p][0], b = planes[p][1];
+        if (b < 0 && b.abs() > a.abs()) return _Role.ceiling;
+        if (b > 0 && b.abs() > a.abs()) {
+          return atBottom[p] > 0.002 * w * h ? _Role.floor : _Role.counter;
+        }
+        if (a < 0 && a.abs() > b.abs()) return _Role.left;
+        if (a > 0 && a.abs() > b.abs()) return _Role.right;
+        return _Role.front;
+      }()
+  ];
+
+  final cx = corners.fold(0.0, (s, c) => s + c.dx) / 4;
+  final cy = corners.fold(0.0, (s, c) => s + c.dy) / 4;
+  for (final (i, j, want) in [
+    (0, 1, _Role.ceiling),
+    (1, 2, _Role.right),
+    (2, 3, _Role.floor),
+    (3, 0, _Role.left),
+  ]) {
+    final a = corners[i], b = corners[j];
+    var out = (a + b) / 2 - Offset(cx, cy);
+    out = out / out.distance;
+    // The nearest surface may be narrow: the side passes if it's right at
+    // any of a few distances out.
+    var best = 0.0;
+    for (final step in const [0.015, 0.03, 0.045]) {
+      var hits = 0, good = 0;
+      for (var k = 0; k < 15; k++) {
+        final t = 0.15 + 0.7 * k / 14;
+        final p = a + (b - a) * t + out * step;
+        final x = (p.dx * w).floor(), y = (p.dy * h).floor();
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        final l = label[y * w + x];
+        if (l < 0) continue;
+        hits++;
+        if (roles[l] == want) good++;
+      }
+      if (hits >= 5) best = math.max(best, good / hits);
+    }
+    if (best < 0.6) return false;
+  }
+  return true;
 }
 
 /// Box-averaged copy [width] wide.
@@ -133,7 +219,8 @@ DepthMap _shrink(DepthMap d, int width) {
 
 /// Flat patches, largest first, by sequential RANSAC: each as [a, b, c].
 List<List<double>> _planes(DepthMap s, double Function(double) norm,
-    double tau, math.Random rng) {
+    double tau, math.Random rng,
+    {int maxPlanes = 6, double minFraction = 0.03}) {
   final n = s.width * s.height;
   final u = Float64List(n), v = Float64List(n), d = Float64List(n);
   for (var i = 0; i < n; i++) {
@@ -143,9 +230,9 @@ List<List<double>> _planes(DepthMap s, double Function(double) norm,
   }
   final free = List<bool>.filled(n, true);
   final planes = <List<double>>[];
-  for (var round = 0; round < 6; round++) {
+  for (var round = 0; round < maxPlanes; round++) {
     final idx = [for (var i = 0; i < n; i++) if (free[i]) i];
-    if (idx.length < 0.03 * n) break;
+    if (idx.length < minFraction * n) break;
     List<double>? best;
     var bestCount = 0;
     for (var it = 0; it < 600; it++) {
@@ -170,7 +257,7 @@ List<List<double>> _planes(DepthMap s, double Function(double) norm,
         best = plane;
       }
     }
-    if (best == null || bestCount < 0.03 * n) break;
+    if (best == null || bestCount < minFraction * n) break;
     // Refit on the inliers, then take the inliers of the refit.
     var plane = best;
     for (var pass = 0; pass < 2; pass++) {

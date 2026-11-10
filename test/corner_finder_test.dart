@@ -21,6 +21,7 @@ class RoomCamera {
     required double pitchDeg,
     this.width = 480,
     this.height = 270,
+    this.boxes = const [],
   }) {
     final y = yawDeg * math.pi / 180, p = pitchDeg * math.pi / 180;
     final ry = [
@@ -43,6 +44,9 @@ class RoomCamera {
 
   final List<double> at;
   final int width, height;
+
+  /// Solid boxes in the room (cabinets), each as [min xyz, max xyz].
+  final List<(List<double>, List<double>)> boxes;
   late final List<List<double>> r;
   late final double f;
 
@@ -72,6 +76,23 @@ class RoomCamera {
             continue;
           }
           best = t;
+        }
+        for (final (lo, hi) in boxes) {
+          // Slab test: where the ray enters the box.
+          var tNear = 0.0, tFar = double.infinity;
+          var hit = true;
+          for (var j = 0; j < 3 && hit; j++) {
+            if (dw[j].abs() < 1e-12) {
+              if (at[j] < lo[j] || at[j] > hi[j]) hit = false;
+              continue;
+            }
+            var t1 = (lo[j] - at[j]) / dw[j], t2 = (hi[j] - at[j]) / dw[j];
+            if (t1 > t2) (t1, t2) = (t2, t1);
+            tNear = math.max(tNear, t1);
+            tFar = math.min(tFar, t2);
+            if (tNear > tFar) hit = false;
+          }
+          if (hit && tNear > 0 && tNear < best) best = tNear;
         }
         out[v * width + u] = (1 / best).toDouble();
       }
@@ -130,6 +151,26 @@ void main() {
     test('the same answer every time', () {
       final depth = views['from the left, turned 20°']!.render();
       expect(cornersFromDepth(depth), cornersFromDepth(depth));
+    });
+
+    test('a kitchen wall gives no answer rather than a wrong one', () {
+      // Base cabinets (900 high, 600 deep) and wall cabinets (1500–2200,
+      // 350 deep) along the front wall, a tall unit on the right: the middle
+      // of the photo is cabinet fronts and backsplash, with cabinets or a
+      // counter around them, not ceiling, floor and side walls.
+      final cam = RoomCamera(
+        at: [2000, 1300, -4600],
+        yawDeg: 0,
+        pitchDeg: 3,
+        boxes: [
+          ([0, 1800, -600], [3400, 2700, 0]),
+          ([0, 500, -350], [3400, 1200, 0]),
+          ([3400, 0, -600], [4000, 2700, 0]),
+        ],
+      );
+      expect(cornersFromDepth(cam.render()), isNull);
+      // Without the cabinets, the same view finds the wall.
+      expect(cornersFromDepth(views['head-on']!.render()), isNotNull);
     });
 
     test('a wall cut off by the photo gives no answer', () {
