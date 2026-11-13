@@ -33,7 +33,10 @@ DeepLabV3+, converted on the fly). Each is optional.
 checksum-checked; not in git). It
 places the wall's corners on a wall photo by itself, on the phone. Without
 it the app builds and works the same, but the corners start in the photo's
-corners for the salesperson to drag. To install on a tablet, build one APK per
+corners for the salesperson to drag. Kitchens, where cabinets hide the wall's
+edges, also need our own corner model, `assets/models/wall_corners.onnx`
+(7 MB, kept in git; `tool/wall_corner_training/` trains it) and the
+segmentation model. To install on a tablet, build one APK per
 processor type, `flutter build apk --release --split-per-abi`, and install
 `app-arm64-v8a-release.apk` (about 83 MB). The single universal APK carries
 three copies of the model's runtime and is about 190 MB.

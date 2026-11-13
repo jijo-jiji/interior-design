@@ -89,3 +89,8 @@ backend/wall_photos/
 assets/models/wall_depth.onnx
 assets/models/*.part
 assets/models/wall_segment.onnx
+
+# Corner-model training runs: checkpoints and evaluation pictures. The
+# shipped model is assets/models/wall_corners.onnx.
+tool/wall_corner_training/runs/
+tool/wall_corner_training/.venv/
