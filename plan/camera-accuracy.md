@@ -438,3 +438,24 @@ meets the side walls, ceiling and floor.
   - **When nothing is said:** at most widths nothing changes. A typed
     measurement turns the check off. See
     `lib/features/layout/width_check.dart`.
+
+**The wall's size from an A4 sheet on the wall (2026-11-13):**
+
+- **Why:** the worktop, door and ceiling cues guess the scale (roughly ±5–7%);
+  a sheet of known size measures it.
+- **How:** the salesperson tapes an A4 sheet flat on the wall before the
+  photo, and on the wall-size screen taps "Measure from an A4 sheet on the
+  wall" to put four dots on its corners (`SheetScreen`). The sheet is mapped
+  onto the straightened wall; the wall's height is what makes its sides
+  210 and 297 mm, either way up and however it's turned. The corners still
+  give the proportions. See `lib/features/trace/utils/reference_card.dart`.
+- **Checks:** the sheet must be on the traced wall (else it isn't used); if
+  its shape on the straightened wall is more than 8% off A4 the screen asks
+  to check the dots and the wall's corners; under 3% of the photo's diagonal
+  it says the size may be a few per cent off.
+- **Expected accuracy:** a dot 4 px off on a 4,000 px photo moves the size
+  under 1% (tests). Not yet checked against a tape on real walls.
+- **Recorded with each quote:** `size_from: "sheet"` and the sheet's corners
+  (`sheet`), to compare with tape measurements later.
+- **Next:** find the sheet on the photo by itself, and try it on real walls
+  against a tape.

@@ -7,6 +7,7 @@ import '../utils/corner_suggester.dart';
 import '../utils/corner_suggestion.dart';
 import '../utils/homography.dart';
 import '../utils/opening_finder.dart';
+import '../utils/reference_card.dart';
 import '../utils/wall_segmenter.dart';
 
 // ─── Wall Setup ─────────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ class WallSetup {
     this.suggestedBottomShift,
     this.sizeFromTape = false,
     this.sizeFrom,
+    this.sheet,
   });
 
   final double widthMm;
@@ -129,10 +131,15 @@ class WallSetup {
   /// the photo instead.
   final bool sizeFromTape;
 
-  /// Where the confirmed size came from: 'worktop', 'door' or 'assumed'
-  /// (worked out from the photo and accepted), or 'typed'. Kept with the
-  /// quote, to see how often the photo's estimate needs correcting.
+  /// Where the confirmed size came from: 'sheet', 'worktop', 'door' or
+  /// 'assumed' (worked out from the photo and accepted), or 'typed'. Kept
+  /// with the quote, to see how often the photo's estimate needs correcting.
   final String? sizeFrom;
+
+  /// The corners of an A4 sheet taped on the wall, if marked: fractions of
+  /// the photo, top-left, top-right, bottom-right, bottom-left. The wall's
+  /// size is measured from it ([sheetMeasure]).
+  final List<Offset>? sheet;
 
   double get leftLinePx => screenWidthPx * leftLineRatio;
   double get rightLinePx => screenWidthPx * rightLineRatio;
@@ -184,6 +191,15 @@ class WallSetup {
     return estimateWallShape(px, photoSize!, focalPx: focalPx);
   }
 
+  /// The wall's size from the A4 sheet on it, once the sheet is marked and
+  /// the wall's corners make sense.
+  SheetMeasure? get sheetMeasure {
+    final s = sheet, size = photoSize, shape = photoShape;
+    if (s == null || size == null || shape == null) return null;
+    return measureSheet(
+        sheet: s, wallCorners: wallCorners, aspect: shape.aspect, photo: size);
+  }
+
   WallSetup copyWith({
     double? widthMm,
     double? heightMm,
@@ -204,6 +220,8 @@ class WallSetup {
     List<Offset>? suggestedBottomShift,
     bool? sizeFromTape,
     String? sizeFrom,
+    List<Offset>? sheet,
+    bool clearSheet = false,
   }) =>
       WallSetup(
         widthMm: widthMm ?? this.widthMm,
@@ -225,6 +243,7 @@ class WallSetup {
         suggestedBottomShift: suggestedBottomShift ?? this.suggestedBottomShift,
         sizeFromTape: sizeFromTape ?? this.sizeFromTape,
         sizeFrom: sizeFrom ?? this.sizeFrom,
+        sheet: clearSheet ? null : sheet ?? this.sheet,
       );
 
   /// Where the straightened wall is on the canvas.
@@ -261,6 +280,17 @@ class WallSetupNotifier extends StateNotifier<WallSetup> {
         sizeFromTape: true,
         sizeFrom: sizeFrom,
       );
+
+  /// The A4 sheet's corners on the photo (fractions of it), or null for no
+  /// sheet. Kept only if they make a proper four-sided shape.
+  void setSheet(List<Offset>? corners) {
+    if (corners == null) {
+      state = state.copyWith(clearSheet: true);
+      return;
+    }
+    if (corners.length != 4 || !isConvexQuad(corners)) return;
+    state = state.copyWith(sheet: List.unmodifiable(corners));
+  }
 
   /// A new photo: corners back to their start, and how the phone was held
   /// (null for a photo from the gallery).

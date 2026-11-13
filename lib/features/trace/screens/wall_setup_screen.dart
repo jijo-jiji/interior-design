@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/wall_provider.dart';
 import '../utils/homography.dart';
 import '../utils/opening_finder.dart' show WallLabels;
+import '../utils/reference_card.dart';
 import '../utils/wall_size.dart';
 import '../../../shared/theme.dart';
 
@@ -22,8 +23,9 @@ String _mm(double mm) =>
     mm.round().toString().replaceAll(RegExp(r'\B(?=(\d{3})+(?!\d))'), ',');
 
 /// Wall size, after the wall has been traced on the photo. It comes filled
-/// in from the photo: the traced corners give the proportions, and the
-/// worktop or a door the scale (wall_size.dart). The salesperson checks it;
+/// in from the photo: the traced corners give the proportions, and an A4
+/// sheet taped on the wall (marked on [SheetScreen]), the worktop or a door
+/// the scale (wall_size.dart). The salesperson checks it;
 /// typing either measurement works the other out from the photo. Returns
 /// true to the trace screen once a size is set.
 class WallSetupScreen extends ConsumerStatefulWidget {
@@ -82,7 +84,28 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   static WallSizeEstimate _estimateFrom(
           WallSetup wall, WallShapeEstimate shape, WallLabels? labels) =>
       estimateWallSize(shape.aspect,
-          labels: labels, wallCorners: wall.wallCorners);
+          labels: labels,
+          wallCorners: wall.wallCorners,
+          sheet: wall.sheetMeasure);
+
+  /// The A4 sheet's corners, on their own screen. Back here, the size is
+  /// worked out again from it (or without it, if it was taken away), over
+  /// anything typed.
+  Future<void> _markSheet() async {
+    final ok = await context.push<bool>('/sheet', extra: widget.imagePath);
+    if (ok != true || !mounted) return;
+    final wall = ref.read(wallSetupProvider);
+    final shape = _shape(wall);
+    if (shape == null) return;
+    final estimate = _estimateFrom(
+        wall, shape, ref.read(wallLabelsProvider(widget.imagePath)).valueOrNull);
+    setState(() {
+      _estimate = estimate;
+      _typedWidth = _typedHeight = false;
+      _widthCtrl.text = estimate.widthMm.round().toString();
+      _heightCtrl.text = estimate.heightMm.round().toString();
+    });
+  }
 
   void _rebuild() => setState(() {});
 
@@ -151,12 +174,14 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
     final estimate = _estimate;
     if (estimate != null && !_typedWidth && !_typedHeight) {
       return switch (estimate.cue) {
+        SizeCue.sheet => 'Measured from the A4 sheet on the wall. $fix',
         SizeCue.worktop => 'Measured from the photo, using the worktop '
             '(about ${_mm(kWorktopMm)} mm high) as a guide. $fix',
         SizeCue.door => 'Measured from the photo, using the door on this wall '
             '(about ${_mm(kDoorTopMm)} mm high) as a guide. $fix',
         SizeCue.assumed => 'From the photo\'s proportions, taking the usual '
-            '${_mm(kAssumedCeilingMm)} mm ceiling. $fix',
+            '${_mm(kAssumedCeilingMm)} mm ceiling. For a measured size, '
+            'tape an A4 sheet flat on the wall and photograph it again. $fix',
       };
     }
     if (shape != null) {
@@ -217,6 +242,21 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                   ],
                 ),
               ),
+              if (shape != null && wall.photoSize != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _markSheet,
+                    icon: const Icon(Icons.crop_portrait_rounded),
+                    label: Text(wall.sheet == null
+                        ? 'Measure from an A4 sheet on the wall'
+                        : 'Check the A4 sheet'),
+                  ),
+                ),
+                if (wall.sheet != null && !_typedWidth && !_typedHeight)
+                  _SheetNotes(measure: wall.sheetMeasure),
+              ],
               const SizedBox(height: 32),
               _DimField(
                 controller: _widthCtrl,
@@ -307,6 +347,51 @@ class _SizeCheck extends StatelessWidget {
                 'or the corners.',
                 style: context.textTheme.bodySmall?.copyWith(color: color),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Anything that makes the sheet's measurement less sure: said here too,
+/// since the size boxes come from it.
+class _SheetNotes extends StatelessWidget {
+  const _SheetNotes({required this.measure});
+
+  final SheetMeasure? measure;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = measure;
+    final note = m == null
+        ? null
+        : !m.onWall
+            ? 'Part of the sheet is off the traced wall, so it isn’t used. '
+                'Check the sheet.'
+            : m.shapeLooksOff
+                ? 'The sheet doesn’t look like A4 on the wall: check its dots '
+                    'and the wall’s corners.'
+                : m.small
+                    ? 'The sheet is small on this photo, so the size may be a '
+                        'few per cent off.'
+                    : null;
+    if (note == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Semantics(
+        liveRegion: true,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                size: 18, color: AppTheme.danger),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(note,
+                  style: context.textTheme.bodySmall
+                      ?.copyWith(color: AppTheme.danger)),
             ),
           ],
         ),

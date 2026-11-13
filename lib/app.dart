@@ -4,6 +4,7 @@ import 'shared/sales_config.dart';
 import 'shared/theme.dart';
 import 'features/intake/screens/intake_hub_screen.dart';
 import 'features/trace/screens/camera_screen.dart';
+import 'features/trace/screens/sheet_screen.dart';
 import 'features/trace/screens/wall_setup_screen.dart';
 import 'features/trace/screens/trace_screen.dart';
 import 'features/floorplan/screens/floorplan_sizes_screen.dart';
@@ -49,6 +50,14 @@ final _router = GoRouter(
       redirect: _homeIfMissing,
       name: 'wall-setup',
       builder: (context, state) => WallSetupScreen(
+        imagePath: state.extra as String,
+      ),
+    ),
+    GoRoute(
+      path: '/sheet',
+      redirect: _homeIfMissing,
+      name: 'sheet',
+      builder: (context, state) => SheetScreen(
         imagePath: state.extra as String,
       ),
     ),

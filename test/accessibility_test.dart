@@ -12,6 +12,7 @@ import 'package:static_trace/features/floorplan/screens/floorplan_sizes_screen.d
 import 'package:static_trace/features/intake/screens/intake_hub_screen.dart';
 import 'package:static_trace/features/template/screens/template_room_screen.dart';
 import 'package:static_trace/features/trace/screens/camera_screen.dart';
+import 'package:static_trace/features/trace/screens/sheet_screen.dart';
 import 'package:static_trace/features/trace/screens/trace_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/features/viewer/screens/viewer_screen.dart';
@@ -38,6 +39,7 @@ final _screens = <String, Widget Function()>{
   'camera': () => const CameraScreen(),
   'wall setup': () => const WallSetupScreen(imagePath: _photo),
   'trace': () => const TraceScreen(imagePath: _photo),
+  'A4 sheet': () => const SheetScreen(imagePath: _photo),
   // Filled in from a reading: the plan drawing, origins under each field,
   // and the other sizes as buttons.
   'floor plan': () => FloorplanSizesScreen(
