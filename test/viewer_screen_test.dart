@@ -1,0 +1,1539 @@
+// ignore_for_file: depend_on_referenced_packages
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:static_trace/features/catalog/default_catalog.g.dart';
+import 'package:static_trace/features/catalog/price_catalog.dart';
+import 'package:static_trace/features/viewer/models/cabinet_choices.dart';
+import 'package:static_trace/features/viewer/screens/viewer_screen.dart';
+import 'package:static_trace/features/viewer/utils/offline_store.dart';
+import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
+
+import 'helpers/fake_webview.dart';
+
+void main() {
+  late FakeWebViewPlatform webView;
+
+  // A 3.6 m wall with a window: the viewer generates A/B/C and starts on B.
+  final payload = jsonEncode({
+    'wall': {'width_mm': 3600.0, 'height_mm': 2700.0, 'depth_mm': 150.0},
+    'obstacles': [
+      {
+        'type': 'window',
+        'distance_from_left_mm': 1200.0,
+        'distance_from_floor_mm': 1000.0,
+        'width_mm': 1200.0,
+        'height_mm': 1100.0,
+      },
+    ],
+    'client_name': 'Puan Aminah',
+    'quote_id': 'QT-TEST-VIEWER',
+  });
+
+  FakeWebViewController page() => webView.lastController!;
+
+  void fromPage(Map<String, Object?> event) =>
+      page().sendFromPage('StaticTraceChannel', jsonEncode(event));
+
+  // The asset cache would hand later tests a load that finished on the
+  // first test's fake clock, which never resolves; start each test clean.
+  setUp(() => rootBundle.clear());
+  tearDown(() => PriceCatalog.current = PriceCatalog.builtIn());
+
+  /// The sample catalogue with [edit] applied, as version [version].
+  PriceCatalog catalogue(void Function(Map<String, dynamic>) edit,
+      {int version = 9}) {
+    final doc = jsonDecode(kDefaultCatalogJson) as Map<String, dynamic>
+      ..['version'] = version;
+    edit(doc);
+    return PriceCatalog.fromJson(doc);
+  }
+
+  Map<String, dynamic> module(Map<String, dynamic> doc, String type) =>
+      (doc['modules'] as List).firstWhere((m) => m['type'] == type);
+
+  Future<void> pumpViewer(WidgetTester tester, {String? json}) async {
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    webView = FakeWebViewPlatform();
+    WebViewPlatform.instance = webView;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(home: ViewerScreen(jsonPayload: json ?? payload)),
+      ),
+    );
+    // The page assets load from the bundle for real; wait until the
+    // loading cover is gone.
+    for (var i = 0; i < 50; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+      if (find.text('Loading 3D view…').evaluate().isEmpty) break;
+    }
+    expect(find.text('Loading 3D view…'), findsNothing);
+  }
+
+  /// Lets the auto-save timer fire so no timer is left pending.
+  Future<void> finish(WidgetTester tester) =>
+      tester.pump(const Duration(seconds: 1));
+
+  testWidgets('one Quote button, layouts showing, price hidden',
+      (tester) async {
+    await pumpViewer(tester);
+
+    expect(find.text('Puan Aminah'), findsOneWidget);
+    expect(find.text('Quote'), findsOneWidget);
+    expect(find.text('Sample layouts'), findsOneWidget);
+    expect(find.text('B · Balanced'), findsOneWidget);
+    expect(find.text('Edit cabinets'), findsNothing);
+    expect(find.text('Show price'), findsOneWidget);
+    expect(find.textContaining('RM '), findsNothing);
+    await finish(tester);
+  });
+
+  group('a wall measured from the photo', () {
+    // Kitchen 03 as the photo measured it: 140 mm wider and a tall unit
+    // would fit in the Balanced layout.
+    String measured(String sizeFrom, {double widthMm = 2860}) => jsonEncode({
+          'wall': {'width_mm': widthMm, 'height_mm': 2680.0, 'depth_mm': 150.0},
+          'obstacles': const [],
+          'capture': {
+            'method': 'corners',
+            'corners': [
+              [0.2, 0.1],
+              [0.8, 0.1],
+              [0.8, 0.9],
+              [0.2, 0.9],
+            ],
+            'size_from': sizeFrom,
+          },
+          'client_name': 'Puan Aminah',
+          'quote_id': 'QT-TEST-WIDTH',
+        });
+
+    testWidgets('says when the layout hangs on the exact width',
+        (tester) async {
+      await pumpViewer(tester, json: measured('worktop'));
+      expect(find.text('B · Balanced'), findsOneWidget);
+      expect(
+          find.text('This layout depends on the exact width: 140 mm wider, a '
+              'tall unit fits. Measure the width before quoting.'),
+          findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a typed width: nothing said', (tester) async {
+      await pumpViewer(tester, json: measured('typed'));
+      expect(find.textContaining('depends on the exact width'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a width that no small error would change: nothing said',
+        (tester) async {
+      await pumpViewer(tester, json: measured('worktop', widthMm: 3500));
+      expect(find.text('B · Balanced'), findsOneWidget);
+      expect(find.textContaining('depends on the exact width'), findsNothing);
+      await finish(tester);
+    });
+  });
+
+  testWidgets('Edit unlocks the cabinets; Done locks them again',
+      (tester) async {
+    await pumpViewer(tester);
+
+    await tester.tap(find.text('Edit'));
+    await tester.pump();
+    expect(find.text('Edit cabinets'), findsOneWidget);
+    expect(find.text('Base 800'), findsOneWidget);
+    expect(find.text('Sample layouts'), findsNothing);
+    expect(page().javaScript, contains('setEditMode(true)'));
+
+    await tester.tap(find.text('Done'));
+    await tester.pump();
+    expect(find.text('Sample layouts'), findsOneWidget);
+    expect(page().javaScript, contains('setEditMode(false)'));
+    await finish(tester);
+  });
+
+  testWidgets('a selected cabinet can be removed', (tester) async {
+    await pumpViewer(tester);
+    await tester.tap(find.text('Edit'));
+    await tester.pump();
+
+    fromPage({'event': 'cabinet_selected', 'id': 'B-02', 'label': 'Base 600'});
+    await tester.pump();
+    expect(find.text('Remove Base 600'), findsOneWidget);
+
+    await tester.tap(find.text('Remove Base 600'));
+    expect(page().javaScript, contains('removeSelectedCabinet()'));
+
+    fromPage({'event': 'cabinet_deselected'});
+    fromPage({'event': 'cabinet_removed', 'id': 'B-02'});
+    await tester.pump();
+    expect(find.textContaining('Remove'), findsNothing);
+    await finish(tester);
+  });
+
+  testWidgets('cabinets can be picked and moved without dragging',
+      (tester) async {
+    await pumpViewer(tester);
+    await tester.tap(find.text('Edit'));
+    await tester.pump();
+    expect(
+        find.textContaining('Double-tap one to see it and change it.'), findsOneWidget);
+    // Nothing selected yet: nothing to move.
+    expect(find.byTooltip('Move right'), findsNothing);
+
+    await tester.tap(find.byTooltip('Next cabinet'));
+    expect(page().javaScript, contains('selectAdjacentCabinet(1)'));
+    fromPage({
+      'event': 'cabinet_selected',
+      'id': 'B-01',
+      'label': 'Base 600',
+      'movable': true,
+    });
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Move right'));
+    expect(page().javaScript, contains('nudgeSelectedCabinet(50)'));
+    await tester.tap(find.byTooltip('Move left'));
+    expect(page().javaScript, contains('nudgeSelectedCabinet(-50)'));
+    await tester.tap(find.byTooltip('Previous cabinet'));
+    expect(page().javaScript, contains('selectAdjacentCabinet(-1)'));
+
+    // A return-wall cabinet: selectable, but no Move buttons.
+    fromPage({
+      'event': 'cabinet_selected',
+      'id': 'R-01',
+      'label': 'Base 600',
+      'movable': false,
+    });
+    await tester.pump();
+    expect(find.byTooltip('Move right'), findsNothing);
+    expect(find.textContaining("Corner-wall cabinets can't be moved yet"),
+        findsOneWidget);
+    await finish(tester);
+  });
+
+  testWidgets('a manual change unselects the A/B/C layout', (tester) async {
+    await pumpViewer(tester);
+    expect(find.textContaining('your changes'), findsNothing);
+
+    fromPage({'event': 'cabinet_moved', 'id': 'B-01', 'x_mm': -1500});
+    await tester.pump();
+    expect(find.textContaining('your changes'), findsOneWidget);
+    await finish(tester);
+  });
+
+  testWidgets('Full view hides every control until asked back', (tester) async {
+    await pumpViewer(tester);
+
+    await tester.tap(find.byTooltip('Full view'));
+    await tester.pump();
+    expect(find.text('Sample layouts'), findsNothing);
+    expect(find.text('Quote'), findsNothing);
+    expect(find.text('Japandi'), findsNothing);
+
+    await tester.tap(find.text('Show controls'));
+    await tester.pump();
+    expect(find.text('Sample layouts'), findsOneWidget);
+    expect(find.text('Quote'), findsOneWidget);
+    await finish(tester);
+  });
+
+  group('the catalogue', () {
+    Future<void> forgetDraft(WidgetTester tester) =>
+        tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+
+    // The design saves itself shortly after it appears (or changes); the
+    // write itself is real I/O, so give it a moment outside the fake clock.
+    Future<Map<String, dynamic>> savedDraft(WidgetTester tester) async {
+      await finish(tester);
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)));
+      final drafts = await tester.runAsync(OfflineStore.getDrafts);
+      return drafts!.firstWhere((d) => d['quote_id'] == 'QT-TEST-VIEWER');
+    }
+
+    testWidgets(
+        'the tray offers the catalogue\'s modules, named and sized by it',
+        (tester) async {
+      PriceCatalog.current = catalogue((d) {
+        module(d, 'base_800')['label'] = 'Base 800 oak';
+        module(d, 'tall_600')['height_mm'] = 2200;
+        (d['modules'] as List).add({
+          'type': 'base_300',
+          'label': 'Base 300',
+          'section': 'cabinet',
+          'width_mm': 300,
+          'height_mm': 850,
+          'depth_mm': 600,
+          'mount_mm': 0,
+          'price': 250,
+        });
+      });
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+
+      expect(find.text('Base 800 oak'), findsOneWidget);
+      expect(find.text('Base 800'), findsNothing);
+      expect(find.text('2200 mm'), findsOneWidget); // the tall unit's height
+      await tester.scrollUntilVisible(find.text('Base 300'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Base 300'), findsOneWidget);
+      expect(find.text('Corner 900'), findsOneWidget);
+
+      // It opens its card first; nothing is added until Place.
+      await tester.tap(find.text('Base 300'));
+      await tester.pump();
+      expect(find.text('Add Base 300'), findsOneWidget);
+      expect(page().javaScript.where((c) => c.startsWith('spawnCabinet(')), isEmpty);
+      await finish(tester);
+    });
+
+    testWidgets('the appliance list shows the catalogue\'s prices',
+        (tester) async {
+      PriceCatalog.current = catalogue((d) {
+        module(d, 'sink_600')['price'] = 515;
+        module(d, 'dishwasher_600')['label'] = 'Dishwasher (integrated)';
+      });
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Appliances'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sink 600'), findsOneWidget);
+      expect(find.textContaining('RM'), findsNothing,
+          reason: 'no prices while the client sees the design first');
+      Navigator.of(tester.element(find.text('Sink 600'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      await tester.tap(find.text('Appliances'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sink 600'), findsOneWidget);
+      expect(find.text('RM 515'), findsOneWidget);
+      expect(find.text('Dishwasher (integrated)'), findsOneWidget);
+      expect(find.text('Rangehood'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets(
+        'the 3D page is told the catalogue\'s sizes before the scene loads',
+        (tester) async {
+      PriceCatalog.current =
+          catalogue((d) => module(d, 'base_600')['width_mm'] = 650);
+      await pumpViewer(tester);
+
+      final js = page().javaScript;
+      final sizes = js.indexWhere((c) => c.startsWith('setCatalogModules('));
+      final scene = js.indexWhere((c) => c.startsWith('loadScene('));
+      expect(sizes, isNonNegative);
+      expect(sizes, lessThan(scene));
+      // The argument is a JS string literal holding the JSON.
+      final arg = js[sizes]
+          .substring('setCatalogModules('.length, js[sizes].length - 1);
+      final modules = jsonDecode(jsonDecode(arg) as String) as List;
+      final base600 = modules.firstWhere((m) => m['type'] == 'base_600');
+      expect(base600['width_mm'], 650);
+      expect(base600['kind'], 'base');
+      expect(modules.firstWhere((m) => m['type'] == 'rangehood_900')['kind'],
+          'hood');
+      await finish(tester);
+    });
+
+    testWidgets(
+        'a saved design records the catalogue version it was priced with',
+        (tester) async {
+      await forgetDraft(tester);
+      PriceCatalog.current =
+          catalogue((d) => module(d, 'base_600')['price'] = 400, version: 9);
+      await pumpViewer(tester);
+
+      final draft = await savedDraft(tester);
+      expect(draft['catalog_version'], 9);
+      await forgetDraft(tester);
+    });
+
+    testWidgets(
+        'a newer catalogue arriving mid-meeting waits for the next design',
+        (tester) async {
+      await forgetDraft(tester);
+      await pumpViewer(tester); // opened on version 1
+      final before = await savedDraft(tester);
+      expect(before['catalog_version'], 1);
+
+      // The office publishes version 2 (everything dearer) while the client
+      // is looking at the design; the app syncs it.
+      PriceCatalog.current = catalogue((d) {
+        d['labour_rate_per_cabinet'] = 900;
+        for (final m in d['modules'] as List) {
+          m['price'] = (m['price'] as num) * 2;
+        }
+      }, version: 2);
+
+      // The salesperson changes something; the design is saved again.
+      fromPage({'event': 'cabinet_moved', 'id': 'B-01', 'x_mm': -1500});
+      await tester.pump();
+      final after = await savedDraft(tester);
+
+      expect(after['catalog_version'], 1);
+      expect(after['total_price'], before['total_price']);
+      await forgetDraft(tester);
+    });
+  });
+
+  group('the cabinet card', () {
+    /// The cabinets the app last sent the page.
+    List<Map<String, dynamic>> lastLayout() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('replaceCabinets('));
+      final arg = call.substring('replaceCabinets('.length, call.length - 1);
+      return [
+        for (final c in jsonDecode(jsonDecode(arg) as String) as List) c as Map<String, dynamic>,
+      ];
+    }
+
+    // A 600 base unit (layout B's first one is 300 mm against the wall end).
+    Map<String, dynamic> firstBase() => lastLayout().firstWhere(
+        (c) => c['kind'] == 'base' && c['run'] == 'main' && (c['width_mm'] as num) >= 500);
+
+    CabinetChoices choicesNow() => CabinetChoices(
+          catalog: PriceCatalog.current,
+          cabinets: lastLayout(),
+          wall: (jsonDecode(payload) as Map)['wall'] as Map<String, dynamic>,
+          obstacles: (jsonDecode(payload) as Map)['obstacles'] as List,
+        );
+
+    Future<Map<String, dynamic>> openFirstBase(WidgetTester tester) async {
+      final base = firstBase();
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label'], 'movable': true});
+      await tester.pump();
+      await tester.pump();
+      return base;
+    }
+
+    testWidgets('a double tap opens it: what it is, and the camera goes to it', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      expect(find.textContaining('Floor unit with'), findsOneWidget);
+      expect(find.textContaining('mm'), findsWidgets);
+      expect(find.text('Size'), findsOneWidget);
+      expect(find.text('Change to'), findsOneWidget);
+      expect(find.text('Remove'), findsOneWidget);
+      // The camera goes to it, framed above the card.
+      final focus = page().javaScript.lastWhere((c) => c.startsWith('focusCabinet('));
+      expect(focus, startsWith('focusCabinet("${base['id']}", 0.'));
+      final inset = double.parse(focus.split(', ').last.replaceAll(')', ''));
+      expect(inset, inInclusiveRange(0.2, 0.7));
+      // The layouts bar gives way to the card.
+      expect(find.text('Sample layouts'), findsNothing);
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      expect(page().javaScript.last, 'deselectCabinet(); unfocusCabinet()');
+      expect(find.text('Size'), findsNothing);
+      expect(find.text('Sample layouts'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('changes it in place to another size; undo and redo bring it back', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final before = lastLayout();
+      // A width that fits where it stands.
+      final to = choicesNow().sizesFor(base['id'] as String).firstWhere((c) => c.fits && !c.current);
+      await tester.tap(find.widgetWithText(ChoiceChip, '${to.widthMm.round()}'));
+      await tester.pump();
+      await tester.pump();
+      final after = lastLayout();
+      final changed = after.firstWhere((c) => c['id'] == base['id']);
+      expect(changed['cabinet_type'], to.type);
+      expect(changed['width_mm'], to.widthMm);
+      expect(after.length, before.length, reason: 'nothing added or taken out');
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'),
+          reason: 'the camera stays on it');
+      expect(find.text('Size'), findsOneWidget, reason: 'the card stays open');
+      expect(find.textContaining('your changes'), findsNothing, reason: 'the card covers the layouts bar');
+
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout().firstWhere((c) => c['id'] == base['id'])['width_mm'], base['width_mm']);
+      await tester.tap(find.byTooltip('Redo'));
+      await tester.pump();
+      expect(lastLayout().firstWhere((c) => c['id'] == base['id'])['width_mm'], to.widthMm);
+      await finish(tester);
+    });
+
+    testWidgets('another unit in its place: drawers instead of doors', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final drawers = choicesNow().typesFor(base['id'] as String).firstWhere((c) => c.kind == 'drawer');
+      expect(drawers.fits, isTrue);
+      await tester.tap(find.widgetWithText(ChoiceChip, drawers.label));
+      await tester.pump();
+      final changed = lastLayout().firstWhere((c) => c['id'] == base['id']);
+      expect(changed['kind'], 'drawer');
+      expect(find.textContaining('3 drawers'), findsOneWidget, reason: 'the card says what it is now');
+      await finish(tester);
+    });
+
+    testWidgets('what does not fit is greyed out, and the card says why', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      final all = [...choicesNow().sizesFor(base['id'] as String), ...choicesNow().typesFor(base['id'] as String)];
+      final refused = all.where((c) => !c.fits).toList();
+      expect(refused, isNotEmpty, reason: 'in a full layout something is too wide');
+      final chip = tester.widget<ChoiceChip>(find.ancestor(
+          of: find.text(refused.first.kind == 'base' ? '${refused.first.widthMm.round()}' : refused.first.label),
+          matching: find.byType(ChoiceChip)));
+      expect(chip.onSelected, isNull);
+      expect(find.textContaining('Greyed out: '), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('price changes show only once the price is shown', (tester) async {
+      await pumpViewer(tester);
+      await openFirstBase(tester);
+      expect(find.textContaining('RM'), findsNothing, reason: 'the client sees the design first');
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining(RegExp(r'[+−]RM |same price')), findsWidgets);
+      await finish(tester);
+    });
+
+    testWidgets('Remove takes it out and closes the card; undo puts it back', (tester) async {
+      await pumpViewer(tester);
+      final base = await openFirstBase(tester);
+      await tester.tap(find.text('Remove'));
+      await tester.pump();
+      expect(page().javaScript.last, 'removeSelectedCabinet()');
+      fromPage({'event': 'cabinet_removed', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      expect(find.text('Size'), findsNothing);
+      expect(page().javaScript, contains('unfocusCabinet()'));
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout().any((c) => c['id'] == base['id']), isTrue);
+      await finish(tester);
+    });
+
+    testWidgets('moving from the card works outside Edit mode', (tester) async {
+      await pumpViewer(tester);
+      await openFirstBase(tester);
+      await tester.tap(find.byTooltip('Move right'));
+      await tester.pump();
+      expect(page().javaScript.last, 'nudgeSelectedCabinet(50, true)');
+      await finish(tester);
+    });
+
+    testWidgets('without a double tap: Edit, pick a cabinet, Change', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      final base = firstBase();
+      fromPage({'event': 'cabinet_selected', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      await tester.tap(find.text('Change'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Size'), findsOneWidget);
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'));
+      await finish(tester);
+    });
+
+    testWidgets('switching layouts can be undone from the top bar', (tester) async {
+      await pumpViewer(tester);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.undo_rounded)).onPressed, isNull);
+      final b = lastLayout();
+      await tester.tap(find.textContaining('A · '));
+      await tester.pump();
+      expect(lastLayout(), isNot(equals(b)));
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout(), b);
+      expect(find.textContaining('your changes'), findsNothing, reason: 'back on layout B');
+      await finish(tester);
+    });
+
+    /// The see-through unit the app last asked the page to show, and the
+    /// share of the view the card covers.
+    (Map<String, dynamic>, double) lastPreview() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('previewCabinet('));
+      final comma = call.lastIndexOf(', ');
+      final arg = call.substring('previewCabinet('.length, comma);
+      return (
+        jsonDecode(jsonDecode(arg) as String) as Map<String, dynamic>,
+        double.parse(call.substring(comma + 2, call.length - 1)),
+      );
+    }
+
+    Future<void> editEmptyWall(WidgetTester tester) async {
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      expect(lastLayout(), isEmpty);
+    }
+
+    void placedFromPage(String id, double xMm) => fromPage({
+          'event': 'cabinet_placed',
+          'id': id,
+          'cabinet_type': 'base_600',
+          'label': 'Base 600',
+          'kind': 'base',
+          'run': 'main',
+          'width_mm': 600.0,
+          'height_mm': 850.0,
+          'depth_mm': 600.0,
+          'mount_mm': 0.0,
+          'x_mm': xMm,
+        });
+
+    testWidgets('a tray unit shows first what it is and where it goes; Place adds it', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      final sentBefore = page().javaScript.length;
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      expect(find.textContaining('Floor unit with 2 doors'), findsOneWidget);
+      expect(find.text('Size'), findsOneWidget);
+      expect(find.text('Where'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'At the left end · 3600 mm free'), findsOneWidget);
+      final sent = page().javaScript.skip(sentBefore).toList();
+      expect(sent.where((c) => c.startsWith('spawnCabinet(') || c.startsWith('replaceCabinets(')), isEmpty,
+          reason: 'nothing is added before Place');
+      // The 3D view shows it, see-through, where it would go, framed above the card.
+      final (ghost, inset) = lastPreview();
+      expect(ghost['cabinet_type'], 'base_600');
+      expect(ghost['run'], 'main');
+      expect(ghost['x_mm'], -1500);
+      expect(inset, inInclusiveRange(0.2, 0.7));
+
+      await tester.tap(find.text('Place it'));
+      await tester.pump();
+      await tester.pump();
+      final now = lastLayout();
+      expect(now, hasLength(1));
+      expect(now.single['cabinet_type'], 'base_600');
+      expect(now.single['x_mm'], -1500);
+      expect(page().javaScript, contains('clearPreview()'));
+      // Its own card opens, with the camera on it.
+      expect(find.text('Add Base 600'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(page().javaScript.last, startsWith('focusCabinet("${now.single['id']}"'));
+
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastLayout(), isEmpty, reason: 'adding can be undone');
+      await finish(tester);
+    });
+
+    testWidgets('size and place can be changed first; Cancel adds nothing', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      placedFromPage('M', 0); // one in the middle: a space each side
+      await tester.pump();
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.widgetWithText(ChoiceChip, 'At the left end · 1500 mm free'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Next to Base 600 · 1500 mm free'), findsOneWidget);
+      expect(lastPreview().$1['x_mm'], -1500);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Next to Base 600 · 1500 mm free'));
+      await tester.pump();
+      expect(lastPreview().$1['x_mm'], 600, reason: 'right after the one in the middle');
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '450'));
+      await tester.pump();
+      expect(find.text('Add Base 450'), findsOneWidget);
+      expect(lastPreview().$1['cabinet_type'], 'base_450');
+      expect(lastPreview().$1['x_mm'], 525, reason: 'stays in the space it was in');
+
+      expect(find.textContaining('RM'), findsNothing, reason: 'the client sees the design first');
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining('+RM '), findsWidgets);
+
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pump();
+      expect(page().javaScript.last, 'clearPreview(); unfocusCabinet()');
+      expect(find.text('Add Base 450'), findsNothing);
+      expect(find.text('Edit cabinets'), findsOneWidget);
+      expect(lastLayout(), isEmpty, reason: 'nothing was pushed');
+      await finish(tester);
+    });
+
+    testWidgets('a full wall: Place is off and the card says why', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      for (var i = 0; i < 6; i++) {
+        placedFromPage('F$i', -1500.0 + 600 * i);
+      }
+      await tester.pump();
+
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      expect(find.textContaining('No room for it on these walls'), findsWidgets);
+      final place = tester.widget<FilledButton>(find.ancestor(of: find.text('Place it'), matching: find.byType(FilledButton)));
+      expect(place.onPressed, isNull);
+      expect(page().javaScript.last, 'clearPreview()');
+      await finish(tester);
+    });
+
+    testWidgets('appliances go through the same card', (tester) async {
+      await pumpViewer(tester);
+      await editEmptyWall(tester);
+      final appliance = PriceCatalog.current.applianceModules.first;
+      await tester.tap(find.text('Appliances'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text(appliance.label));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Add ${appliance.label}'), findsOneWidget);
+      expect(find.text('Size'), findsNothing, reason: 'an appliance unit comes in one size');
+      expect(lastPreview().$1['cabinet_type'], appliance.type);
+      await finish(tester);
+    });
+
+    testWidgets('a double tap on a placed cabinet while adding opens that one instead', (tester) async {
+      await pumpViewer(tester);
+      final base = firstBase();
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Base 600'));
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsOneWidget);
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label'], 'movable': true});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Add Base 600'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(page().javaScript, contains('clearPreview()'));
+      expect(page().javaScript.last, startsWith('focusCabinet("${base['id']}"'));
+      await finish(tester);
+    });
+
+    testWidgets('an unknown cabinet opens nothing', (tester) async {
+      await pumpViewer(tester);
+      fromPage({'event': 'cabinet_opened', 'id': 'nobody'});
+      await tester.pump();
+      expect(find.text('Size'), findsNothing);
+      await finish(tester);
+    });
+  });
+
+  group('the wall card', () {
+    /// Taps a control on the card, scrolled into view first (the card's
+    /// body scrolls under its title).
+    Future<void> tapCard(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      await tester.pump();
+    }
+
+    /// The wall the app last sent the page: its openings and its finish.
+    Map<String, dynamic> lastWall() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('setWallWork('));
+      final arg = call.substring('setWallWork('.length, call.length - 1);
+      return jsonDecode(jsonDecode(arg) as String) as Map<String, dynamic>;
+    }
+
+    List<Map<String, dynamic>> lastLayout() {
+      final call = page().javaScript.lastWhere((c) => c.startsWith('replaceCabinets('));
+      final arg = call.substring('replaceCabinets('.length, call.length - 1);
+      return [for (final c in jsonDecode(jsonDecode(arg) as String) as List) c as Map<String, dynamic>];
+    }
+
+    Future<void> openEmptyWall(WidgetTester tester, {double? xMm}) async {
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Clear all'));
+      await tester.pump();
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': xMm});
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('a double tap on the wall opens its card; the camera faces it', (tester) async {
+      await pumpViewer(tester);
+      // The design's own wall goes to the page once it has loaded.
+      expect(lastWall()['obstacles'], hasLength(1));
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': 2600});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Main wall'), findsOneWidget);
+      expect(find.textContaining('3600 × 2700 mm · 8.40 m² of wall'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Doors and windows'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Finish'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Window 1200'), findsOneWidget);
+      expect(find.text('Sample layouts'), findsNothing, reason: 'the card takes its place');
+      final focus = page().javaScript.lastWhere((c) => c.startsWith('focusWall('));
+      expect(focus, matches(RegExp(r'^focusWall\(0\.\d+\); highlightOpening\(null\)$')));
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      expect(page().javaScript.last, 'highlightOpening(null); unfocusCabinet()');
+      expect(find.text('Main wall'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a hidden door is made where the wall was tapped, and priced', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Hidden door'));
+      final door = (lastWall()['obstacles'] as List).last as Map<String, dynamic>;
+      expect(door['work'], 'hidden_door');
+      expect(door['type'], 'door');
+      expect(door['distance_from_left_mm'], 2600, reason: 'centred on the tap');
+      expect(page().javaScript.last, 'highlightOpening(1)');
+      expect(find.widgetWithText(ChoiceChip, 'Hidden door 800 · new'), findsOneWidget);
+      expect(find.textContaining('to be made'), findsOneWidget);
+
+      // Priced once the price is shown, as a sample price.
+      expect(find.textContaining('RM'), findsNothing);
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      expect(find.textContaining('sample prices'), findsOneWidget);
+      expect(find.textContaining('Main wall  RM 2,400'), findsOneWidget,
+          reason: 'what the wall work adds');
+      expect(find.textContaining('+RM 1,600'), findsOneWidget, reason: 'another door would add this');
+      await finish(tester);
+    });
+
+    testWidgets('it can be widened, moved and taken out; undo brings it back', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Hidden door'));
+      await tapCard(tester, find.widgetWithText(ChoiceChip, '900'));
+      var door = (lastWall()['obstacles'] as List).last as Map;
+      expect([door['distance_from_left_mm'], door['width_mm']], [2600, 900]);
+      await tapCard(tester, find.byTooltip('Move right'));
+      door = (lastWall()['obstacles'] as List).last as Map;
+      expect(door['distance_from_left_mm'], 2650);
+      await tapCard(tester, find.text('Remove hidden door'));
+      expect(lastWall()['obstacles'], hasLength(1), reason: 'only the window left');
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(lastWall()['obstacles'], hasLength(2));
+      await finish(tester);
+    });
+
+    testWidgets('a finish and its colour; its area leaves out the openings', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Finish'));
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Tiles'));
+      expect(lastWall()['wall_finish'], {'kind': 'tiles', 'area_m2': 8.4, 'colour': '#f4f2ee'});
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Sage'));
+      expect((lastWall()['wall_finish'] as Map)['colour'], '#b9c7b5');
+      // A door made in it takes its area off the tiling.
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Doors and windows'));
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Door'));
+      expect((lastWall()['wall_finish'] as Map)['area_m2'], 6.72);
+      // The price panel lists the wall work.
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      await tapCard(tester, find.widgetWithText(ChoiceChip, 'Finish'));
+      await tapCard(tester, find.ancestor(
+          of: find.textContaining('As it is'), matching: find.byType(ChoiceChip)));
+      expect(lastWall()['wall_finish'], isNull);
+      await finish(tester);
+    });
+
+    testWidgets('a wall full of cabinets: doors greyed out with the reason', (tester) async {
+      await pumpViewer(tester);
+      fromPage({'event': 'wall_opened', 'opening': null, 'x_mm': 300});
+      await tester.pump();
+      final door = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Door'));
+      expect(door.onPressed, isNull, reason: 'layout B fills the wall');
+      expect(find.textContaining('Greyed out: '), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('the layouts are worked out again round a new door', (tester) async {
+      await pumpViewer(tester);
+      await openEmptyWall(tester, xMm: 3000);
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Door'));
+      final door = (lastWall()['obstacles'] as List).last as Map;
+      final from = (door['distance_from_left_mm'] as num).toDouble();
+      final to = from + (door['width_mm'] as num).toDouble();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+      await tester.tap(find.text('Done'));
+      await tester.pump();
+      await tester.tap(find.textContaining('B · '));
+      await tester.pump();
+      for (final c in lastLayout().where((c) => c['run'] == 'main')) {
+        final left = 1800 + (c['x_mm'] as num) - (c['width_mm'] as num) / 2;
+        final right = left + (c['width_mm'] as num);
+        expect(right <= from || left >= to, isTrue,
+            reason: '${c['label']} at $left..$right is in front of the door at $from..$to');
+      }
+      await finish(tester);
+    });
+
+    testWidgets('Edit, Wall opens it without a double tap', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tapCard(tester, find.widgetWithText(OutlinedButton, 'Wall'));
+      expect(find.text('Main wall'), findsOneWidget);
+      // A double tap on a cabinet then opens that instead.
+      final base = lastLayout().firstWhere((c) => c['kind'] == 'base');
+      fromPage({'event': 'cabinet_opened', 'id': base['id'], 'label': base['label']});
+      await tester.pump();
+      expect(find.text('Main wall'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a reopened design keeps its hidden door and finish', (tester) async {
+      final saved = jsonDecode(payload) as Map<String, dynamic>;
+      saved['obstacles'] = [
+        ...saved['obstacles'] as List,
+        {'type': 'door', 'distance_from_left_mm': 2600.0, 'distance_from_floor_mm': 0.0,
+         'width_mm': 800.0, 'height_mm': 2100.0, 'work': 'hidden_door'},
+      ];
+      saved['wall_finish'] = {'kind': 'panels', 'area_m2': 6.72, 'colour': '#8a6a52'};
+      await pumpViewer(tester, json: jsonEncode(saved));
+      expect(lastWall()['wall_finish'], saved['wall_finish']);
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      // The price breakdown's lines.
+      await tester.tap(find.textContaining('· Details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Wall work — Hidden door, flush with the wall'), findsOneWidget);
+      expect(find.textContaining('Wall finish — Wall panels'), findsOneWidget);
+      await finish(tester);
+    });
+  });
+
+  group('the look of the design', () {
+    testWidgets('is put on the page before the cabinets arrive',
+        (tester) async {
+      await pumpViewer(tester);
+      final js = page().javaScript;
+      final cabinets = js.indexWhere((c) => c.startsWith('replaceCabinets('));
+      for (final call in const [
+        "setDoorStyle('slab')",
+        "setBacksplash('subway')",
+        'setDecor(true)',
+        'setRoom(true)',
+        "setMood('day')",
+      ]) {
+        final at = js.indexOf(call);
+        expect(at, isNonNegative, reason: call);
+        // Doors rebuild every cabinet, so they must precede the cabinets.
+        expect(at, lessThan(cabinets), reason: call);
+      }
+      await finish(tester);
+    });
+
+    testWidgets(
+        'the Look button changes doors, backsplash, light, decor and room',
+        (tester) async {
+      await pumpViewer(tester);
+      await tester
+          .tap(find.byTooltip('Look: doors, backsplash, decor, room and light'));
+      await tester.pumpAndSettle();
+      expect(find.text('Look of the design'), findsOneWidget);
+      expect(find.textContaining('changes the price'), findsOneWidget);
+
+      // Each change sends the whole look, so read the latest of each call.
+      String latest(String prefix) =>
+          page().javaScript.lastWhere((c) => c.startsWith(prefix));
+      await tester.tap(find.text('Shaker'));
+      await tester.pump();
+      expect(latest('setDoorStyle'), "setDoorStyle('shaker')");
+      await tester.tap(find.text('Hexagon tile'));
+      await tester.pump();
+      expect(latest('setBacksplash'), "setBacksplash('hex')");
+      await tester.tap(find.text('Evening'));
+      await tester.pump();
+      expect(latest('setMood'), "setMood('evening')");
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show decor'));
+      await tester.pump();
+      expect(latest('setDecor'), 'setDecor(false)');
+      expect(latest('setRoom'), 'setRoom(true)');
+      await tester.ensureVisible(find.text('Show the room'));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show the room'));
+      await tester.pump();
+      expect(latest('setRoom'), 'setRoom(false)');
+      expect(latest('setDecor'), 'setDecor(false)');
+      // Not included in the quote, in so many words (decor and room).
+      expect(find.textContaining('Not included in the quote'), findsNWidgets(2));
+      await finish(tester);
+    });
+
+    testWidgets('is saved with the design and comes back when it is reopened',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await tester
+          .tap(find.byTooltip('Look: doors, backsplash, decor, room and light'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Raised panel'));
+      await tester.pump();
+      await tester.tap(find.text('Evening'));
+      await tester.pump();
+      await finish(tester);
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 250)));
+      final drafts = await tester.runAsync(OfflineStore.getDrafts);
+      final saved =
+          drafts!.firstWhere((d) => d['quote_id'] == 'QT-TEST-VIEWER');
+      expect(saved['scene'], {
+        'doors': 'raised',
+        'backsplash': 'subway',
+        'decor': true,
+        'room': true,
+        'mood': 'evening',
+      });
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+
+      // Reopened from the saved record.
+      final reopened = jsonDecode(payload) as Map<String, dynamic>
+        ..['scene'] = {
+          'doors': 'raised',
+          'backsplash': 'hex',
+          'decor': false,
+          'room': false,
+          'mood': 'evening',
+        };
+      // A new screen, not an update of the old one.
+      await tester.pumpWidget(const SizedBox());
+      await pumpViewer(tester, json: jsonEncode(reopened));
+      expect(page().javaScript, contains("setDoorStyle('raised')"));
+      expect(page().javaScript, contains("setBacksplash('hex')"));
+      expect(page().javaScript, contains('setDecor(false)'));
+      expect(page().javaScript, contains('setRoom(false)'));
+      expect(page().javaScript, contains("setMood('evening')"));
+      await finish(tester);
+    });
+
+    testWidgets('Look is off while a render runs', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': const <String>[]
+      });
+      await tester.pump();
+      final look = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.palette_outlined));
+      expect(look.onPressed, isNotNull); // normal when nothing is rendering
+      await finish(tester);
+    });
+  });
+
+  group('finish textures', () {
+    testWidgets('are handed to the page before the scene loads',
+        (tester) async {
+      await pumpViewer(tester);
+      final js = page().javaScript;
+      final register =
+          js.indexWhere((c) => c.startsWith('registerFinishTextures('));
+      final ready = js.indexOf('finishTexturesReady()');
+      final scene = js.indexWhere((c) => c.startsWith('loadScene('));
+      expect(register, isNonNegative);
+      expect(js.where((c) => c.startsWith('registerFinishFile(')).length,
+          greaterThan(15));
+      expect(register, lessThan(ready));
+      expect(ready, lessThan(scene));
+      await finish(tester);
+    });
+
+    testWidgets('the chosen benchtop is put on the worktop', (tester) async {
+      await pumpViewer(tester);
+      // Opened with none chosen: the style's own worktop.
+      expect(page().javaScript, contains('setBenchtop(null)'));
+
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      await tester.tap(find.text('Benchtop'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Calacatta Engineered Quartz'));
+      await tester.pumpAndSettle();
+      expect(page().javaScript.last, 'setBenchtop("quartz_calacatta")');
+
+      await tester.tap(find.textContaining('Benchtop:'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No benchtop in this quote'));
+      await tester.pumpAndSettle();
+      expect(page().javaScript.last, 'setBenchtop(null)');
+      await finish(tester);
+    });
+
+    testWidgets('a reopened design shows the benchtop it was saved with',
+        (tester) async {
+      final saved = jsonDecode(payload) as Map<String, dynamic>
+        ..['benchtop_material'] = 'granite_black';
+      await pumpViewer(tester, json: jsonEncode(saved));
+      expect(page().javaScript, contains('setBenchtop("granite_black")'));
+      await finish(tester);
+    });
+  });
+
+  group('pictures of the design', () {
+    // A real 1x1 PNG.
+    const png =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const picture = 'data:image/png;base64,$png';
+
+    testWidgets('the button asks the 3D page, then shows what it sent',
+        (tester) async {
+      await pumpViewer(tester);
+
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      expect(page().javaScript, contains("capturePictures('app')"));
+      expect(find.text('Taking pictures…'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture, picture],
+        'names': ['front', 'angle'],
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pictures of the design'), findsOneWidget);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      expect(find.text('Open to save'), findsOneWidget);
+      expect(find.bySemanticsLabel('Front view of the design'), findsOneWidget);
+      expect(
+          find.bySemanticsLabel('Angled view of the design'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('an empty answer says so and shows no sheet', (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({'event': 'pictures', 'images': <String>[]});
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+          find.text("Couldn't take the pictures. Try again."), findsOneWidget);
+      expect(find.text('Pictures of the design'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a page that never answers does not leave the app waiting',
+        (tester) async {
+      await pumpViewer(tester);
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump(const Duration(seconds: 21));
+      await tester.pump();
+
+      expect(
+          find.text("Couldn't take the pictures. Try again."), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('sending the quote takes pictures and keeps them with it',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+
+      await tester.tap(find.text('Quote'));
+      await tester.pumpAndSettle();
+      final send = find.text('Save & send quote');
+      await tester.ensureVisible(send);
+      await tester.tap(send);
+      await tester.pump();
+
+      // The app asks the page for pictures before it posts the quote.
+      expect(page().javaScript, contains("capturePictures('app')"));
+      fromPage({
+        'event': 'pictures',
+        'images': [picture, picture],
+      });
+      // The office isn't there (tests have no network): the quote waits on
+      // the phone, with its pictures. Give it a moment to get that far.
+      Map<String, dynamic>? saved;
+      for (var i = 0; i < 40 && saved?['design_images'] == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final drafts = await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return OfflineStore.getDrafts();
+        });
+        saved =
+            drafts!.where((d) => d['quote_id'] == 'QT-TEST-VIEWER').firstOrNull;
+      }
+      expect(saved?['design_images'], [picture, picture]);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await finish(tester);
+    });
+
+    // Opens the sheet with quick pictures, ready to render.
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture, picture],
+      });
+      await tester.pumpAndSettle();
+    }
+
+    const rendered = 'data:image/jpeg;base64,$png';
+
+    testWidgets('a realistic render can be asked for, with progress',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      expect(find.text('Realistic render'), findsNothing);
+
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      expect(
+          page().javaScript.any((c) => c.startsWith("renderPictures('render'")),
+          isTrue,
+          reason:
+              'last calls: ${page().javaScript.reversed.take(3).map((c) => c.length > 50 ? c.substring(0, 50) : c).toList()}');
+      expect(find.text('Rendering… 0%'), findsOneWidget);
+      // While it runs: no sending, and Quote and Picture are off.
+      expect(find.text('Send on WhatsApp'), findsNothing);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      fromPage({
+        'event': 'render_progress',
+        'request_id': 'render',
+        'fraction': 0.5
+      });
+      await tester.pump();
+      expect(find.text('Rendering… 50%'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Realistic render'), findsOneWidget);
+      expect(find.text('Make a realistic render'), findsNothing);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a true-lighting render can be asked for, with progress',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      expect(find.text('True-lighting render'), findsNothing);
+      // Both kinds are offered, and which is which is said.
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      final call = page()
+          .javaScript
+          .lastWhere((c) => c.startsWith("renderPictures('render'"));
+      expect(call, contains("engine: 'path'"));
+      expect(call, contains('samples: 300'));
+      expect(find.text('Rendering… 0%'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      fromPage({
+        'event': 'render_progress',
+        'request_id': 'render',
+        'fraction': 0.25
+      });
+      await tester.pump();
+      expect(find.text('Rendering… 25%'), findsOneWidget);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'path',
+        'fell_back': false,
+        'stats': {
+          'samples': [143, 151],
+          'seconds': [98.4, 101],
+          'gpu': 'Test GPU',
+        },
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('True-lighting render'), findsOneWidget);
+      expect(find.text('Realistic render'), findsNothing);
+      // What it reached is shown, so a test on a device can be read.
+      expect(find.textContaining('143 and 151 samples, in 98.4 and 101 s'),
+          findsOneWidget);
+      expect(find.textContaining('Graphics: Test GPU'), findsOneWidget);
+      expect(find.textContaining("can't do true lighting"), findsNothing);
+      expect(find.text('Make a true-lighting render'), findsNothing);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Fine detail asks the page for more samples', (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Fine detail (slower)'));
+      await tester.tap(find.text('Fine detail (slower)'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      final call = page()
+          .javaScript
+          .lastWhere((c) => c.startsWith("renderPictures('render'"));
+      expect(call, contains('samples: 1000'));
+      // Let the render finish, so no wait is left pending.
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'path',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      await finish(tester);
+    });
+
+    testWidgets('a device without true lighting is told, and gets the other',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'rendered': true,
+        'engine': 'sky',
+        'fell_back': true,
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Realistic render'), findsOneWidget);
+      expect(find.text('True-lighting render'), findsNothing);
+      expect(find.textContaining("can't do true lighting"), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('an older page that names no engine gets the one asked for',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a true-lighting render'));
+      await tester.tap(find.text('Make a true-lighting render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('True-lighting render'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Cancel stops the render and the quick pictures stay',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Cancel'));
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(page().javaScript, contains('cancelRender()'));
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'cancelled': true,
+        'images': <String>[],
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Rendering…'), findsNothing);
+      expect(find.text('Realistic render'), findsNothing);
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      expect(find.text('Send on WhatsApp'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('the quote uses the render while the design is unchanged',
+        (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      // Close the sheet (back).
+      Navigator.of(tester.element(find.text('Realistic render'))).pop();
+      await tester.pumpAndSettle();
+      int captures() => page()
+          .javaScript
+          .where((c) =>
+              c.startsWith('capturePictures(') ||
+              c.startsWith('renderPictures('))
+          .length;
+      final before = captures();
+
+      await tester.tap(find.text('Quote'));
+      await tester.pumpAndSettle();
+      final send = find.text('Save & send quote');
+      await tester.ensureVisible(send);
+      await tester.tap(send);
+      await tester.pump();
+      // No new capture: the render is of this very design.
+      expect(captures(), before);
+
+      Map<String, dynamic>? saved;
+      for (var i = 0; i < 40 && saved?['design_images'] == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final drafts = await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return OfflineStore.getDrafts();
+        });
+        saved =
+            drafts!.where((d) => d['quote_id'] == 'QT-TEST-VIEWER').firstOrNull;
+      }
+      expect(saved?['design_images'], [rendered, rendered]);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await finish(tester);
+    });
+
+    testWidgets('after the design changes the old render is not used',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'images': [rendered, rendered],
+      });
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('Realistic render'))).pop();
+      await tester.pumpAndSettle();
+
+      // A cabinet is moved: the render no longer shows this design.
+      fromPage({'event': 'cabinet_moved', 'id': 'B-01', 'x_mm': -1500});
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Take pictures of this design'));
+      await tester.pump();
+      // Quick pictures are taken again, and the sheet offers to render again.
+      expect(page().javaScript.last, "capturePictures('app')");
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'app',
+        'images': [picture]
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Make a realistic render'), findsOneWidget);
+      expect(find.text('Realistic render'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Quote and Picture are off while a render runs',
+        (tester) async {
+      await pumpViewer(tester);
+      await openSheet(tester);
+      await tester.ensureVisible(find.text('Make a realistic render'));
+      await tester.tap(find.text('Make a realistic render'));
+      await tester.pump();
+
+      final quote = tester.widget<ElevatedButton>(find.ancestor(
+          of: find.text('Quote'), matching: find.byType(ElevatedButton)));
+      expect(quote.onPressed, isNull);
+      final camera = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.photo_camera_outlined));
+      expect(camera.onPressed, isNull);
+
+      fromPage({
+        'event': 'pictures',
+        'request_id': 'render',
+        'cancelled': true,
+        'images': <String>[]
+      });
+      await tester.pumpAndSettle();
+      await finish(tester);
+    });
+
+    testWidgets('autosaved drafts never carry pictures', (tester) async {
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+      await pumpViewer(tester);
+      await finish(tester);
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)));
+      final drafts = await tester.runAsync(OfflineStore.getDrafts);
+      final saved =
+          drafts!.firstWhere((d) => d['quote_id'] == 'QT-TEST-VIEWER');
+      expect(saved.containsKey('design_images'), isFalse);
+      await tester.runAsync(() => OfflineStore.removeDraft('QT-TEST-VIEWER'));
+    });
+  });
+
+  group('Kitchen / Room / House', () {
+    testWidgets('only for a room read off a floor plan', (tester) async {
+      await pumpViewer(tester);
+      expect(find.text('House'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('switches what the 3D shows', (tester) async {
+      final fromPlan = jsonDecode(payload) as Map<String, dynamic>;
+      fromPlan['floor_plan'] = {
+        'image': 'data:image/png;base64,AAAA',
+        'image_center_mm': [4000, 2500],
+        'image_size_mm': [10000, 7000],
+        'image_rotation_deg': 0,
+        'kitchen_mm': [0, 0, 3600, 2400],
+        'wall_thickness_mm': 150,
+        'walls': [
+          [-150, -150, 3900, 150]
+        ],
+        'rooms': [],
+      };
+      await pumpViewer(tester, json: jsonEncode(fromPlan));
+
+      await tester.tap(find.text('House'));
+      await tester.pump();
+      expect(page().javaScript, contains("setRoomView('house')"));
+      await tester.tap(find.text('Room'));
+      await tester.pump();
+      expect(page().javaScript.last, "setRoomView('room')");
+      await finish(tester);
+    });
+  });
+}

@@ -63,7 +63,8 @@ class SignatureController extends ChangeNotifier {
       for (int i = 1; i < stroke.length - 1; i++) {
         final p0 = stroke[i];
         final p1 = stroke[i + 1];
-        path.quadraticBezierTo(p0.dx, p0.dy, (p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
+        path.quadraticBezierTo(
+            p0.dx, p0.dy, (p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
       }
       path.lineTo(stroke.last.dx, stroke.last.dy);
       canvas.drawPath(path, strokePaint);
@@ -120,9 +121,8 @@ class _SignaturePadState extends State<SignaturePad> {
         color: AppTheme.surfaceRaised,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: widget.controller.isNotEmpty
-              ? AppTheme.accent
-              : AppTheme.border,
+          color:
+              widget.controller.isNotEmpty ? AppTheme.accent : AppTheme.border,
           width: widget.controller.isNotEmpty ? 1.5 : 1.0,
         ),
       ),
@@ -143,21 +143,25 @@ class _SignaturePadState extends State<SignaturePad> {
 
             // Hint label
             if (widget.controller.isEmpty)
-              const Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.draw_rounded, color: AppTheme.textTertiary, size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'Sign here with finger to confirm design',
-                      style: TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic,
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.draw_rounded,
+                          color: AppTheme.textTertiary, size: 18),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Sign here with finger to confirm design',
+                          textAlign: TextAlign.center,
+                          style: context.textTheme.bodySmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 
@@ -184,24 +188,23 @@ class _SignaturePadState extends State<SignaturePad> {
                   onTap: () => widget.controller.clear(),
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceElevated,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppTheme.border),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.clear_rounded, size: 14, color: AppTheme.danger),
+                        Icon(Icons.clear_rounded,
+                            size: 14, color: AppTheme.danger),
                         SizedBox(width: 4),
                         Text(
                           'Clear',
-                          style: TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: context.textTheme.labelSmall?.copyWith(
+                              color: context.colors.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -240,7 +243,8 @@ class _SignaturePainter extends CustomPainter {
       for (int i = 1; i < stroke.length - 1; i++) {
         final p0 = stroke[i];
         final p1 = stroke[i + 1];
-        path.quadraticBezierTo(p0.dx, p0.dy, (p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
+        path.quadraticBezierTo(
+            p0.dx, p0.dy, (p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
       }
       path.lineTo(stroke.last.dx, stroke.last.dy);
       canvas.drawPath(path, paint);

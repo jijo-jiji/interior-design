@@ -4,7 +4,8 @@ import 'package:static_trace/app.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() {
-  testWidgets('App smoke test — camera screen renders', (WidgetTester tester) async {
+  testWidgets('App smoke test — camera screen renders',
+      (WidgetTester tester) async {
     await tester.pumpWidget(
       const ProviderScope(child: StaticTraceApp()),
     );

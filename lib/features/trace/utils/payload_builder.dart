@@ -18,17 +18,23 @@ class PayloadBuilder {
     double? bottomLinePx,
     required List<Obstacle> obstacles,
     required double canvasHeightPx, // used to anchor distance_from_floor
+    Map<String, dynamic>? capture,
+    String? photoPath,
   }) {
-    final sRatioX = (scaleRatioX != null && scaleRatioX > 0) ? scaleRatioX : scaleRatio;
-    final sRatioY = (scaleRatioY != null && scaleRatioY > 0) ? scaleRatioY : scaleRatio;
+    final sRatioX =
+        (scaleRatioX != null && scaleRatioX > 0) ? scaleRatioX : scaleRatio;
+    final sRatioY =
+        (scaleRatioY != null && scaleRatioY > 0) ? scaleRatioY : scaleRatio;
     final floorPx = bottomLinePx ?? canvasHeightPx;
 
     final List<Map<String, dynamic>> obstacleList = obstacles.map((obs) {
       final distFromLeftPx = obs.leftPx - leftLinePx;
-      double distFromLeftMm = ScaleMath.pxToMm(distFromLeftPx, sRatioX).roundToDouble();
+      double distFromLeftMm =
+          ScaleMath.pxToMm(distFromLeftPx, sRatioX).roundToDouble();
 
       final distFromFloorPx = floorPx - (obs.topPx + obs.heightPx);
-      double distFromFloorMm = ScaleMath.pxToMm(distFromFloorPx, sRatioY).roundToDouble();
+      double distFromFloorMm =
+          ScaleMath.pxToMm(distFromFloorPx, sRatioY).roundToDouble();
 
       double widthMm = ScaleMath.pxToMm(obs.widthPx, sRatioX).roundToDouble();
       double heightMm = ScaleMath.pxToMm(obs.heightPx, sRatioY).roundToDouble();
@@ -58,6 +64,11 @@ class PayloadBuilder {
         'depth_mm': wallDepthMm,
       },
       'obstacles': obstacleList,
+      // How the wall was measured on the photo (corners, lens, tilt).
+      if (capture != null) 'capture': capture,
+      // Where the photo is on this phone: sent with the quote if the client
+      // agrees (see the quote sheet), never as a path.
+      if (photoPath != null) 'wall_photo_path': photoPath,
       'salesperson_id': 'demo_agent_01', // hardcoded per spec
     };
   }
@@ -74,6 +85,8 @@ class PayloadBuilder {
     double? bottomLinePx,
     required List<Obstacle> obstacles,
     required double canvasHeightPx,
+    Map<String, dynamic>? capture,
+    String? photoPath,
   }) =>
       jsonEncode(build(
         wallWidthMm: wallWidthMm,
@@ -86,5 +99,7 @@ class PayloadBuilder {
         bottomLinePx: bottomLinePx,
         obstacles: obstacles,
         canvasHeightPx: canvasHeightPx,
+        capture: capture,
+        photoPath: photoPath,
       ));
 }

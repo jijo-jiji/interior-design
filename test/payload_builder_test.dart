@@ -10,10 +10,11 @@ void main() {
     final obstacles = [
       Obstacle(
         type: ObstacleType.window,
-        leftPx: 240,    // 1200mm from left
-        topPx: 360,     // 1800mm from top → from floor = 2700 - 1800 - 1200 = -300? let's use realistic
-        widthPx: 200,   // 1000mm
-        heightPx: 240,  // 1200mm
+        leftPx: 240, // 1200mm from left
+        topPx:
+            360, // 1800mm from top → from floor = 2700 - 1800 - 1200 = -300? let's use realistic
+        widthPx: 200, // 1000mm
+        heightPx: 240, // 1200mm
       ),
     ];
 

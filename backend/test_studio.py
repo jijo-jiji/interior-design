@@ -1,11 +1,35 @@
 import os
+import shutil
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
 from fastapi.testclient import TestClient
+from backend import main
 from backend.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def scratch_storage(tmp_path, monkeypatch):
+    """Every test here works on a scratch copy of the project database and
+    scratch PDF and floor plan folders, so the quotes, revisions and deposits
+    it sends never reach the real ones. The copy keeps the sample projects
+    (QT-816BB0DC, QT-992AC14B) the export and portal tests read.
+
+    The price list is a scratch store too: PUT /api/catalog saves a new
+    version, and without this it would land in the real catalog_store and
+    every later test in the run (the pricing contract among them) would
+    price with the edited figures."""
+    db = tmp_path / "projects_db.json"
+    shutil.copyfile(main.DB_PATH, db)
+    monkeypatch.setattr(main, "DB_PATH", str(db))
+    monkeypatch.setattr(main, "PDF_DIR", str(tmp_path / "pdfs"))
+    monkeypatch.setattr(main, "PLAN_DIR", str(tmp_path / "plan_images"))
+    monkeypatch.setattr(
+        main, "catalogs", main.catalog_lib.CatalogStore(tmp_path / "catalog_store"))
+
 
 def test_list_projects():
     resp = client.get("/api/projects")
@@ -177,12 +201,5 @@ def test_customer_portal_and_deposit():
     print("[PASS] test_customer_portal_and_deposit: portal routing and deposit payment verified")
 
 if __name__ == "__main__":
-    test_list_projects()
-    test_get_single_project()
-    test_catalog_endpoints()
-    test_dxf_export()
-    test_cutlist_export()
-    test_quote_preserves_coordinates()
-    test_update_project_revisions()
-    test_customer_portal_and_deposit()
-    print("\nALL STUDIO BACKEND TESTS PASSED!")
+    # Through pytest, so the scratch storage above applies here too.
+    raise SystemExit(pytest.main([__file__, "-v", "-s"]))

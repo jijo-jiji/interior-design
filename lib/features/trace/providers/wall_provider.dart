@@ -1,7 +1,57 @@
+import 'dart:math' as math;
+import 'dart:ui' show Offset, Rect, Size;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/obstacle.dart';
+import '../utils/corner_suggester.dart';
+import '../utils/corner_suggestion.dart';
+import '../utils/homography.dart';
+import '../utils/opening_finder.dart';
+import '../utils/wall_segmenter.dart';
 
 // ─── Wall Setup ─────────────────────────────────────────────────────────────
+
+/// The four corners of the wall in front of the camera, marked on the photo.
+enum WallCorner {
+  topLeft('Top left'),
+  topRight('Top right'),
+  bottomRight('Bottom right'),
+  bottomLeft('Bottom left');
+
+  const WallCorner(this.label);
+  final String label;
+
+  bool get isLeft => this == topLeft || this == bottomLeft;
+  bool get isTop => this == topLeft || this == topRight;
+}
+
+/// Corners stay at least this far apart (as a fraction of the photo).
+const double kMinEdgeGap = 0.05;
+
+/// Where the corners start: a little inside the photo, since walls rarely
+/// fill the frame and a dot on the very edge is hard to grab.
+const List<Offset> kStartCorners = [
+  Offset(0.08, 0.08),
+  Offset(0.92, 0.08),
+  Offset(0.92, 0.92),
+  Offset(0.08, 0.92),
+];
+
+/// How the phone was held when the photo was taken, in degrees.
+class CaptureTilt {
+  const CaptureTilt({required this.rollDeg, required this.pitchDeg});
+
+  /// Turned clockwise (+) or anticlockwise (−) from level.
+  final double rollDeg;
+
+  /// The camera looking down (+) or up (−), from upright.
+  final double pitchDeg;
+
+  Map<String, double> toJson() => {
+        'roll': double.parse(rollDeg.toStringAsFixed(1)),
+        'pitch': double.parse(pitchDeg.toStringAsFixed(1)),
+      };
+}
 
 class WallSetup {
   const WallSetup({
@@ -10,45 +60,129 @@ class WallSetup {
     this.depthMm = 150,
     this.screenWidthPx = 1,
     this.screenHeightPx = 1,
-    this.leftLineRatio = 0.0,
-    this.rightLineRatio = 1.0,
-    this.topLineRatio = 0.0,
-    this.bottomLineRatio = 1.0,
+    this.leftLineRatio = 0.08,
+    this.rightLineRatio = 0.92,
+    this.topLineRatio = 0.08,
+    this.bottomLineRatio = 0.92,
+    this.corners = kStartCorners,
+    this.photoSize,
+    this.focalPx,
+    this.tilt,
+    this.suggestedCorners,
+    this.suggestedBy,
+    this.bottomShift,
+    this.suggestedBottomShift,
+    this.sizeFromTape = false,
+    this.sizeFrom,
   });
 
   final double widthMm;
   final double heightMm;
   final double depthMm;
 
-  /// Set by the TraceCanvas when LayoutBuilder resolves.
+  /// The trace canvas, set when its LayoutBuilder resolves.
   final double screenWidthPx;
   final double screenHeightPx;
 
-  /// 4-Boundary wall calibration ratios (0.0 to 1.0)
+  /// Where the straightened wall sits on the canvas while windows and doors
+  /// are marked (fractions of the canvas). Boxes are measured against it.
   final double leftLineRatio;
   final double rightLineRatio;
   final double topLineRatio;
   final double bottomLineRatio;
 
-  /// Pixel positions of wall boundaries on screen
+  /// The wall's corners on the photo, as fractions of its width and height,
+  /// in [WallCorner] order.
+  final List<Offset> corners;
+
+  /// The photo's size in pixels (upright), once it has been decoded.
+  final Size? photoSize;
+
+  /// The camera's focal length in photo pixels, from the photo's EXIF data.
+  final double? focalPx;
+
+  /// How the phone was held, if the photo came from the camera screen.
+  final CaptureTilt? tilt;
+
+  /// Where the wall-corner model put the corners (fractions of the photo),
+  /// if it found them: kept with the quote beside the corners confirmed, so
+  /// the model can be measured and improved.
+  final List<Offset>? suggestedCorners;
+
+  /// How [suggestedCorners] were found, kept with them.
+  final CornerSource? suggestedBy;
+
+  /// In a kitchen, the bottom corners are marked where the floor meets the
+  /// cabinets; the wall itself meets the floor further back, hidden. This is
+  /// how far each hidden point is from its bottom corner (bottom-right,
+  /// bottom-left), as the corner model found it: the wall is measured from
+  /// the hidden points, which follow the corners when they're moved. Null
+  /// when the corners are on the wall itself (a room, or marked by hand).
+  final List<Offset>? bottomShift;
+
+  /// The [bottomShift] that came with [suggestedCorners], applied if they're
+  /// used.
+  final List<Offset>? suggestedBottomShift;
+
+  /// Whether the width and height were confirmed on the wall-size screen.
+  /// Until then they're defaults, and the screen offers an estimate from
+  /// the photo instead.
+  final bool sizeFromTape;
+
+  /// Where the confirmed size came from: 'worktop', 'door' or 'assumed'
+  /// (worked out from the photo and accepted), or 'typed'. Kept with the
+  /// quote, to see how often the photo's estimate needs correcting.
+  final String? sizeFrom;
+
   double get leftLinePx => screenWidthPx * leftLineRatio;
   double get rightLinePx => screenWidthPx * rightLineRatio;
   double get topLinePx => screenHeightPx * topLineRatio;
   double get bottomLinePx => screenHeightPx * bottomLineRatio;
 
-  /// Active calibrated wall pixel dimensions inside the cropped boundary box
-  double get activeWallWidthPx => (rightLinePx - leftLinePx).clamp(50, screenWidthPx);
-  double get activeWallHeightPx => (bottomLinePx - topLinePx).clamp(50, screenHeightPx);
+  double get activeWallWidthPx => (rightLinePx - leftLinePx)
+      // Before the first layout the screen size is a 1px placeholder;
+      // clamp(50, 1) would throw.
+      .clamp(math.min(50, screenWidthPx), screenWidthPx);
+  double get activeWallHeightPx => (bottomLinePx - topLinePx)
+      .clamp(math.min(50, screenHeightPx), screenHeightPx);
 
-  /// Calibrated scale ratios (pixels-per-mm)
+  /// Pixels per mm on the straightened wall. The same both ways once the
+  /// layout has settled, since the wall is drawn at its true proportions.
   double get scaleRatioX => activeWallWidthPx / widthMm;
   double get scaleRatioY => activeWallHeightPx / heightMm;
-
-  /// Primary scale ratio for backwards compatibility
   double get scaleRatio => scaleRatioX;
 
-  /// Canvas height in px derived from the wall aspect ratio.
   double get canvasHeightPx => activeWallHeightPx;
+
+  Offset corner(WallCorner c) => corners[c.index];
+
+  /// The wall's own corners, which it's measured and straightened from: the
+  /// [corners] as marked, with the bottom ones moved back to where the wall
+  /// meets the floor behind the cabinets ([bottomShift]), if known.
+  List<Offset> get wallCorners {
+    final s = bottomShift;
+    if (s == null) return corners;
+    final c = [corners[0], corners[1], corners[2] + s[0], corners[3] + s[1]];
+    return isConvexQuad(c) ? c : corners;
+  }
+
+  /// The wall's own corners ([wallCorners]) in photo pixels, once the
+  /// photo's size is known.
+  List<Offset>? get cornersPx {
+    final size = photoSize;
+    if (size == null) return null;
+    return [
+      for (final c in wallCorners) Offset(c.dx * size.width, c.dy * size.height)
+    ];
+  }
+
+  /// The wall's proportions as the photo shows them, or null if the photo
+  /// isn't decoded yet or the corners make no sense.
+  WallShapeEstimate? get photoShape {
+    final px = cornersPx;
+    if (px == null) return null;
+    return estimateWallShape(px, photoSize!, focalPx: focalPx);
+  }
 
   WallSetup copyWith({
     double? widthMm,
@@ -60,6 +194,16 @@ class WallSetup {
     double? rightLineRatio,
     double? topLineRatio,
     double? bottomLineRatio,
+    List<Offset>? corners,
+    Size? photoSize,
+    double? focalPx,
+    CaptureTilt? tilt,
+    List<Offset>? suggestedCorners,
+    CornerSource? suggestedBy,
+    List<Offset>? bottomShift,
+    List<Offset>? suggestedBottomShift,
+    bool? sizeFromTape,
+    String? sizeFrom,
   }) =>
       WallSetup(
         widthMm: widthMm ?? this.widthMm,
@@ -71,7 +215,34 @@ class WallSetup {
         rightLineRatio: rightLineRatio ?? this.rightLineRatio,
         topLineRatio: topLineRatio ?? this.topLineRatio,
         bottomLineRatio: bottomLineRatio ?? this.bottomLineRatio,
+        corners: corners ?? this.corners,
+        photoSize: photoSize ?? this.photoSize,
+        focalPx: focalPx ?? this.focalPx,
+        tilt: tilt ?? this.tilt,
+        suggestedCorners: suggestedCorners ?? this.suggestedCorners,
+        suggestedBy: suggestedBy ?? this.suggestedBy,
+        bottomShift: bottomShift ?? this.bottomShift,
+        suggestedBottomShift: suggestedBottomShift ?? this.suggestedBottomShift,
+        sizeFromTape: sizeFromTape ?? this.sizeFromTape,
+        sizeFrom: sizeFrom ?? this.sizeFrom,
       );
+
+  /// Where the straightened wall is on the canvas.
+  Rect get wallRect =>
+      Rect.fromLTRB(leftLinePx, topLinePx, rightLinePx, bottomLinePx);
+}
+
+/// Where the straightened wall is drawn on a canvas: as large as fits, at
+/// its true proportions, centred, with a margin for the boxes' handles.
+Rect straightWallRect(Size canvas, double widthMm, double heightMm) {
+  const margin = 16.0;
+  final room = Size(math.max(1, canvas.width - 2 * margin),
+      math.max(1, canvas.height - 2 * margin));
+  final aspect = widthMm / heightMm;
+  final w = math.min(room.width, room.height * aspect);
+  final h = w / aspect;
+  return Rect.fromCenter(
+      center: Offset(canvas.width / 2, canvas.height / 2), width: w, height: h);
 }
 
 class WallSetupNotifier extends StateNotifier<WallSetup> {
@@ -81,32 +252,156 @@ class WallSetupNotifier extends StateNotifier<WallSetup> {
     required double widthMm,
     required double heightMm,
     required double depthMm,
+    String? sizeFrom,
   }) =>
       state = state.copyWith(
         widthMm: widthMm,
         heightMm: heightMm,
         depthMm: depthMm,
+        sizeFromTape: true,
+        sizeFrom: sizeFrom,
       );
 
-  void updateScreenSize(double widthPx, double heightPx) =>
-      state = state.copyWith(
-        screenWidthPx: widthPx,
-        screenHeightPx: heightPx,
+  /// A new photo: corners back to their start, and how the phone was held
+  /// (null for a photo from the gallery).
+  void startPhoto({CaptureTilt? tilt}) => state = WallSetup(
+        widthMm: state.widthMm,
+        heightMm: state.heightMm,
+        depthMm: state.depthMm,
+        screenWidthPx: state.screenWidthPx,
+        screenHeightPx: state.screenHeightPx,
+        tilt: tilt,
       );
 
-  void updateBoundaries({
-    double? leftRatio,
-    double? rightRatio,
-    double? topRatio,
-    double? bottomRatio,
-  }) =>
-      state = state.copyWith(
-        leftLineRatio: leftRatio,
-        rightLineRatio: rightRatio,
-        topLineRatio: topRatio,
-        bottomLineRatio: bottomRatio,
-      );
+  /// The photo has been decoded: its upright size in pixels, and the
+  /// camera's focal length if its EXIF data has one.
+  void setPhoto(Size size, {double? focalPx}) {
+    if (state.photoSize == size && state.focalPx == focalPx) return;
+    state = state.copyWith(photoSize: size, focalPx: focalPx);
+  }
+
+  /// Called after every layout of the trace canvas: the canvas size and the
+  /// straightened wall's place on it. Only a real change may notify, or the
+  /// screen would rebuild itself every frame.
+  void syncLayout(Size canvas) {
+    final r = straightWallRect(canvas, state.widthMm, state.heightMm);
+    final next = state.copyWith(
+      screenWidthPx: canvas.width,
+      screenHeightPx: canvas.height,
+      leftLineRatio: r.left / canvas.width,
+      rightLineRatio: r.right / canvas.width,
+      topLineRatio: r.top / canvas.height,
+      bottomLineRatio: r.bottom / canvas.height,
+    );
+    bool same(double a, double b) => (a - b).abs() < 1e-9;
+    if (same(next.screenWidthPx, state.screenWidthPx) &&
+        same(next.screenHeightPx, state.screenHeightPx) &&
+        same(next.leftLineRatio, state.leftLineRatio) &&
+        same(next.rightLineRatio, state.rightLineRatio) &&
+        same(next.topLineRatio, state.topLineRatio) &&
+        same(next.bottomLineRatio, state.bottomLineRatio)) {
+      return;
+    }
+    state = next;
+  }
+
+  /// The model's corners for this photo. Placed on the photo only if
+  /// [place] and they make a proper four-sided wall; kept for the record
+  /// either way. [wallBottom]: where the wall meets the floor behind the
+  /// cabinets (bottom-right, bottom-left), if the model found it. Returns
+  /// whether they were placed.
+  bool suggest(List<Offset> corners,
+      {required bool place, CornerSource? source, List<Offset>? wallBottom}) {
+    final c = [
+      for (final p in corners) Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0))
+    ];
+    final ok = c.length == 4 && isConvexQuad(c);
+    final shift = ok && wallBottom != null && wallBottom.length == 2
+        ? [wallBottom[0] - c[2], wallBottom[1] - c[3]]
+        : null;
+    state = state.copyWith(
+      suggestedCorners: c,
+      suggestedBy: source,
+      suggestedBottomShift: shift,
+      corners: place && ok ? c : null,
+      bottomShift: place && ok ? shift : null,
+    );
+    return place && ok;
+  }
+
+  /// Places the corners the model suggested, after marking had started.
+  /// Returns whether they were placed.
+  bool useSuggestion() {
+    final c = state.suggestedCorners;
+    if (c == null || !isConvexQuad(c)) return false;
+    state = state.copyWith(corners: c, bottomShift: state.suggestedBottomShift);
+    return true;
+  }
+
+  /// Moves [corner] to [at] (fractions of the photo): kept on the photo, on
+  /// its own side of the wall, and the wall kept a proper four-sided shape.
+  /// Used by dragging, tapping the photo and the arrows.
+  void moveCorner(WallCorner corner, Offset at) {
+    final c = [...state.corners];
+    const g = kMinEdgeGap;
+    final tl = c[0], tr = c[1], br = c[2], bl = c[3];
+    var x = at.dx.clamp(0.0, 1.0);
+    var y = at.dy.clamp(0.0, 1.0);
+    switch (corner) {
+      case WallCorner.topLeft:
+        x = math.min(x, tr.dx - g);
+        y = math.min(y, bl.dy - g);
+      case WallCorner.topRight:
+        x = math.max(x, tl.dx + g);
+        y = math.min(y, br.dy - g);
+      case WallCorner.bottomRight:
+        x = math.max(x, bl.dx + g);
+        y = math.max(y, tr.dy + g);
+      case WallCorner.bottomLeft:
+        x = math.min(x, br.dx - g);
+        y = math.max(y, tl.dy + g);
+    }
+    c[corner.index] = Offset(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
+    if (!isConvexQuad(c)) return;
+    state = state.copyWith(corners: c);
+  }
 }
+
+/// Whether four points, in order, make a convex four-sided shape.
+bool isConvexQuad(List<Offset> p) {
+  double? sign;
+  for (var i = 0; i < 4; i++) {
+    final a = p[i], b = p[(i + 1) % 4], c = p[(i + 2) % 4];
+    final cross = (b.dx - a.dx) * (c.dy - b.dy) - (b.dy - a.dy) * (c.dx - b.dx);
+    if (cross.abs() < 1e-9) return false;
+    sign ??= cross.sign;
+    if (cross.sign != sign) return false;
+  }
+  return true;
+}
+
+/// The wall-corner model on this device.
+final cornerSuggesterProvider =
+    Provider<CornerSuggester>((ref) => const DeviceCornerSuggester());
+
+/// The model's corners for a photo, looked for once per photo, from as soon
+/// as it opens. When the depth map alone doesn't find the wall, the corner
+/// model also reads the segmentation labels, which are then ready early for
+/// finding the windows and doors.
+final cornerSuggestionProvider =
+    FutureProvider.family<CornerSuggestion, String>((ref, imagePath) => ref
+        .watch(cornerSuggesterProvider)
+        .suggest(imagePath,
+            labels: () => ref.read(wallLabelsProvider(imagePath).future)));
+
+/// The wall segmentation model on this device.
+final wallSegmenterProvider =
+    Provider<WallSegmenter>((ref) => const DeviceWallSegmenter());
+
+/// The segmentation labels for a photo, worked out once per photo, from as
+/// soon as it opens. Null with no model here.
+final wallLabelsProvider = FutureProvider.family<WallLabels?, String>(
+    (ref, imagePath) => ref.watch(wallSegmenterProvider).labels(imagePath));
 
 final wallSetupProvider =
     StateNotifierProvider<WallSetupNotifier, WallSetup>((ref) {
@@ -127,10 +422,26 @@ class ObstaclesNotifier extends StateNotifier<List<Obstacle>> {
     ];
   }
 
-  void remove(String id) =>
-      state = state.where((obs) => obs.id != id).toList();
+  void remove(String id) => state = state.where((obs) => obs.id != id).toList();
 
   void clear() => state = [];
+
+  /// Keeps every box on the same spot of the wall when the straightened
+  /// wall is redrawn at another place or size: after the wall's size is
+  /// changed, or the screen turns.
+  void remap(Rect from, Rect to) {
+    if (state.isEmpty || from.width < 20 || from.height < 20) return;
+    final sx = to.width / from.width, sy = to.height / from.height;
+    state = [
+      for (final o in state)
+        o.copyWith(
+          leftPx: to.left + (o.leftPx - from.left) * sx,
+          topPx: to.top + (o.topPx - from.top) * sy,
+          widthPx: o.widthPx * sx,
+          heightPx: o.heightPx * sy,
+        ),
+    ];
+  }
 }
 
 final obstaclesProvider =

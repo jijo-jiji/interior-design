@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/theme.dart';
 
+/// Galley and studio are drawn by the preview but not offered yet: the
+/// layout generator only lays out a single wall or an L. Add their tabs back
+/// once it can fill them.
 enum RoomShape { singleWall, lShape, galley, studio }
 
 class TemplateRoomScreen extends StatefulWidget {
@@ -18,7 +21,6 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
   double _widthMm = 4000;
   double _heightMm = 2700;
   double _returnMm = 2500;
-  double _aisleMm = 1200;
 
   void _launch3D() {
     // Construct the wall specification for Three.js
@@ -29,7 +31,6 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
         'depth_mm': 150.0,
         'shape': _selectedShape.name,
         'return_mm': _selectedShape == RoomShape.lShape ? _returnMm : 0,
-        'aisle_mm': _selectedShape == RoomShape.galley ? _aisleMm : 0,
       },
       'obstacles': <Map<String, dynamic>>[],
       'salesperson_id': 'demo_agent_01',
@@ -45,8 +46,9 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('10s Quick Room Template'),
+        title: const Text('Room size'),
         leading: IconButton(
+          tooltip: 'Back',
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
         ),
@@ -62,38 +64,26 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                 child: Row(
                   children: [
                     _ShapeTab(
-                      label: 'Single Wall',
+                      label: 'Single wall',
                       icon: Icons.horizontal_rule_rounded,
                       isSelected: _selectedShape == RoomShape.singleWall,
-                      onTap: () => setState(() => _selectedShape = RoomShape.singleWall),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.singleWall),
                     ),
                     const SizedBox(width: 8),
                     _ShapeTab(
-                      label: 'L-Shape Kitchen',
+                      label: 'L-shape',
                       icon: Icons.turn_right_rounded,
                       isSelected: _selectedShape == RoomShape.lShape,
-                      onTap: () => setState(() => _selectedShape = RoomShape.lShape),
-                    ),
-                    const SizedBox(width: 8),
-                    _ShapeTab(
-                      label: 'Galley (2 Walls)',
-                      icon: Icons.view_column_rounded,
-                      isSelected: _selectedShape == RoomShape.galley,
-                      onTap: () => setState(() => _selectedShape = RoomShape.galley),
-                    ),
-                    const SizedBox(width: 8),
-                    _ShapeTab(
-                      label: 'Studio Box',
-                      icon: Icons.crop_square_rounded,
-                      isSelected: _selectedShape == RoomShape.studio,
-                      onTap: () => setState(() => _selectedShape = RoomShape.studio),
+                      onTap: () =>
+                          setState(() => _selectedShape = RoomShape.lShape),
                     ),
                   ],
                 ),
               ),
             ),
 
-            const Divider(color: Color(0xFF1E2433), height: 1),
+            const Divider(color: AppTheme.border, height: 1),
 
             // ── Visual Wireframe Preview Box ──────────────────────────────
             Expanded(
@@ -123,7 +113,8 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
             Expanded(
               flex: 4,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 decoration: const BoxDecoration(
                   color: AppTheme.surfaceRaised,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -135,7 +126,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                     children: [
                       // Wall Width Slider
                       _DimensionSlider(
-                        label: 'Main Wall Width',
+                        label: 'Main wall width',
                         value: _widthMm,
                         min: 2000,
                         max: 8000,
@@ -148,7 +139,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
 
                       // Ceiling Height Slider
                       _DimensionSlider(
-                        label: 'Ceiling Height',
+                        label: 'Ceiling height',
                         value: _heightMm,
                         min: 2200,
                         max: 3600,
@@ -160,7 +151,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                       if (_selectedShape == RoomShape.lShape) ...[
                         const SizedBox(height: 10),
                         _DimensionSlider(
-                          label: 'Return Wall Length',
+                          label: 'Return wall length',
                           value: _returnMm,
                           min: 1200,
                           max: 5000,
@@ -170,25 +161,11 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                         ),
                       ],
 
-                      if (_selectedShape == RoomShape.galley) ...[
-                        const SizedBox(height: 10),
-                        _DimensionSlider(
-                          label: 'Galley Aisle Clearance',
-                          value: _aisleMm,
-                          min: 900,
-                          max: 2000,
-                          step: 50,
-                          unit: 'mm',
-                          onChanged: (val) => setState(() => _aisleMm = val),
-                        ),
-                      ],
-
                       const SizedBox(height: 20),
 
                       // Launch 3D Button
                       SizedBox(
                         width: double.infinity,
-                        height: 50,
                         child: ElevatedButton.icon(
                           onPressed: _launch3D,
                           style: ElevatedButton.styleFrom(
@@ -199,10 +176,7 @@ class _TemplateRoomScreenState extends State<TemplateRoomScreen> {
                             ),
                           ),
                           icon: const Icon(Icons.view_in_ar_rounded),
-                          label: const Text(
-                            'Launch 3D Co-Design & Quote',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                          ),
+                          label: const Text('View in 3D'),
                         ),
                       ),
                     ],
@@ -232,31 +206,37 @@ class _ShapeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accent : const Color(0xFF1C2230),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? AppTheme.accent : const Color(0xFF2C3344),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: isSelected ? Colors.white : AppTheme.textSecondary),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textPrimary,
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.accent : AppTheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AppTheme.accent : AppTheme.outline,
             ),
-          ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon,
+                  size: 16,
+                  color: isSelected ? AppTheme.bg : AppTheme.textSecondary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: context.textTheme.labelMedium?.copyWith(
+                    color: isSelected
+                        ? context.colors.onPrimary
+                        : context.colors.onSurface),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -290,23 +270,24 @@ class _DimensionSlider extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            Expanded(
+              child: Text(
+                label,
+                style: context.textTheme.bodySmall
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
             ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF242A38),
+                color: AppTheme.surfaceRaised,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 '${value.toStringAsFixed(0)} $unit',
-                style: const TextStyle(
-                  color: AppTheme.accent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.textTheme.labelSmall
+                    ?.copyWith(color: context.colors.primary),
               ),
             ),
           ],
@@ -314,7 +295,7 @@ class _DimensionSlider extends StatelessWidget {
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
             activeTrackColor: AppTheme.accent,
-            inactiveTrackColor: const Color(0xFF2C3344),
+            inactiveTrackColor: AppTheme.surfaceElevated,
             thumbColor: Colors.white,
             trackHeight: 3,
           ),
@@ -362,9 +343,11 @@ class _RoomWireframePainter extends CustomPainter {
       canvas.drawLine(Offset(20, y), Offset(size.width - 20, y), wallPaint);
 
       // Dimension guide
-      canvas.drawLine(Offset(20, y + 25), Offset(size.width - 20, y + 25), dimPaint);
+      canvas.drawLine(
+          Offset(20, y + 25), Offset(size.width - 20, y + 25), dimPaint);
       canvas.drawLine(Offset(20, y + 18), Offset(20, y + 32), dimPaint);
-      canvas.drawLine(Offset(size.width - 20, y + 18), Offset(size.width - 20, y + 32), dimPaint);
+      canvas.drawLine(Offset(size.width - 20, y + 18),
+          Offset(size.width - 20, y + 32), dimPaint);
     } else if (shape == RoomShape.lShape) {
       final path = Path();
       path.moveTo(30, 30);
@@ -372,8 +355,10 @@ class _RoomWireframePainter extends CustomPainter {
       path.lineTo(size.width - 30, size.height - 30);
       canvas.drawPath(path, wallPaint);
     } else if (shape == RoomShape.galley) {
-      canvas.drawLine(const Offset(30, 40), Offset(size.width - 30, 40), wallPaint);
-      canvas.drawLine(Offset(30, size.height - 40), Offset(size.width - 30, size.height - 40), wallPaint);
+      canvas.drawLine(
+          const Offset(30, 40), Offset(size.width - 30, 40), wallPaint);
+      canvas.drawLine(Offset(30, size.height - 40),
+          Offset(size.width - 30, size.height - 40), wallPaint);
     } else {
       // Studio
       final rect = Rect.fromLTRB(30, 30, size.width - 30, size.height - 30);

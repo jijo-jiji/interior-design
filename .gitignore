@@ -63,3 +63,34 @@ __pycache__/
 temp_video_recordings/
 *.webm
 
+# Web build of the sales app (tool/build_web.sh); built per machine, not committed
+/backend/static/sales/
+
+# The office server's HTTPS keys (backend/office_https.py). Private: never commit.
+/backend/certs/
+
+# Generated quotation PDFs
+backend/generated_pdfs/
+
+# Server secrets (API keys), e.g. backend/.env. Never commit.
+.env
+
+# Floor plan images stored with quotes (backend/main.py)
+backend/plan_images/
+
+# Pictures of designs stored with quotes (backend/main.py)
+backend/design_pictures/
+
+# Live catalogue and its version history (backend/catalog.py): per-installation data, seeded from assets/catalog/default_catalog.json
+/backend/catalog_store/
+backend/wall_photos/
+
+# The wall-corner model (27 MB): fetched by tool/fetch_wall_model.py
+assets/models/wall_depth.onnx
+assets/models/*.part
+assets/models/wall_segment.onnx
+
+# Corner-model training runs: checkpoints and evaluation pictures. The
+# shipped model is assets/models/wall_corners.onnx.
+tool/wall_corner_training/runs/
+tool/wall_corner_training/.venv/
