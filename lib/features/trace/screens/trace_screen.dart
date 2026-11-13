@@ -16,6 +16,7 @@ import '../utils/photo_exif.dart';
 import '../utils/wall_lean.dart';
 import '../utils/scale_math.dart';
 import '../widgets/obstacle_editor.dart';
+import '../widgets/photo_point.dart';
 import '../widgets/trace_box.dart';
 import '../../../shared/platform/photo_error.dart';
 import '../../../shared/platform/photo_image.dart';
@@ -398,8 +399,8 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
           ),
         ),
         for (final corner in WallCorner.values)
-          _CornerHandle(
-            corner: corner,
+          PointHandle(
+            label: '${corner.label} corner',
             at: points[corner.index],
             selected: corner == _corner,
             onSelect: () => _selectCorner(corner),
@@ -417,7 +418,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
             },
             onDragEnd: () => setState(() => _dragAt = null),
           ),
-        if (_dragAt case final at?) _Loupe(at: at, canvas: canvas),
+        if (_dragAt case final at?) PhotoLoupe(at: at, canvas: canvas),
       ],
     );
   }
@@ -578,9 +579,14 @@ Map<String, dynamic> captureRecord(WallSetup wall) {
       ],
     if (wall.suggestedCorners != null && wall.suggestedBy != null)
       'suggested_by': wall.suggestedBy!.name,
-    // Where the size came from: the photo (worktop, door, assumed ceiling)
-    // or a typed measurement.
+    // Where the size came from: the photo (an A4 sheet, the worktop, a door,
+    // the usual ceiling) or a typed measurement.
     if (wall.sizeFrom != null) 'size_from': wall.sizeFrom,
+    // The A4 sheet the size was measured from, if one was marked.
+    if (wall.sheet case final s?)
+      'sheet': [
+        for (final c in s) [r4(c.dx), r4(c.dy)]
+      ],
     // Where the wall meets the floor behind the cabinets (bottom-right,
     // bottom-left), when the bottom corners are on the cabinets' front.
     if (wall.bottomShift != null)
@@ -977,132 +983,6 @@ class _ObstaclesStep extends ConsumerWidget {
 }
 
 // ── A corner of the wall: a ring with a crosshair, so the exact point shows ─
-class _CornerHandle extends StatelessWidget {
-  const _CornerHandle({
-    required this.corner,
-    required this.at,
-    required this.selected,
-    required this.onSelect,
-    required this.onDrag,
-    required this.onDragEnd,
-  });
-
-  final WallCorner corner;
-  final Offset at;
-  final bool selected;
-  final VoidCallback onSelect;
-  final ValueChanged<Offset> onDrag;
-  final VoidCallback onDragEnd;
-
-  static const double _hit = 48;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: at.dx - _hit / 2,
-      top: at.dy - _hit / 2,
-      width: _hit,
-      height: _hit,
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: '${corner.label} corner',
-        hint: selected
-            ? 'Use the arrows below the photo to move it'
-            : 'Select, then use the arrows below the photo to move it',
-        excludeSemantics: true,
-        onTap: onSelect,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onSelect,
-          onPanStart: (_) => onSelect(),
-          onPanUpdate: (d) => onDrag(d.delta),
-          onPanEnd: (_) => onDragEnd(),
-          onPanCancel: onDragEnd,
-          child: CustomPaint(
-            painter: _RingPainter(selected: selected),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-const Color _cornerColor = Color(0xFF68D391);
-const Color _cornerSelected = Colors.white;
-
-class _RingPainter extends CustomPainter {
-  _RingPainter({required this.selected});
-
-  final bool selected;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final color = selected ? _cornerSelected : _cornerColor;
-    final shadow = Paint()
-      ..color = Colors.black.withValues(alpha: 0.6)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = selected ? 5 : 4;
-    final ring = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = selected ? 3 : 2;
-    canvas.drawCircle(c, 13, shadow);
-    canvas.drawCircle(c, 13, ring);
-    // A crosshair with a gap at the centre, so the point itself stays clear.
-    final hair = Paint()
-      ..color = color
-      ..strokeWidth = 1.2;
-    for (final d in const [Offset(1, 0), Offset(0, 1)]) {
-      canvas.drawLine(c + d * 4, c + d * 11, hair);
-      canvas.drawLine(c - d * 4, c - d * 11, hair);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.selected != selected;
-}
-
-/// While a corner is dragged, the photo under it, magnified, above the
-/// finger (below it near the top of the photo), so it lands exactly on the
-/// corner.
-class _Loupe extends StatelessWidget {
-  const _Loupe({required this.at, required this.canvas});
-
-  final Offset at;
-  final Size canvas;
-
-  static const double _size = 116;
-  static const double _lift = 100;
-
-  @override
-  Widget build(BuildContext context) {
-    final above = at.dy - _lift - _size / 2 >= 0;
-    final centre = Offset(
-      at.dx.clamp(_size / 2, canvas.width - _size / 2).toDouble(),
-      at.dy + (above ? -_lift : _lift),
-    );
-    return Positioned(
-      left: centre.dx - _size / 2,
-      top: centre.dy - _size / 2,
-      child: IgnorePointer(
-        child: RawMagnifier(
-          size: const Size(_size, _size),
-          magnificationScale: 2.5,
-          focalPointOffset: at - centre,
-          decoration: const MagnifierDecoration(
-            shape: CircleBorder(
-              side: BorderSide(color: Colors.white, width: 2),
-            ),
-            shadows: [BoxShadow(color: Colors.black54, blurRadius: 8)],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Dims everything but the wall, outlines it, and shows the windows and
 /// doors already marked, in perspective.
 class _CornersPainter extends CustomPainter {
@@ -1130,7 +1010,7 @@ class _CornersPainter extends CustomPainter {
     canvas.drawPath(
       wall,
       Paint()
-        ..color = _cornerColor
+        ..color = kPointColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
@@ -1163,7 +1043,7 @@ class _WallFramePainter extends CustomPainter {
     canvas.drawRect(
       rect,
       Paint()
-        ..color = _cornerColor.withValues(alpha: 0.8)
+        ..color = kPointColor.withValues(alpha: 0.8)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );

@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:static_trace/features/template/screens/template_room_screen.dart';
 import 'package:static_trace/features/trace/providers/wall_provider.dart';
 import 'package:static_trace/features/trace/screens/camera_screen.dart';
+import 'package:static_trace/features/trace/screens/sheet_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/features/trace/utils/opening_finder.dart';
 import 'package:static_trace/shared/labels.dart';
@@ -69,6 +70,10 @@ void main() {
           path: '/wall-setup',
           builder: (_, __) => const WallSetupScreen(imagePath: 'wall.png'),
         ),
+        GoRoute(
+          path: '/sheet',
+          builder: (_, __) => const SheetScreen(imagePath: 'wall.png'),
+        ),
       ]);
       await tester.pumpWidget(UncontrolledProviderScope(
         container: container,
@@ -93,6 +98,104 @@ void main() {
           n.moveCorner(WallCorner.bottomRight, Offset(1 - l, 1 - t));
           n.moveCorner(WallCorner.bottomLeft, Offset(l, 1 - t));
         };
+
+    group('from an A4 sheet', () {
+      String box(WidgetTester tester, String label) => tester
+          .widget<TextFormField>(find.widgetWithText(TextFormField, label))
+          .controller!
+          .text;
+
+      testWidgets('a sheet marked on the wall measures it', (tester) async {
+        // The wall 1,200 × 900 px head-on; an A4 sheet 63 × 89.1 px on it:
+        // 0.3 px per mm, so a 4,000 × 3,000 mm wall.
+        await pumpWallSize(tester, traced: (n) {
+          tracedAt(1200, 900)(n);
+          const l = 700 / 1600, t = 500 / 1200;
+          const r = 763 / 1600, b = 589.1 / 1200;
+          n.setSheet(const [Offset(l, t), Offset(r, t), Offset(r, b), Offset(l, b)]);
+        });
+        expect(find.textContaining('Measured from the A4 sheet'), findsOneWidget);
+        expect(box(tester, 'Wall width'), '4000');
+        expect(box(tester, 'Ceiling height'), '3000');
+        expect(find.text('Check the A4 sheet'), findsOneWidget);
+        await next(tester);
+        expect(returned, isTrue);
+        expect(container.read(wallSetupProvider).sizeFrom, 'sheet');
+      });
+
+      testWidgets('marked from the wall-size screen, the boxes follow it',
+          (tester) async {
+        await pumpWallSize(tester, traced: tracedAt(1200, 900));
+        expect(find.textContaining('tape an A4 sheet'), findsOneWidget);
+        await tester.enterText(
+            find.widgetWithText(TextFormField, 'Wall width'), '3000');
+        await tester.ensureVisible(
+            find.text('Measure from an A4 sheet on the wall'));
+        await tester.tap(find.text('Measure from an A4 sheet on the wall'));
+        await tester.pumpAndSettle();
+        expect(find.text('Mark the A4 sheet'), findsOneWidget);
+        // The dots start as an A4 sheet on a 2,700 mm wall, the default.
+        expect(find.textContaining('about 3,600 mm wide and 2,700 mm high'),
+            findsOneWidget);
+        // An arrow tap moves the selected dot.
+        final left = find.byTooltip('Move sheet’s top left corner left');
+        await tester.ensureVisible(left);
+        await tester.pump();
+        await tester.tap(left);
+        await tester.pump();
+        expect(find.textContaining('about 3,600 mm wide'), findsNothing);
+        await tester.tap(find.byTooltip('Move sheet’s top left corner right'));
+        await tester.pump();
+        await tester.ensureVisible(find.text('Use this sheet'));
+        await tester.pump();
+        await tester.tap(find.text('Use this sheet'));
+        await tester.pumpAndSettle();
+        // Back, and what was typed gives way to the sheet.
+        expect(find.textContaining('Measured from the A4 sheet'), findsOneWidget);
+        expect(box(tester, 'Wall width'), '3600');
+        expect(box(tester, 'Ceiling height'), '2700');
+      });
+
+      testWidgets('the sheet can be taken away again', (tester) async {
+        await pumpWallSize(tester, traced: (n) {
+          tracedAt(1200, 900)(n);
+          const l = 700 / 1600, t = 500 / 1200;
+          const r = 763 / 1600, b = 589.1 / 1200;
+          n.setSheet(const [Offset(l, t), Offset(r, t), Offset(r, b), Offset(l, b)]);
+        });
+        await tester.ensureVisible(find.text('Check the A4 sheet'));
+        await tester.tap(find.text('Check the A4 sheet'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('There’s no sheet on this wall'));
+        await tester.tap(find.text('There’s no sheet on this wall'));
+        await tester.pumpAndSettle();
+        expect(container.read(wallSetupProvider).sheet, isNull);
+        expect(find.textContaining('Measured from the A4 sheet'), findsNothing);
+        expect(box(tester, 'Ceiling height'), '2700');
+      });
+
+      testWidgets('a sheet off the wall is not used', (tester) async {
+        await pumpWallSize(tester, traced: (n) {
+          tracedAt(1200, 900)(n);
+          n.setSheet(const [
+            Offset(0.02, 0.4),
+            Offset(0.06, 0.4),
+            Offset(0.06, 0.47),
+            Offset(0.02, 0.47),
+          ]);
+        });
+        expect(find.textContaining('Measured from the A4 sheet'), findsNothing);
+        expect(find.textContaining('off the traced wall'), findsOneWidget);
+        await tester.ensureVisible(find.text('Check the A4 sheet'));
+        await tester.tap(find.text('Check the A4 sheet'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('off the wall you traced'), findsOneWidget);
+        final use = tester.widget<ButtonStyleButton>(find.ancestor(
+            of: find.text('Use this sheet'),
+            matching: find.bySubtype<ButtonStyleButton>()));
+        expect(use.onPressed, isNull);
+      });
+    });
 
     testWidgets('no engineering jargon, no thickness field', (tester) async {
       await pumpWallSize(tester);

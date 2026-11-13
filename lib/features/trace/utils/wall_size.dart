@@ -3,10 +3,13 @@ import 'dart:ui' show Offset;
 
 import 'homography.dart';
 import 'opening_finder.dart' show WallLabels;
+import 'reference_card.dart';
 
 /// A photo shows the wall's proportions but not its size: a wall twice as
 /// big, twice as far away, looks the same. The size comes from something of
-/// a standard height on the wall:
+/// known size on the wall:
+///   - an A4 sheet taped on it, if one was marked: measured, not guessed
+///     (reference_card.dart);
 ///   - the worktop: the backsplash meets it about 900 mm up;
 ///   - a door: its top is about 2,100 mm up;
 ///   - failing both, the usual ceiling height.
@@ -19,7 +22,7 @@ const double kAssumedCeilingMm = 2700;
 const double kMinEstimateMm = 2200, kMaxEstimateMm = 3600;
 
 /// What the wall's size was worked out from.
-enum SizeCue { worktop, door, assumed }
+enum SizeCue { sheet, worktop, door, assumed }
 
 class WallSizeEstimate {
   const WallSizeEstimate(this.widthMm, this.heightMm, this.cue);
@@ -36,9 +39,15 @@ const int _cols = 60, _rows = 360, _run = 9;
 /// the traced corners. [labels]: the segmentation of the photo, if there is
 /// one. [wallCorners]: the wall's own corners as fractions of the photo
 /// (top-left, top-right, bottom-right, bottom-left; in a kitchen the bottom
-/// ones where the wall meets the floor behind the cabinets).
+/// ones where the wall meets the floor behind the cabinets). [sheet]: the
+/// wall measured from an A4 sheet on it, used before anything else when the
+/// sheet is all on the wall.
 WallSizeEstimate estimateWallSize(double aspect,
-    {WallLabels? labels, List<Offset>? wallCorners}) {
+    {WallLabels? labels, List<Offset>? wallCorners, SheetMeasure? sheet}) {
+  if (sheet != null && sheet.onWall) {
+    return WallSizeEstimate((sheet.widthMm / 10).roundToDouble() * 10,
+        (sheet.heightMm / 10).roundToDouble() * 10, SizeCue.sheet);
+  }
   var height = kAssumedCeilingMm;
   var cue = SizeCue.assumed;
   final grid = labels == null || wallCorners == null

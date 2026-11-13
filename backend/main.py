@@ -448,10 +448,15 @@ def _clean_capture(raw: Any) -> dict[str, Any] | None:
     wall_bottom = _clean_corners(raw.get("wall_bottom"), count=2, low=-0.1, high=1.1)
     if wall_bottom is not None:
         out["wall_bottom"] = wall_bottom
-    # Where the wall's size came from: worked out from the photo (by the
-    # worktop's or a door's standard height, or an assumed ceiling), or typed.
-    if raw.get("size_from") in ("worktop", "door", "assumed", "typed"):
+    # Where the wall's size came from: worked out from the photo (measured
+    # from an A4 sheet on the wall, or by the worktop's or a door's standard
+    # height, or an assumed ceiling), or typed.
+    if raw.get("size_from") in ("sheet", "worktop", "door", "assumed", "typed"):
         out["size_from"] = raw["size_from"]
+    # The A4 sheet's corners on the photo, if one was marked.
+    sheet = _clean_corners(raw.get("sheet"))
+    if sheet is not None:
+        out["sheet"] = sheet
     size = raw.get("photo_px")
     if isinstance(size, list) and len(size) == 2:
         wh = [_number(v) for v in size]

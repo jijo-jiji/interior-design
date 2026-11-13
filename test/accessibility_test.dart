@@ -12,6 +12,7 @@ import 'package:static_trace/features/floorplan/screens/floorplan_sizes_screen.d
 import 'package:static_trace/features/intake/screens/intake_hub_screen.dart';
 import 'package:static_trace/features/template/screens/template_room_screen.dart';
 import 'package:static_trace/features/trace/screens/camera_screen.dart';
+import 'package:static_trace/features/trace/screens/sheet_screen.dart';
 import 'package:static_trace/features/trace/screens/trace_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
 import 'package:static_trace/features/viewer/screens/viewer_screen.dart';
@@ -38,6 +39,7 @@ final _screens = <String, Widget Function()>{
   'camera': () => const CameraScreen(),
   'wall setup': () => const WallSetupScreen(imagePath: _photo),
   'trace': () => const TraceScreen(imagePath: _photo),
+  'A4 sheet': () => const SheetScreen(imagePath: _photo),
   // Filled in from a reading: the plan drawing, origins under each field,
   // and the other sizes as buttons.
   'floor plan': () => FloorplanSizesScreen(
@@ -330,6 +332,8 @@ void main() {
       await _pump(tester, _screens['3D view']!(), scale: scale);
       await tester.tap(find.text('Edit'));
       await tester.pump();
+      await tester.ensureVisible(find.text('Clear all')); // the panel scrolls
+      await tester.pump();
       await tester.tap(find.text('Clear all'));
       await tester.pump();
       await tester.pump(const Duration(seconds: 6)); // the snack bar goes
@@ -382,6 +386,9 @@ void main() {
         {double scale = 1, bool prices = true}) async {
       await _pump(tester, _screens['3D view']!(), scale: scale);
       await tester.tap(find.text('Edit'));
+      await tester.pump();
+      // At 2x text the Edit panel scrolls, with Clear all at its foot.
+      await tester.ensureVisible(find.text('Clear all'));
       await tester.pump();
       await tester.tap(find.text('Clear all'));
       await tester.pump();
@@ -440,6 +447,60 @@ void main() {
         FlutterError.onError = previous;
       }
       expect(errors, isEmpty);
+      await _finish(tester);
+    });
+  });
+
+  // With the price shown, the estimate bar at 2x text once grew so tall
+  // (the total and its line wrapping a few characters at a time beside
+  // Quote) that it pushed the layouts bar, Edit and all, above the top of
+  // the screen.
+  group('3D view, price shown', () {
+    Future<void> showPrice(WidgetTester tester, {double scale = 1}) async {
+      await _pump(tester, _screens['3D view']!(), scale: scale);
+      await tester.tap(find.text('Show price'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1)); // the total counts up
+      expect(find.byTooltip('Hide price'), findsOneWidget);
+    }
+
+    testWidgets('tap targets are at least 48x48 and labelled at 2x text',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      await showPrice(tester, scale: 2);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
+      await _finish(tester);
+    });
+
+    testWidgets('at 2x text the panel stays on screen, Edit tappable',
+        (tester) async {
+      final errors = <String>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+      try {
+        await showPrice(tester, scale: 2);
+      } finally {
+        FlutterError.onError = previous;
+      }
+      expect(errors, isEmpty);
+
+      // Under the app bar, on the screen, and nothing drawn over it.
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final appBar = tester.getRect(find.byType(AppBar));
+      for (final label in ['Edit', 'Quote']) {
+        final rect = tester.getRect(find.text(label));
+        expect(rect.top, greaterThanOrEqualTo(appBar.bottom), reason: label);
+        expect(rect.bottom, lessThanOrEqualTo(screen.height), reason: label);
+        expect(find.text(label).hitTestable(), findsOneWidget, reason: label);
+      }
+      // The panel doesn't cover the style pills above it either.
+      expect(find.text('Japandi').hitTestable(), findsOneWidget);
+
+      await tester.tap(find.text('Edit'));
+      await tester.pump();
+      expect(find.text('Done').hitTestable(), findsOneWidget);
       await _finish(tester);
     });
   });

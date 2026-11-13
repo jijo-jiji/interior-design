@@ -280,7 +280,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                   ),
                   child: Text(
                     'Fit the whole wall in, with all four corners showing. '
-                    'Keep people out of the shot.',
+                    'Keep people out of the shot. For an exact size, tape an '
+                    'A4 sheet flat on the wall first.',
                     textAlign: TextAlign.center,
                     style: context.textTheme.bodySmall
                         ?.copyWith(color: context.colors.onPrimary),

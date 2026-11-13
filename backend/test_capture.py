@@ -112,6 +112,16 @@ def test_where_the_size_came_from_is_kept_if_known(client):
     assert "size_from" not in project["capture"]
 
 
+def test_the_a4_sheet_is_kept_if_sensible(client):
+    sheet = [[0.45, 0.4], [0.52, 0.4], [0.52, 0.5], [0.45, 0.5]]
+    project = _quote(client, {**CAPTURE, "sheet": sheet, "size_from": "sheet"}, quote_id="QT-CAPSH")
+    assert project["capture"]["sheet"] == sheet
+    assert project["capture"]["size_from"] == "sheet"
+    for junk in ([[0.45, 0.4]], [[0.45, 0.4], [0.52, 0.4], [0.52, 1.5], [0.45, 0.5]], "x"):
+        project = _quote(client, {**CAPTURE, "sheet": junk}, quote_id="QT-CAPSHJ")
+        assert "sheet" not in project["capture"]
+
+
 def test_how_the_suggestion_was_found_is_kept_if_known(client):
     suggested = [[0.12, 0.09], [0.92, 0.12], [0.9, 0.94], [0.08, 0.9]]
     project = _quote(client, {**CAPTURE, "suggested_corners": suggested, "suggested_by": "learned"})
