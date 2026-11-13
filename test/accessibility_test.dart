@@ -385,6 +385,9 @@ void main() {
       await _pump(tester, _screens['3D view']!(), scale: scale);
       await tester.tap(find.text('Edit'));
       await tester.pump();
+      // At 2x text the Edit panel scrolls, with Clear all at its foot.
+      await tester.ensureVisible(find.text('Clear all'));
+      await tester.pump();
       await tester.tap(find.text('Clear all'));
       await tester.pump();
       // A message with an Undo stays up while a screen reader is on: put it
