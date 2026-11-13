@@ -16,9 +16,14 @@ class FakeCornerSuggester implements CornerSuggester {
   final Completer<void>? gate;
   final asked = <String>[];
 
+  /// Whether each ask came with a way to fetch the segmentation labels.
+  final offeredLabels = <bool>[];
+
   @override
-  Future<CornerSuggestion> suggest(String imagePath) async {
+  Future<CornerSuggestion> suggest(String imagePath,
+      {Future<WallLabels?> Function()? labels}) async {
     asked.add(imagePath);
+    offeredLabels.add(labels != null);
     await gate?.future;
     return result;
   }

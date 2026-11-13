@@ -9,6 +9,9 @@ import 'package:image_picker/image_picker.dart' show XFile;
 
 import 'corner_finder.dart';
 import 'corner_suggestion.dart';
+import 'learned_corners.dart';
+import 'model_file.dart';
+import 'opening_finder.dart' show WallLabels;
 
 /// Depth Anything V2 Small, 8-bit (tool/fetch_wall_model.py fetches it).
 const kWallModelAsset = 'assets/models/wall_depth.onnx';
@@ -17,21 +20,23 @@ const kWallModelAsset = 'assets/models/wall_depth.onnx';
 /// size it was trained at); smaller inputs lose too much accuracy.
 const int kDepthShortSide = 518;
 
-/// Finds the wall's corners with the depth model, on the phone. Nothing
-/// leaves the device.
+/// Finds the wall's corners on the phone, nothing leaving the device: the
+/// depth model's map first; if its flat patches don't show the wall (a
+/// kitchen), our corner model reads that map with the segmentation labels.
 class DeviceCornerSuggester implements CornerSuggester {
   const DeviceCornerSuggester();
 
-  /// Opened once, on first use; null if the model isn't in this build or
+  /// Each model opened once, on first use; null if it isn't in this build or
   /// can't run here.
-  static Future<OrtSession?>? _session;
+  static final _sessions = <String, Future<OrtSession?>>{};
 
-  static Future<OrtSession?> _open() => _session ??= () async {
+  static Future<OrtSession?> _open(String asset) =>
+      _sessions[asset] ??= () async {
         try {
           final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-          if (!manifest.listAssets().contains(kWallModelAsset)) return null;
-          return await OnnxRuntime().createSessionFromAsset(
-            kWallModelAsset,
+          if (!manifest.listAssets().contains(asset)) return null;
+          return await OnnxRuntime().createSession(
+            await modelFile(asset),
             options: OrtSessionOptions(intraOpNumThreads: 4),
           );
         } catch (_) {
@@ -40,9 +45,37 @@ class DeviceCornerSuggester implements CornerSuggester {
       }();
 
   @override
-  Future<CornerSuggestion> suggest(String imagePath) async {
-    final session = await _open();
+  Future<CornerSuggestion> suggest(String imagePath,
+      {Future<WallLabels?> Function()? labels}) async {
+    final session = await _open(kWallModelAsset);
     if (session == null) return const CornerSuggestion.unavailable();
+    final photo = await _depth(session, imagePath);
+    if (photo == null) return const CornerSuggestion(null);
+    final (depth, aspect) = photo;
+
+    final corners = await compute(_find, depth);
+    if (corners != null) {
+      return CornerSuggestion(corners, source: CornerSource.planes);
+    }
+    if (labels == null) return const CornerSuggestion(null);
+    WallLabels? found;
+    try {
+      found = await labels();
+    } catch (_) {
+      found = null;
+    }
+    if (found == null) return const CornerSuggestion(null);
+    final learned = await _learned(depth, found, aspect);
+    return learned == null
+        ? const CornerSuggestion(null)
+        : CornerSuggestion(learned.corners,
+            source: CornerSource.learned, wallBottom: learned.wallBottom);
+  }
+
+  /// The photo's depth map, and its shape (width / height). Null if it
+  /// can't be read.
+  Future<(DepthMap, double)?> _depth(
+      OrtSession session, String imagePath) async {
     OrtValue? input;
     Map<String, OrtValue>? outputs;
     try {
@@ -51,6 +84,7 @@ class DeviceCornerSuggester implements CornerSuggester {
       final bytes = await XFile(imagePath).readAsBytes();
       final probe = await ui.instantiateImageCodec(bytes);
       final first = (await probe.getNextFrame()).image;
+      final aspect = first.width / first.height;
       final scale = kDepthShortSide / math.min(first.width, first.height);
       final w = (first.width * scale / 14).round() * 14;
       final h = (first.height * scale / 14).round() * 14;
@@ -61,7 +95,7 @@ class DeviceCornerSuggester implements CornerSuggester {
       final rgba =
           await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
       image.dispose();
-      if (rgba == null) return const CornerSuggestion(null);
+      if (rgba == null) return null;
 
       final pixels =
           await compute(_modelInput, (rgba.buffer.asUint8List(), w, h));
@@ -77,10 +111,35 @@ class DeviceCornerSuggester implements CornerSuggester {
       for (var i = 0; i < flat.length; i++) {
         depth[i] = (flat[i] as num).toDouble();
       }
-      final corners = await compute(_find, DepthMap(ow, oh, depth));
-      return CornerSuggestion(corners);
+      return (DepthMap(ow, oh, depth), aspect);
     } catch (_) {
-      return const CornerSuggestion(null);
+      return null;
+    } finally {
+      await input?.dispose();
+      for (final value in outputs?.values ?? const <OrtValue>[]) {
+        await value.dispose();
+      }
+    }
+  }
+
+  /// Our corner model's corners, if it's sure of them.
+  Future<LearnedCorners?> _learned(
+      DepthMap depth, WallLabels labels, double aspect) async {
+    final session = await _open(kCornerModelAsset);
+    if (session == null) return null;
+    OrtValue? input;
+    Map<String, OrtValue>? outputs;
+    try {
+      final x = await compute(_learnedInput, (depth, labels, aspect));
+      input = await OrtValue.fromList(
+          x, [1, kCornerModelChannels, kCornerModelSize, kCornerModelSize]);
+      final name =
+          session.inputNames.isEmpty ? 'room' : session.inputNames.first;
+      outputs = await session.run({name: input});
+      final flat = await outputs.values.first.asFlattenedList();
+      return trustedCorners([for (final v in flat) (v as num).toDouble()]);
+    } catch (_) {
+      return null;
     } finally {
       await input?.dispose();
       for (final value in outputs?.values ?? const <OrtValue>[]) {
@@ -91,6 +150,9 @@ class DeviceCornerSuggester implements CornerSuggester {
 }
 
 List<ui.Offset>? _find(DepthMap depth) => cornersFromDepth(depth);
+
+Float32List _learnedInput((DepthMap, WallLabels, double) args) =>
+    cornerModelInput(args.$1, args.$2, args.$3);
 
 /// RGBA pixels to the model's input: channels first, ImageNet-normalised.
 Float32List _modelInput((Uint8List, int, int) photo) {

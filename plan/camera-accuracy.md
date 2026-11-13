@@ -342,3 +342,99 @@ meets the side walls, ceiling and floor.
     either.
   - Not in the app. Kitchens keep "place them by hand".
   - Real fix: train on our own collected kitchen photos.
+
+**Our own corner model for kitchens (2026-11-11):**
+
+- **What:** a small model (`assets/models/wall_corners.onnx`, 7 MB) trained
+  here, in `tool/wall_corner_training/`, on made-up kitchens and rooms
+  rendered in code, whose hidden corners are known exactly.
+  - It reads the depth map and the window/door labels the app already
+    makes, not the photo.
+  - It also says how sure it is.
+- **How the app uses it:** only when the depth patches find nothing (a
+  kitchen), and only when it expects every corner within 3% of the photo.
+  Otherwise "place them by hand", as before.
+- **Results:**
+  - **Real kitchens:** 3 of 9 now get their corners placed automatically,
+    and the 3 look right. Before, none did.
+  - **Turned down:** every photo it got wrong, because it was unsure of
+    them.
+  - **Tablet emulator:** kitchen 09 got the same corners as on the PC; its
+    size was prefilled and its window found, with no tapping. Kitchen 02 was
+    turned down.
+- **Not yet exact:** accepted corners are a few per cent off, and the lean
+  check often still asks for a nudge.
+- **Measuring it in the field:** quotes now record which method suggested
+  the corners (`suggested_by`).
+- **Details:** `tool/wall_corner_training/README.md`.
+- **Training on the graphics card (same day):**
+  - Training now runs on the laptop's RTX 3060: 0.08–0.10 s a step, against
+    0.78–0.93 s on the processor.
+  - Making the training samples was the slow part; the render was made 4.5×
+    faster with identical output, and each sample is also used mirrored.
+  - The model was trained on to 30,000 steps (run 2) and shipped: better on
+    the made-up set and on the measured empty room, the same decisions on
+    all 11 real photos.
+
+**Bottom corners where the floor meets the cabinets (2026-11-11):**
+
+- **What the user found:** on kitchen 09 the traced corners were not
+  accurate, and they marked where the corners go.
+  - **Bottom corners:** the user marks them where the floor visibly meets
+    the cabinets. The model had put them on the hidden line behind the
+    cabinets.
+  - **Top-left:** about 50 px off.
+- **Changes:**
+  - **Model:** retrained (run 3) to put the corners where the user would,
+    and also to find the hidden wall-floor corners.
+  - **App:** shows and drags the corners as marked, but measures from the
+    hidden points. Those keep their distance from the bottom corners when
+    the corners are dragged.
+  - **Updates:** an app update now replaces a cached model. Before, the
+    tablet kept running the old one from the cache.
+- **Results:**
+  - **Kitchen 03:** placed, and its straightened wall stands upright.
+  - **Kitchen 09:** now turned down. Run 3 is about 40 px off the user's
+    marks there and knows it.
+- **What's needed next:** real kitchen photos with corners marked by the
+  user. Made-up kitchens alone won't get the corners to within a few pixels.
+
+**The wall's size measured from the photo (2026-11-11):**
+
+- **Before:** the size screen assumed a 2,700 mm ceiling and asked for a
+  tape.
+- **Now:** it fills in both sizes from the photo, in order of preference:
+  - **The worktop:** where the backsplash meets it, about 900 mm up the
+    wall.
+  - **A door on the wall:** its top, about 2,100 mm up.
+  - **Neither found:** the usual 2,700 mm ceiling.
+
+  The corners give the proportions, so one known height gives everything.
+  See `lib/features/trace/utils/wall_size.dart`.
+- **Checking it:** the salesperson only types if a number looks wrong.
+  Typing either size works out the other from the photo; typing both keeps
+  both, with the existing warning if they don't fit the photo.
+- **Results:**
+  - **Real kitchens:** the worktop line was found in all 9, giving ceilings
+    of 2,250–3,090 mm (03: 2,700; 08: 2,400; 09: 2,350). Plausible, but not
+    checked against a tape.
+  - **Doors:** the door top misfired twice (5–6 m walls) and is now limited
+    to 55–95% of the way up the wall.
+- **Expected accuracy:**
+  - Roughly ±5% from worktops that are not exactly 900 mm.
+  - The labels' coarseness adds about ±2%.
+  - The corners add their own error.
+- **Recorded with each quote:** `size_from` (worktop, door, assumed, typed),
+  to see how often the estimate gets corrected.
+- **When the exact width matters (same day):**
+  - **What changed:** when the size came from the photo, the 3D screen lays
+    out each layout again with the whole room 5% smaller and 5% larger, as a
+    photo's scale error would (walls, ceiling, windows and doors alike). It
+    compares what fits: the sink, the hob, tall units and the corner unit.
+  - **What the salesperson sees:** if any of those change, a note under the
+    layout chips. For example, kitchen 03: "This layout depends on the exact
+    width: 140 mm wider, a tall unit fits. Measure the width before
+    quoting."
+  - **When nothing is said:** at most widths nothing changes. A typed
+    measurement turns the check off. See
+    `lib/features/layout/width_check.dart`.

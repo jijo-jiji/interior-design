@@ -407,16 +407,17 @@ def _number(value: Any) -> float | None:
     return float(value) if math.isfinite(value) else None
 
 
-def _clean_corners(raw: Any) -> list[list[float]] | None:
-    """Four [x, y] points, each a fraction of the photo, or None."""
-    if not (isinstance(raw, list) and len(raw) == 4):
+def _clean_corners(raw: Any, count: int = 4, low: float = 0, high: float = 1) -> list[list[float]] | None:
+    """[count] [x, y] points, each a fraction of the photo (between low and
+    high), or None."""
+    if not (isinstance(raw, list) and len(raw) == count):
         return None
     clean = []
     for corner in raw:
         if not (isinstance(corner, list) and len(corner) == 2):
             return None
         xy = [_number(v) for v in corner]
-        if any(v is None or not 0 <= v <= 1 for v in xy):
+        if any(v is None or not low <= v <= high for v in xy):
             return None
         clean.append(xy)
     return clean
@@ -437,6 +438,20 @@ def _clean_capture(raw: Any) -> dict[str, Any] | None:
     suggested = _clean_corners(raw.get("suggested_corners"))
     if suggested is not None:
         out["suggested_corners"] = suggested
+        # Found from the depth map's flat patches, or by our corner model.
+        if raw.get("suggested_by") in ("planes", "learned"):
+            out["suggested_by"] = raw["suggested_by"]
+    # In a kitchen the bottom corners are marked where the floor meets the
+    # cabinets; this is where the wall itself meets the floor behind them
+    # (bottom-right, bottom-left), which the wall was measured from. It can
+    # sit a little off the photo's edge.
+    wall_bottom = _clean_corners(raw.get("wall_bottom"), count=2, low=-0.1, high=1.1)
+    if wall_bottom is not None:
+        out["wall_bottom"] = wall_bottom
+    # Where the wall's size came from: worked out from the photo (by the
+    # worktop's or a door's standard height, or an assumed ceiling), or typed.
+    if raw.get("size_from") in ("worktop", "door", "assumed", "typed"):
+        out["size_from"] = raw["size_from"]
     size = raw.get("photo_px")
     if isinstance(size, list) and len(size) == 2:
         wh = [_number(v) for v in size]

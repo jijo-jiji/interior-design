@@ -149,16 +149,15 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
           listEquals(ref.read(wallSetupProvider).corners, kStartCorners);
       final placed = ref
           .read(wallSetupProvider.notifier)
-          .suggest(corners, place: untouched);
+          .suggest(corners,
+              place: untouched, source: s.source, wallBottom: s.wallBottom);
       status = placed ? _Suggest.placed : _Suggest.offered;
     }
     setState(() => _suggest = status);
   }
 
   void _useSuggestion() {
-    final c = ref.read(wallSetupProvider).suggestedCorners;
-    if (c == null) return;
-    if (ref.read(wallSetupProvider.notifier).suggest(c, place: true)) {
+    if (ref.read(wallSetupProvider.notifier).useSuggestion()) {
       setState(() => _suggest = _Suggest.placed);
     }
   }
@@ -198,7 +197,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
     final run = ++_leanRun;
     setState(() => _leanDeg = null);
     widget
-        .leanCheck(widget.imagePath, wall.corners, wall.widthMm / wall.heightMm)
+        .leanCheck(widget.imagePath, wall.wallCorners, wall.widthMm / wall.heightMm)
         .then((lean) {
       if (mounted && run == _leanRun) setState(() => _leanDeg = lean);
     });
@@ -234,7 +233,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       return;
     }
     final found =
-        findOpenings(labels, wall.corners, wall.widthMm, wall.heightMm);
+        findOpenings(labels, wall.wallCorners, wall.widthMm, wall.heightMm);
     for (final o in found) {
       final r = o.rectMm;
       boxes.add(Obstacle(
@@ -433,7 +432,7 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       Offset(wall.widthMm, 0),
       Offset(wall.widthMm, wall.heightMm),
       Offset(0, wall.heightMm),
-    ], wall.corners);
+    ], wall.wallCorners);
     if (toPhoto == null) return const [];
     Offset wallMm(double x, double y) => Offset(
         (x - wall.leftLinePx) / wall.scaleRatioX,
@@ -576,6 +575,17 @@ Map<String, dynamic> captureRecord(WallSetup wall) {
     if (wall.suggestedCorners case final s?)
       'suggested_corners': [
         for (final c in s) [r4(c.dx), r4(c.dy)]
+      ],
+    if (wall.suggestedCorners != null && wall.suggestedBy != null)
+      'suggested_by': wall.suggestedBy!.name,
+    // Where the size came from: the photo (worktop, door, assumed ceiling)
+    // or a typed measurement.
+    if (wall.sizeFrom != null) 'size_from': wall.sizeFrom,
+    // Where the wall meets the floor behind the cabinets (bottom-right,
+    // bottom-left), when the bottom corners are on the cabinets' front.
+    if (wall.bottomShift != null)
+      'wall_bottom': [
+        for (final c in wall.wallCorners.sublist(2)) [r4(c.dx), r4(c.dy)]
       ],
   };
 }

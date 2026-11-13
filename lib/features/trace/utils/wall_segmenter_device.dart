@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 
+import 'model_file.dart';
 import 'opening_finder.dart';
 import 'wall_segmenter_api.dart';
 
@@ -28,8 +29,8 @@ class DeviceWallSegmenter implements WallSegmenter {
           if (!manifest.listAssets().contains(kWallSegmenterAsset)) {
             return null;
           }
-          return await OnnxRuntime().createSessionFromAsset(
-            kWallSegmenterAsset,
+          return await OnnxRuntime().createSession(
+            await modelFile(kWallSegmenterAsset),
             options: OrtSessionOptions(intraOpNumThreads: 4),
           );
         } catch (_) {

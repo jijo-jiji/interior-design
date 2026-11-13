@@ -69,7 +69,11 @@ class WallSetup {
     this.focalPx,
     this.tilt,
     this.suggestedCorners,
+    this.suggestedBy,
+    this.bottomShift,
+    this.suggestedBottomShift,
     this.sizeFromTape = false,
+    this.sizeFrom,
   });
 
   final double widthMm;
@@ -105,10 +109,30 @@ class WallSetup {
   /// the model can be measured and improved.
   final List<Offset>? suggestedCorners;
 
+  /// How [suggestedCorners] were found, kept with them.
+  final CornerSource? suggestedBy;
+
+  /// In a kitchen, the bottom corners are marked where the floor meets the
+  /// cabinets; the wall itself meets the floor further back, hidden. This is
+  /// how far each hidden point is from its bottom corner (bottom-right,
+  /// bottom-left), as the corner model found it: the wall is measured from
+  /// the hidden points, which follow the corners when they're moved. Null
+  /// when the corners are on the wall itself (a room, or marked by hand).
+  final List<Offset>? bottomShift;
+
+  /// The [bottomShift] that came with [suggestedCorners], applied if they're
+  /// used.
+  final List<Offset>? suggestedBottomShift;
+
   /// Whether the width and height were confirmed on the wall-size screen.
   /// Until then they're defaults, and the screen offers an estimate from
   /// the photo instead.
   final bool sizeFromTape;
+
+  /// Where the confirmed size came from: 'worktop', 'door' or 'assumed'
+  /// (worked out from the photo and accepted), or 'typed'. Kept with the
+  /// quote, to see how often the photo's estimate needs correcting.
+  final String? sizeFrom;
 
   double get leftLinePx => screenWidthPx * leftLineRatio;
   double get rightLinePx => screenWidthPx * rightLineRatio;
@@ -132,11 +156,24 @@ class WallSetup {
 
   Offset corner(WallCorner c) => corners[c.index];
 
-  /// The corners in photo pixels, once the photo's size is known.
+  /// The wall's own corners, which it's measured and straightened from: the
+  /// [corners] as marked, with the bottom ones moved back to where the wall
+  /// meets the floor behind the cabinets ([bottomShift]), if known.
+  List<Offset> get wallCorners {
+    final s = bottomShift;
+    if (s == null) return corners;
+    final c = [corners[0], corners[1], corners[2] + s[0], corners[3] + s[1]];
+    return isConvexQuad(c) ? c : corners;
+  }
+
+  /// The wall's own corners ([wallCorners]) in photo pixels, once the
+  /// photo's size is known.
   List<Offset>? get cornersPx {
     final size = photoSize;
     if (size == null) return null;
-    return [for (final c in corners) Offset(c.dx * size.width, c.dy * size.height)];
+    return [
+      for (final c in wallCorners) Offset(c.dx * size.width, c.dy * size.height)
+    ];
   }
 
   /// The wall's proportions as the photo shows them, or null if the photo
@@ -162,7 +199,11 @@ class WallSetup {
     double? focalPx,
     CaptureTilt? tilt,
     List<Offset>? suggestedCorners,
+    CornerSource? suggestedBy,
+    List<Offset>? bottomShift,
+    List<Offset>? suggestedBottomShift,
     bool? sizeFromTape,
+    String? sizeFrom,
   }) =>
       WallSetup(
         widthMm: widthMm ?? this.widthMm,
@@ -179,7 +220,11 @@ class WallSetup {
         focalPx: focalPx ?? this.focalPx,
         tilt: tilt ?? this.tilt,
         suggestedCorners: suggestedCorners ?? this.suggestedCorners,
+        suggestedBy: suggestedBy ?? this.suggestedBy,
+        bottomShift: bottomShift ?? this.bottomShift,
+        suggestedBottomShift: suggestedBottomShift ?? this.suggestedBottomShift,
         sizeFromTape: sizeFromTape ?? this.sizeFromTape,
+        sizeFrom: sizeFrom ?? this.sizeFrom,
       );
 
   /// Where the straightened wall is on the canvas.
@@ -207,12 +252,14 @@ class WallSetupNotifier extends StateNotifier<WallSetup> {
     required double widthMm,
     required double heightMm,
     required double depthMm,
+    String? sizeFrom,
   }) =>
       state = state.copyWith(
         widthMm: widthMm,
         heightMm: heightMm,
         depthMm: depthMm,
         sizeFromTape: true,
+        sizeFrom: sizeFrom,
       );
 
   /// A new photo: corners back to their start, and how the phone was held
@@ -260,17 +307,35 @@ class WallSetupNotifier extends StateNotifier<WallSetup> {
 
   /// The model's corners for this photo. Placed on the photo only if
   /// [place] and they make a proper four-sided wall; kept for the record
-  /// either way. Returns whether they were placed.
-  bool suggest(List<Offset> corners, {required bool place}) {
+  /// either way. [wallBottom]: where the wall meets the floor behind the
+  /// cabinets (bottom-right, bottom-left), if the model found it. Returns
+  /// whether they were placed.
+  bool suggest(List<Offset> corners,
+      {required bool place, CornerSource? source, List<Offset>? wallBottom}) {
     final c = [
       for (final p in corners) Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0))
     ];
     final ok = c.length == 4 && isConvexQuad(c);
+    final shift = ok && wallBottom != null && wallBottom.length == 2
+        ? [wallBottom[0] - c[2], wallBottom[1] - c[3]]
+        : null;
     state = state.copyWith(
       suggestedCorners: c,
+      suggestedBy: source,
+      suggestedBottomShift: shift,
       corners: place && ok ? c : null,
+      bottomShift: place && ok ? shift : null,
     );
     return place && ok;
+  }
+
+  /// Places the corners the model suggested, after marking had started.
+  /// Returns whether they were placed.
+  bool useSuggestion() {
+    final c = state.suggestedCorners;
+    if (c == null || !isConvexQuad(c)) return false;
+    state = state.copyWith(corners: c, bottomShift: state.suggestedBottomShift);
+    return true;
   }
 
   /// Moves [corner] to [at] (fractions of the photo): kept on the photo, on
@@ -319,12 +384,15 @@ bool isConvexQuad(List<Offset> p) {
 final cornerSuggesterProvider =
     Provider<CornerSuggester>((ref) => const DeviceCornerSuggester());
 
-/// The model's corners for a photo, looked for once per photo: started as
-/// soon as the photo is chosen (on the wall-size screen), so they're usually
-/// ready by the time the corners are marked.
+/// The model's corners for a photo, looked for once per photo, from as soon
+/// as it opens. When the depth map alone doesn't find the wall, the corner
+/// model also reads the segmentation labels, which are then ready early for
+/// finding the windows and doors.
 final cornerSuggestionProvider =
-    FutureProvider.family<CornerSuggestion, String>(
-        (ref, imagePath) => ref.watch(cornerSuggesterProvider).suggest(imagePath));
+    FutureProvider.family<CornerSuggestion, String>((ref, imagePath) => ref
+        .watch(cornerSuggesterProvider)
+        .suggest(imagePath,
+            labels: () => ref.read(wallLabelsProvider(imagePath).future)));
 
 /// The wall segmentation model on this device.
 final wallSegmenterProvider =

@@ -351,8 +351,8 @@ void main() {
       await tapPanel(tester, find.text('Next'));
       await tester.pumpAndSettle();
       // The width comes from the traced corners: 2700 × 1.48 ≈ 4000.
-      expect(find.textContaining('From the photo, this wall is about 4,000 mm'),
-          findsOneWidget);
+      expect(find.textContaining('the usual 2,700 mm ceiling'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '4000'), findsOneWidget);
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Wall width'), '4100');
       await tester.ensureVisible(find.text('Next: windows & doors'));
@@ -362,10 +362,12 @@ void main() {
       expect(wall().widthMm, 4100);
       expect(wall().sizeFromTape, isTrue);
 
-      // Edit size: the tape's numbers, not a new estimate.
+      // Edit size: the confirmed numbers, not a new estimate.
       await tapPanel(tester, find.text('Edit size'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('From the photo'), findsNothing);
+      expect(find.textContaining('the usual 2,700 mm ceiling'), findsNothing);
+      expect(find.textContaining('Type a measurement to change it'),
+          findsOneWidget);
       expect(find.widgetWithText(TextFormField, '4100'), findsOneWidget);
     });
 
@@ -458,6 +460,68 @@ void main() {
       final record = captureRecord(n.state);
       expect(record['suggested_corners'][0], [0.21, 0.2]);
       expect(record['corners'][0], [0.2, 0.21]);
+      expect(record.containsKey('suggested_by'), isFalse);
+    });
+
+    testWidgets('found by the corner model: recorded as such, and it could '
+        'read the labels', (tester) async {
+      final suggester = FakeCornerSuggester(
+          const CornerSuggestion(found, source: CornerSource.learned));
+      await pumpTrace(tester, suggester: suggester);
+      await tester.pump();
+      expect(wall().corners, found);
+      expect(suggester.offeredLabels, [true]);
+      expect(captureRecord(wall())['suggested_by'], 'learned');
+    });
+
+    group('in a kitchen, the wall measured where it meets the floor behind '
+        'the cabinets', () {
+      const behind = [Offset(0.78, 0.6), Offset(0.25, 0.61)];
+
+      test('the hidden points follow the bottom corners', () {
+        final n = WallSetupNotifier()
+          ..suggest(found, place: true, wallBottom: behind);
+        expect(n.state.corners, found);
+        expect(n.state.wallCorners.sublist(2), behind);
+        expect(n.state.cornersPx, isNull); // no photo size yet
+        n.moveCorner(WallCorner.bottomRight, const Offset(0.73, 0.68));
+        expect(n.state.wallCorners[2].dx, closeTo(0.76, 1e-9));
+        expect(n.state.wallCorners[2].dy, closeTo(0.62, 1e-9));
+        expect(n.state.wallCorners.sublist(0, 2), found.sublist(0, 2));
+        final record = captureRecord(n.state);
+        expect(record['wall_bottom'], [
+          [0.76, 0.62],
+          [0.25, 0.61],
+        ]);
+        expect(record['corners'][2], [0.73, 0.68]);
+      });
+
+      test('not placed: not applied, until the suggestion is used', () {
+        final n = WallSetupNotifier()
+          ..suggest(found, place: false, wallBottom: behind);
+        expect(n.state.wallCorners, kStartCorners);
+        expect(captureRecord(n.state).containsKey('wall_bottom'), isFalse);
+        expect(n.useSuggestion(), isTrue);
+        expect(n.state.corners, found);
+        expect(n.state.wallCorners.sublist(2), behind);
+      });
+
+      test('a new photo starts without them', () {
+        final n = WallSetupNotifier()
+          ..suggest(found, place: true, wallBottom: behind)
+          ..startPhoto();
+        expect(n.state.bottomShift, isNull);
+        expect(n.state.wallCorners, kStartCorners);
+      });
+
+      testWidgets('from the corner model, on the screen', (tester) async {
+        await pumpTrace(tester,
+            suggester: FakeCornerSuggester(const CornerSuggestion(found,
+                source: CornerSource.learned, wallBottom: behind)));
+        await tester.pump();
+        expect(wall().corners, found);
+        expect(wall().wallCorners.sublist(2), behind);
+      });
     });
 
     test('a suggestion that is not a proper wall is kept, not placed', () {

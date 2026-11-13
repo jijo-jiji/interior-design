@@ -96,6 +96,34 @@ def test_the_suggested_corners_are_kept_beside_the_confirmed(client):
     assert project["capture"]["corners"] == CAPTURE["corners"]
 
 
+def test_the_hidden_wall_bottom_is_kept_if_sensible(client):
+    bottom = [[0.86, 0.62], [0.3, 0.6]]
+    project = _quote(client, {**CAPTURE, "wall_bottom": bottom}, quote_id="QT-CAPWB")
+    assert project["capture"]["wall_bottom"] == bottom
+    for junk in ([[0.86, 0.62]], [[0.86, 0.62], [0.3, 2.0]], "x"):
+        project = _quote(client, {**CAPTURE, "wall_bottom": junk}, quote_id="QT-CAPWBJ")
+        assert "wall_bottom" not in project["capture"]
+
+
+def test_where_the_size_came_from_is_kept_if_known(client):
+    project = _quote(client, {**CAPTURE, "size_from": "worktop"}, quote_id="QT-CAPSF")
+    assert project["capture"]["size_from"] == "worktop"
+    project = _quote(client, {**CAPTURE, "size_from": "a guess"}, quote_id="QT-CAPSF2")
+    assert "size_from" not in project["capture"]
+
+
+def test_how_the_suggestion_was_found_is_kept_if_known(client):
+    suggested = [[0.12, 0.09], [0.92, 0.12], [0.9, 0.94], [0.08, 0.9]]
+    project = _quote(client, {**CAPTURE, "suggested_corners": suggested, "suggested_by": "learned"})
+    assert project["capture"]["suggested_by"] == "learned"
+    project = _quote(client, {**CAPTURE, "suggested_corners": suggested, "suggested_by": "x" * 5000},
+                     quote_id="QT-CAPBY")
+    assert "suggested_by" not in project["capture"]
+    # Without the corners it describes, it's dropped.
+    project = _quote(client, {**CAPTURE, "suggested_by": "planes"}, quote_id="QT-CAPBY2")
+    assert "suggested_by" not in project["capture"]
+
+
 def test_a_design_without_one_has_none(client):
     project = _quote(client, None)
     assert "capture" not in project

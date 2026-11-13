@@ -95,6 +95,52 @@ void main() {
     await finish(tester);
   });
 
+  group('a wall measured from the photo', () {
+    // Kitchen 03 as the photo measured it: 140 mm wider and a tall unit
+    // would fit in the Balanced layout.
+    String measured(String sizeFrom, {double widthMm = 2860}) => jsonEncode({
+          'wall': {'width_mm': widthMm, 'height_mm': 2680.0, 'depth_mm': 150.0},
+          'obstacles': const [],
+          'capture': {
+            'method': 'corners',
+            'corners': [
+              [0.2, 0.1],
+              [0.8, 0.1],
+              [0.8, 0.9],
+              [0.2, 0.9],
+            ],
+            'size_from': sizeFrom,
+          },
+          'client_name': 'Puan Aminah',
+          'quote_id': 'QT-TEST-WIDTH',
+        });
+
+    testWidgets('says when the layout hangs on the exact width',
+        (tester) async {
+      await pumpViewer(tester, json: measured('worktop'));
+      expect(find.text('B · Balanced'), findsOneWidget);
+      expect(
+          find.text('This layout depends on the exact width: 140 mm wider, a '
+              'tall unit fits. Measure the width before quoting.'),
+          findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a typed width: nothing said', (tester) async {
+      await pumpViewer(tester, json: measured('typed'));
+      expect(find.textContaining('depends on the exact width'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a width that no small error would change: nothing said',
+        (tester) async {
+      await pumpViewer(tester, json: measured('worktop', widthMm: 3500));
+      expect(find.text('B · Balanced'), findsOneWidget);
+      expect(find.textContaining('depends on the exact width'), findsNothing);
+      await finish(tester);
+    });
+  });
+
   testWidgets('Edit unlocks the cabinets; Done locks them again',
       (tester) async {
     await pumpViewer(tester);

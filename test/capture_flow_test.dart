@@ -1,4 +1,6 @@
 // Fix 5: the capture screens speak plainly and catch slips.
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:static_trace/features/template/screens/template_room_screen.dart
 import 'package:static_trace/features/trace/providers/wall_provider.dart';
 import 'package:static_trace/features/trace/screens/camera_screen.dart';
 import 'package:static_trace/features/trace/screens/wall_setup_screen.dart';
+import 'package:static_trace/features/trace/utils/opening_finder.dart';
 import 'package:static_trace/shared/labels.dart';
 import 'package:static_trace/shared/theme.dart';
 import 'helpers/fake_corner_suggester.dart';
@@ -38,11 +41,14 @@ void main() {
     bool? returned;
 
     Future<void> pumpWallSize(WidgetTester tester,
-        {void Function(WallSetupNotifier)? traced}) async {
+        {void Function(WallSetupNotifier)? traced, WallLabels? labels}) async {
       tester.view.physicalSize = const Size(1170, 2532);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
-      container = ProviderContainer(overrides: [noCornerModel, noWallSegmenter]);
+      container = ProviderContainer(overrides: [
+        noCornerModel,
+        wallSegmenterProvider.overrideWithValue(FakeWallSegmenter(labels)),
+      ]);
       addTearDown(container.dispose);
       traced?.call(container.read(wallSetupProvider.notifier));
       returned = null;
@@ -122,13 +128,88 @@ void main() {
       expect(wall.sizeFromTape, isTrue);
     });
 
-    testWidgets('the width comes filled in from the traced wall',
-        (tester) async {
+    testWidgets('nothing to measure by: the usual ceiling, the width from '
+        'the traced wall', (tester) async {
       // 900 × 600 px: 1.5 wide for 1 high, so 4,050 mm for 2,700.
       await pumpWallSize(tester, traced: tracedAt(900, 600));
-      expect(find.textContaining('about 4,050 mm wide if the ceiling is 2,700'),
-          findsOneWidget);
+      expect(find.textContaining('the usual 2,700 mm ceiling'), findsOneWidget);
       expect(find.widgetWithText(TextFormField, '4050'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '2700'), findsOneWidget);
+      await next(tester);
+      expect(returned, isTrue);
+      expect(container.read(wallSetupProvider).sizeFrom, 'assumed');
+    });
+
+    /// Labels for the 1600 × 1200 photo traced at 900 × 600 px: base
+    /// cabinets along the wall, their worktop 30% of the way up it.
+    WallLabels kitchenLabels() {
+      const n = 128, l = 0.21875, t = 0.25, w = 0.5625, h = 0.5;
+      final ids = Uint8List(n * n);
+      for (var y = 0; y < n; y++) {
+        for (var x = 0; x < n; x++) {
+          final u = ((x + 0.5) / n - l) / w, v = ((y + 0.5) / n - t) / h;
+          ids[y * n + x] = v > 1
+              ? WallLabels.floor
+              : (v > 0.7 && u >= 0 && u <= 1)
+                  ? WallLabels.cabinet
+                  : WallLabels.wall;
+        }
+      }
+      return WallLabels(n, n, ids);
+    }
+
+    testWidgets('measured from the photo by the worktop, no typing needed',
+        (tester) async {
+      await pumpWallSize(tester,
+          traced: tracedAt(900, 600), labels: kitchenLabels());
+      await tester.pumpAndSettle();
+      expect(find.textContaining('using the worktop'), findsOneWidget);
+      // 900 mm is 30% of the wall: about 3,000 mm high, 4,500 wide.
+      expect(container.read(wallSetupProvider).heightMm, 2700); // until Next
+      final fields = tester
+          .widgetList<TextFormField>(find.byType(TextFormField))
+          .map((f) => double.parse(f.controller!.text))
+          .toList();
+      expect(fields[1], closeTo(3000, 60));
+      expect(fields[0], closeTo(fields[1] * 1.5, 10));
+      await next(tester);
+      expect(container.read(wallSetupProvider).sizeFrom, 'worktop');
+    });
+
+    testWidgets('halfway through typing a number, the other box is left alone',
+        (tester) async {
+      // A square on the photo, head-on: 2,700 × 2,700 to begin with.
+      await pumpWallSize(tester, traced: tracedAt(800, 800));
+      for (final partial in ['2', '25', '250']) {
+        await tester.enterText(
+            find.widgetWithText(TextFormField, 'Ceiling height'), partial);
+        await tester.pump();
+        expect(find.widgetWithText(TextFormField, '2700'), findsOneWidget,
+            reason: 'width untouched at "$partial"');
+      }
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ceiling height'), '2500');
+      await tester.pump();
+      expect(find.widgetWithText(TextFormField, '2500'), findsNWidgets(2));
+    });
+
+    testWidgets('typing one measurement works out the other', (tester) async {
+      // A square on the photo, head-on.
+      await pumpWallSize(tester, traced: tracedAt(800, 800));
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ceiling height'), '2500');
+      await tester.pump();
+      expect(find.widgetWithText(TextFormField, '2500'), findsNWidgets(2));
+      expect(find.textContaining('Width worked out from your height'),
+          findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Wall width'), '2600');
+      await tester.pump();
+      // Both typed: both kept as typed.
+      expect(find.widgetWithText(TextFormField, '2500'), findsOneWidget);
+      await next(tester);
+      expect(container.read(wallSetupProvider).sizeFrom, 'typed');
+      expect(container.read(wallSetupProvider).widthMm, 2600);
     });
 
     testWidgets('untraced, nothing is guessed', (tester) async {
@@ -139,17 +220,19 @@ void main() {
 
     testWidgets('says when the tape disagrees with the traced wall',
         (tester) async {
-      // A square on the photo, head-on.
+      // A square on the photo, head-on; both measurements typed.
       await pumpWallSize(tester, traced: tracedAt(800, 800));
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ceiling height'), '2600');
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Wall width'), '4000');
       await tester.pump();
-      expect(find.textContaining('looks about 2,700 mm wide'), findsOneWidget);
+      expect(find.textContaining('looks about 2,600 mm wide'), findsOneWidget);
 
       // Matching: quiet, and no tick, since proportions don't prove the
       // corners.
       await tester.enterText(
-          find.widgetWithText(TextFormField, 'Wall width'), '2700');
+          find.widgetWithText(TextFormField, 'Wall width'), '2600');
       await tester.pump();
       expect(find.textContaining('looks about'), findsNothing);
       expect(find.byIcon(Icons.check_circle_rounded), findsNothing);

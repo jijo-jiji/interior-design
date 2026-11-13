@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/wall_provider.dart';
 import '../utils/homography.dart';
+import '../utils/opening_finder.dart' show WallLabels;
+import '../utils/wall_size.dart';
 import '../../../shared/theme.dart';
 
 /// Plausible ranges, to catch a typo or a measurement in cm or m.
@@ -19,9 +21,11 @@ const double kShapeToleranceAssumedLens = 0.10;
 String _mm(double mm) =>
     mm.round().toString().replaceAll(RegExp(r'\B(?=(\d{3})+(?!\d))'), ',');
 
-/// Wall size, after the wall has been traced on the photo: the width comes
-/// filled in from the traced corners' proportions, to be confirmed with a
-/// tape. Returns true to the trace screen once a size is set.
+/// Wall size, after the wall has been traced on the photo. It comes filled
+/// in from the photo: the traced corners give the proportions, and the
+/// worktop or a door the scale (wall_size.dart). The salesperson checks it;
+/// typing either measurement works the other out from the photo. Returns
+/// true to the trace screen once a size is set.
 class WallSetupScreen extends ConsumerStatefulWidget {
   final String imagePath;
   const WallSetupScreen({super.key, required this.imagePath});
@@ -35,27 +39,77 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   late final TextEditingController _widthCtrl;
   late final TextEditingController _heightCtrl;
 
-  /// The width the traced corners suggest, if the size wasn't set yet.
-  double? _estimatedWidth;
+  /// The size worked out from the photo, if it wasn't set yet.
+  WallSizeEstimate? _estimate;
+
+  /// Which measurements the salesperson typed.
+  bool _typedWidth = false, _typedHeight = false;
 
   @override
   void initState() {
     super.initState();
     final wall = ref.read(wallSetupProvider);
-    var width = wall.widthMm;
+    var (width, height) = (wall.widthMm, wall.heightMm);
     final shape = _shape(wall);
     if (!wall.sizeFromTape && shape != null) {
-      width = (wall.heightMm * shape.aspect / 10).roundToDouble() * 10;
-      _estimatedWidth = width;
+      final estimate = _estimateFrom(
+          wall, shape, ref.read(wallLabelsProvider(widget.imagePath)).valueOrNull);
+      (width, height) = (estimate.widthMm, estimate.heightMm);
+      _estimate = estimate;
+      // The labels may still be on their way: a better estimate when they
+      // come, unless a measurement has been typed by then.
+      ref.listenManual<AsyncValue<WallLabels?>>(
+          wallLabelsProvider(widget.imagePath), (_, next) {
+        final labels = next.valueOrNull;
+        if (labels == null || _typedWidth || _typedHeight || !mounted) return;
+        final w = ref.read(wallSetupProvider);
+        final s = _shape(w);
+        if (s == null) return;
+        final better = _estimateFrom(w, s, labels);
+        setState(() {
+          _estimate = better;
+          _widthCtrl.text = better.widthMm.round().toString();
+          _heightCtrl.text = better.heightMm.round().toString();
+        });
+      });
     }
     _widthCtrl = TextEditingController(text: width.round().toString());
-    _heightCtrl =
-        TextEditingController(text: wall.heightMm.round().toString());
+    _heightCtrl = TextEditingController(text: height.round().toString());
     _widthCtrl.addListener(_rebuild);
     _heightCtrl.addListener(_rebuild);
   }
 
+  static WallSizeEstimate _estimateFrom(
+          WallSetup wall, WallShapeEstimate shape, WallLabels? labels) =>
+      estimateWallSize(shape.aspect,
+          labels: labels, wallCorners: wall.wallCorners);
+
   void _rebuild() => setState(() {});
+
+  /// One measurement typed: the other follows from the photo's proportions,
+  /// unless it was typed too.
+  void _typed({required bool width}) {
+    if (width) {
+      _typedWidth = true;
+    } else {
+      _typedHeight = true;
+    }
+    final shape = _shape(ref.read(wallSetupProvider));
+    if (shape == null) return;
+    // Only once what's typed is a plausible size: halfway through typing
+    // "2860" the other box must not flash 0, 10, 190 ...
+    if (width && !_typedHeight) {
+      final w = double.tryParse(_widthCtrl.text);
+      if (w != null && w >= kMinWallWidthMm && w <= kMaxWallWidthMm) {
+        _heightCtrl.text = ((w / shape.aspect / 10).round() * 10).toString();
+      }
+    } else if (!width && !_typedWidth) {
+      final h = double.tryParse(_heightCtrl.text);
+      if (h != null && h >= kMinWallHeightMm && h <= kMaxWallHeightMm) {
+        _widthCtrl.text = ((h * shape.aspect / 10).round() * 10).toString();
+      }
+    }
+  }
 
   /// The wall's proportions on the photo, once its corners are traced.
   static WallShapeEstimate? _shape(WallSetup wall) =>
@@ -71,19 +125,52 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
   void _proceed() {
     if (!_formKey.currentState!.validate()) return;
 
+    final estimate = _estimate;
     ref.read(wallSetupProvider.notifier).updateDimensions(
           widthMm: double.parse(_widthCtrl.text),
           heightMm: double.parse(_heightCtrl.text),
           // Wall thickness only shapes the 3D wall; a standard brick wall.
           depthMm: ref.read(wallSetupProvider).depthMm,
+          sizeFrom: _typedWidth || _typedHeight
+              ? 'typed'
+              : estimate?.cue.name,
         );
     context.pop(true);
   }
 
+  /// What the screen says about the numbers in the boxes.
+  String _explanation(WallSetup wall) {
+    const fix = 'If a size looks wrong, measure it and type it in: the other '
+        'follows from the photo.';
+    final shape = _shape(wall);
+    if (_typedWidth != _typedHeight && shape != null) {
+      return _typedWidth
+          ? 'Height worked out from your width and the photo.'
+          : 'Width worked out from your height and the photo.';
+    }
+    final estimate = _estimate;
+    if (estimate != null && !_typedWidth && !_typedHeight) {
+      return switch (estimate.cue) {
+        SizeCue.worktop => 'Measured from the photo, using the worktop '
+            '(about ${_mm(kWorktopMm)} mm high) as a guide. $fix',
+        SizeCue.door => 'Measured from the photo, using the door on this wall '
+            '(about ${_mm(kDoorTopMm)} mm high) as a guide. $fix',
+        SizeCue.assumed => 'From the photo\'s proportions, taking the usual '
+            '${_mm(kAssumedCeilingMm)} mm ceiling. $fix',
+      };
+    }
+    if (shape != null) {
+      return 'Type a measurement to change it: the other follows from the '
+          'photo.';
+    }
+    return 'Use a tape: the width from corner to corner, and the height from '
+        'floor to ceiling. Type them in millimetres.';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final shape = _shape(ref.watch(wallSetupProvider));
-    final estimate = _estimatedWidth;
+    final wall = ref.watch(wallSetupProvider);
+    final shape = _shape(wall);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Wall size'),
@@ -113,23 +200,19 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Measure the wall',
+                      shape != null ? 'Wall size from the photo' : 'Measure the wall',
                       style: context.textTheme.titleMedium,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      estimate != null
-                          ? 'From the photo, this wall is about ${_mm(estimate)} mm '
-                              'wide if the ceiling is '
-                              '${_mm(double.tryParse(_heightCtrl.text) ?? 0)} mm '
-                              'high. Check both with a tape and correct them.'
-                          : 'Use a tape: the width from corner to corner, and '
-                              'the height from floor to ceiling. Type them in '
-                              'millimetres.',
-                      style: context.textTheme.bodyMedium
-                          ?.copyWith(color: context.colors.onSurfaceVariant),
-                      textAlign: TextAlign.center,
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        _explanation(wall),
+                        style: context.textTheme.bodyMedium
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ],
                 ),
@@ -143,6 +226,7 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                 icon: Icons.width_normal_rounded,
                 min: kMinWallWidthMm,
                 max: kMaxWallWidthMm,
+                onTyped: () => _typed(width: true),
               ),
               const SizedBox(height: 16),
               _DimField(
@@ -153,6 +237,7 @@ class _WallSetupScreenState extends ConsumerState<WallSetupScreen> {
                 icon: Icons.height_rounded,
                 min: kMinWallHeightMm,
                 max: kMaxWallHeightMm,
+                onTyped: () => _typed(width: false),
               ),
               if (shape != null)
                 _SizeCheck(
@@ -241,6 +326,10 @@ class _DimField extends StatelessWidget {
   final double min;
   final double max;
 
+  /// Called when the salesperson types in the field (not when the screen
+  /// fills it).
+  final VoidCallback onTyped;
+
   const _DimField({
     required this.controller,
     required this.label,
@@ -249,6 +338,7 @@ class _DimField extends StatelessWidget {
     required this.icon,
     required this.min,
     required this.max,
+    required this.onTyped,
   });
 
   String? _validate(String? value) {
@@ -283,6 +373,7 @@ class _DimField extends StatelessWidget {
         errorMaxLines: 3,
       ),
       validator: _validate,
+      onChanged: (_) => onTyped(),
     );
   }
 }

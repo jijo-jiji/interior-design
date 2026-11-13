@@ -18,6 +18,7 @@ import '../../catalog/price_catalog.dart';
 import '../../intake/providers/consultation_provider.dart';
 import '../../layout/kitchen_layout_generator.dart';
 import '../../layout/kitchen_layout_models.dart';
+import '../../layout/width_check.dart';
 import '../models/cpq_engine.dart';
 import '../models/cabinet_choices.dart';
 import '../models/scene_look.dart';
@@ -192,6 +193,25 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   List<LayoutVariant> _variants = const [];
   String? _activeVariantKey;
 
+  /// For each layout, by key: what would change if the wall were a little
+  /// narrower or wider. Only when the wall's size came from the photo; a
+  /// typed measurement needs no such check.
+  Map<String, WidthSensitivity> _widthChecks = const {};
+
+  /// Generates the A/B/C layouts for [room], and checks each against the
+  /// photo's measuring error if the size came from the photo.
+  void _layOut(KitchenRoom room) {
+    final generator = KitchenLayoutGenerator.forCatalog(_catalog);
+    _variants = generator.generateAll(room);
+    final fromPhoto =
+        const {'worktop', 'door', 'assumed'}.contains(_capture?['size_from']);
+    _widthChecks = {
+      if (fromPhoto)
+        for (final v in _variants)
+          if (widthSensitivity(generator, room, v.tier) case final s?) v.key: s,
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -246,9 +266,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // Balanced variant; a restored draft keeps its own cabinets.
     if (parsed != null) {
       try {
-        _variants = KitchenLayoutGenerator.forCatalog(_catalog)
-            .generateAll(KitchenRoom.fromPayload(
-                {...parsed, 'obstacles': _obstacles}));
+        _layOut(KitchenRoom.fromPayload({...parsed, 'obstacles': _obstacles}));
         final initial = _variants.where(
             (v) => v.tier == LayoutTier.balanced && v.modules.isNotEmpty);
         if (_placedCabinets.isEmpty && initial.isNotEmpty) {
@@ -257,6 +275,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         }
       } catch (_) {
         _variants = const [];
+        _widthChecks = const {};
       }
     }
 
@@ -614,10 +633,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final payload = _payload;
     if (payload == null) return;
     try {
-      _variants = KitchenLayoutGenerator.forCatalog(_catalog).generateAll(
-          KitchenRoom.fromPayload({...payload, 'obstacles': _obstacles}));
+      _layOut(KitchenRoom.fromPayload({...payload, 'obstacles': _obstacles}));
     } catch (_) {
       _variants = const [];
+      _widthChecks = const {};
     }
     final active = _variants.where((v) => v.key == _activeVariantKey);
     if (active.isEmpty ||
@@ -2242,6 +2261,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         activeKey: _activeVariantKey,
                         onSelect: _selectVariant,
                         onEdit: () => _setEditing(true),
+                        widthNote: _widthChecks[_activeVariantKey]?.message,
                       ),
                     const SizedBox(height: 8),
                     _buildEstimateBar(summary),
@@ -2380,11 +2400,16 @@ class _LayoutVariantBar extends StatelessWidget {
   final ValueChanged<LayoutVariant> onSelect;
   final VoidCallback onEdit;
 
+  /// Said when the chosen layout would change on a wall a little narrower
+  /// or wider than the photo measured (width_check.dart).
+  final String? widthNote;
+
   const _LayoutVariantBar({
     required this.variants,
     required this.activeKey,
     required this.onSelect,
     required this.onEdit,
+    this.widthNote,
   });
 
   @override
@@ -2453,6 +2478,28 @@ class _LayoutVariantBar extends StatelessWidget {
                   ),
                 ],
               ],
+            ),
+          if (widthNote case final note?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Semantics(
+                liveRegion: true,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.straighten_rounded,
+                        size: 18, color: AppTheme.danger),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        note,
+                        style: context.textTheme.bodySmall
+                            ?.copyWith(color: AppTheme.danger),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
         ],
       ),
